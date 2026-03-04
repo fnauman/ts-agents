@@ -1,5 +1,7 @@
 # ts-agents
 
+[![Docs](https://img.shields.io/badge/docs-online-blue)](https://fnauman.github.io/ts-agents/)
+
 ts-agents is a time-series analysis toolkit with:
 - a CLI-first workflow (`ts-agents`)
 - a Gradio app (`python main.py`)
