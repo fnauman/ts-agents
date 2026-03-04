@@ -1,0 +1,314 @@
+import pytest
+
+from src.cli.main import (
+    _build_run_example_command,
+    _parse_param_value,
+    _raise_missing_required_error,
+    _suggest_tool_names,
+    build_parser,
+    run,
+)
+
+
+def test_parse_list_ints_from_csv():
+    assert _parse_param_value("1,2,3", "list[int]") == [1, 2, 3]
+
+
+def test_parse_list_ints_from_json():
+    assert _parse_param_value("[1,2,3]", "list[int]") == [1, 2, 3]
+
+
+def test_parse_union_str_list_prefers_str():
+    assert _parse_param_value("value", "str | list[str]") == "value"
+
+
+def test_parse_union_str_list_from_csv():
+    assert _parse_param_value("a,b", "str | list[str]") == ["a", "b"]
+
+
+def test_parse_union_str_list_from_json():
+    assert _parse_param_value("[\"a\",\"b\"]", "str | list[str]") == ["a", "b"]
+
+
+def test_suggest_tool_names_returns_close_matches():
+    suggestions = _suggest_tool_names(
+        "forecast_thta_with_data",
+        [
+            "forecast_theta_with_data",
+            "forecast_ets_with_data",
+            "stl_decompose_with_data",
+        ],
+    )
+    assert "forecast_theta_with_data" in suggestions
+
+
+def test_build_run_example_command_uses_run_var_shorthands():
+    command = _build_run_example_command(
+        "forecast_theta_with_data",
+        required=["variable_name", "unique_id"],
+        param_types={"variable_name": "str", "unique_id": "str"},
+    )
+    assert "--run Re200Rm200" in command
+    assert "--var bx001_real" in command
+    assert "--param" not in command
+
+
+def test_build_run_example_command_quotes_dict_params_shell_safe():
+    command = _build_run_example_command(
+        "compare_series_stats_with_data",
+        required=["series_dict"],
+        param_types={"series_dict": "dict"},
+    )
+    assert "--param 'series_dict={\"key\":\"value\"}'" in command
+
+
+def test_missing_required_error_includes_actionable_example():
+    with pytest.raises(ValueError) as exc_info:
+        _raise_missing_required_error(
+            tool_name="compare_forecasts_with_data",
+            param_types={
+                "variable_name": "str",
+                "unique_id": "str",
+                "models": "list",
+            },
+            required=["variable_name", "unique_id"],
+            provided={"variable_name": "bx001_real"},
+        )
+
+    message = str(exc_info.value)
+    assert "Missing required parameters for 'compare_forecasts_with_data'" in message
+    assert "Required parameters:" in message
+    assert "Example:" in message
+    assert "uv run ts-agents run compare_forecasts_with_data" in message
+
+
+def test_run_help_includes_examples(capsys):
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["run", "--help"])
+    output = capsys.readouterr().out
+    assert "Examples:" in output
+    assert "forecast_theta_with_data" in output
+
+
+def test_agent_run_help_includes_examples(capsys):
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["agent", "run", "--help"])
+    output = capsys.readouterr().out
+    assert "Examples:" in output
+    assert "Compare forecasting methods for bx001_real" in output
+
+
+def test_demo_help_includes_examples(capsys):
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["demo", "--help"])
+    output = capsys.readouterr().out
+    assert "Examples:" in output
+    assert "demo forecasting --no-llm" in output
+
+
+def test_unknown_tool_error_includes_suggestions(capsys):
+    code = run(["run", "forecast_thta_with_data", "--run", "Re200Rm200", "--var", "bx001_real"])
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "Did you mean:" in err
+    assert "forecast_theta_with_data" in err
+
+
+def test_missing_required_error_is_actionable(capsys):
+    code = run(["run", "forecast_theta_with_data", "--var", "bx001_real"])
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "Missing required parameters for 'forecast_theta_with_data'" in err
+    assert "Example:" in err
+
+
+def test_parser_accepts_extract_images_with_save():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "run",
+            "describe_series",
+            "--param",
+            "series=[1,2,3]",
+            "--save",
+            "outputs/result.txt",
+            "--extract-images",
+            "outputs/assets",
+        ]
+    )
+    assert args.extract_images == "outputs/assets"
+    assert args.save == "outputs/result.txt"
+
+
+def test_extract_images_requires_save(capsys):
+    code = run(["data", "vars", "--extract-images", "outputs/assets"])
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "--extract-images requires --save" in err
+
+
+def test_data_vars_command_does_not_require_runs_attribute(monkeypatch, capsys):
+    import importlib
+    import src.data_access as data_access
+
+    cli_main = importlib.import_module("src.cli.main")
+
+    monkeypatch.setattr(data_access, "list_runs", lambda **kwargs: ["Re200Rm200"])
+    monkeypatch.setattr(data_access, "list_variables", lambda **kwargs: ["bx001_real", "by001_real"])
+
+    code = cli_main.run(["data", "vars"])
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "Variables:" in out
+    assert "- bx001_real" in out
+    assert "- by001_real" in out
+
+
+def test_run_extracts_images_when_saving(monkeypatch, tmp_path):
+    import importlib
+
+    cli_main = importlib.import_module("src.cli.main")
+
+    def fake_handle_data_command(args):
+        return {"ok": True}, "Result\n[IMAGE_DATA:ZmFrZQ==]"
+
+    monkeypatch.setattr(cli_main, "_handle_data_command", fake_handle_data_command)
+
+    output_path = tmp_path / "result.txt"
+    images_dir = tmp_path / "assets"
+    code = cli_main.run(
+        [
+            "data",
+            "vars",
+            "--save",
+            str(output_path),
+            "--extract-images",
+            str(images_dir),
+        ]
+    )
+
+    assert code == 0
+    saved = output_path.read_text()
+    assert "[IMAGE_DATA:" not in saved
+    assert "[IMAGE_FILE:" in saved
+    assert len(list(images_dir.glob("*.png"))) == 1
+
+
+def test_run_extracts_images_in_json_without_breaking_json(monkeypatch, tmp_path):
+    import importlib
+    import json
+
+    cli_main = importlib.import_module("src.cli.main")
+
+    def fake_handle_data_command(args):
+        return {"message": "Result [IMAGE_DATA:ZmFrZQ==]"}, None
+
+    monkeypatch.setattr(cli_main, "_handle_data_command", fake_handle_data_command)
+
+    output_path = tmp_path / "result.json"
+    images_dir = tmp_path / "assets\\Udir"
+    code = cli_main.run(
+        [
+            "data",
+            "vars",
+            "--json",
+            "--save",
+            str(output_path),
+            "--extract-images",
+            str(images_dir),
+        ]
+    )
+
+    assert code == 0
+    saved = output_path.read_text()
+    payload = json.loads(saved)
+    assert "[IMAGE_DATA:" not in payload["message"]
+    assert "[IMAGE_FILE:" in payload["message"]
+    assert len(list(images_dir.glob("*.png"))) == 1
+
+
+def test_cli_compare_forecasts_accepts_methods_alias(monkeypatch, capsys):
+    import importlib
+    import numpy as np
+    import src.core.forecasting as forecasting
+    import src.tools.agent_tools as agent_tools
+
+    cli_main = importlib.import_module("src.cli.main")
+    observed = {}
+
+    monkeypatch.setattr(
+        agent_tools,
+        "_get_series_data",
+        lambda variable_name, unique_id: np.array([1.0, 2.0, 3.0, 4.0]),
+    )
+
+    def fake_compare_forecasts(series, horizon=10, test_size=None, models=None):
+        observed["horizon"] = horizon
+        observed["models"] = models
+        return {"best_model": "theta", "metrics": {"theta": {"rmse": 0.1}}}
+
+    monkeypatch.setattr(forecasting, "compare_forecasts", fake_compare_forecasts)
+
+    code = cli_main.run(
+        [
+            "run",
+            "compare_forecasts_with_data",
+            "--run",
+            "Re200Rm200",
+            "--var",
+            "bx001_real",
+            "--param",
+            "methods=arima,theta",
+            "--param",
+            "horizon=12",
+        ]
+    )
+
+    assert code == 0
+    assert observed["horizon"] == 12
+    assert observed["models"] == ["arima", "theta"]
+    output = capsys.readouterr().out
+    assert "Error in Compare Forecasts" not in output
+
+
+def test_cli_compare_forecasts_surfaces_tool_failure(monkeypatch, capsys):
+    import importlib
+    import numpy as np
+    import src.core.forecasting as forecasting
+    import src.tools.agent_tools as agent_tools
+
+    cli_main = importlib.import_module("src.cli.main")
+
+    monkeypatch.setattr(
+        agent_tools,
+        "_get_series_data",
+        lambda variable_name, unique_id: np.array([0.1, 0.12, 0.15, 0.14, 0.16]),
+    )
+
+    def fake_compare_forecasts(series, horizon=10, test_size=None, models=None):
+        raise ValueError("number sections must be larger than 0")
+
+    monkeypatch.setattr(forecasting, "compare_forecasts", fake_compare_forecasts)
+
+    code = cli_main.run(
+        [
+            "run",
+            "compare_forecasts_with_data",
+            "--run",
+            "Re200Rm200",
+            "--var",
+            "bx001_real",
+            "--param",
+            "methods=arima,theta",
+            "--param",
+            "horizon=12",
+        ]
+    )
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "number sections must be larger than 0" in err

@@ -1,0 +1,33 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+*csv
+!data/short_real.csv
+!data/wisdm_subset.csv
+!src/resources/data/short_real.csv
+!src/resources/data/demo_labeled_stream.csv
+
+/outputs/*
+!/outputs/reports/
+/outputs/reports/*
+!/outputs/reports/REPORT.qmd
+data/raw/*
+
+# Exported skill mirrors (generated from canonical skills/)
+.claude/skills/
+.codex/skills/
+.gemini/skills/
+.windsurf/skills/
+.github/skills/
+
+# Quarto docs build artifacts
+docs/_site/
+.quarto/

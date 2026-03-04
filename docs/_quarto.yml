@@ -1,0 +1,29 @@
+project:
+  type: website
+  output-dir: _site
+
+website:
+  title: "ts-agents docs"
+  navbar:
+    left:
+      - href: index.qmd
+        text: Home
+      - href: quickstart.qmd
+        text: Quickstart
+      - href: cli-examples.qmd
+        text: CLI Examples
+      - href: walkthroughs.qmd
+        text: Walkthroughs
+      - href: skills-guide.qmd
+        text: Skills Guide
+      - href: philosophy.qmd
+        text: Philosophy
+      - href: architecture.qmd
+        text: Architecture
+      - href: talks/ts_agents_talk.qmd
+        text: Talk
+
+format:
+  html:
+    toc: true
+    code-copy: true

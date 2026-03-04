@@ -1,0 +1,69 @@
+---
+title: "Project Philosophy"
+---
+
+## Scope
+
+`ts-agents` aims to be a practical "personal assistant data scientist" workbench
+for time-series tasks: fast, repeatable analysis with inspectable outputs.
+
+It is not intended to be a monolithic end-user GUI product, and it is not
+"just an agent framework." The durable value is in tool contracts, domain
+priors, and reproducible execution.
+
+## Core Principles
+
+### 1. CLI Is The Stable Contract
+
+The `ts-agents` CLI is the primary automation surface. Agent frameworks and UI
+layers are adapters around that contract.
+
+Why:
+
+- easy scripting and CI integration
+- easy debugging from command/log/artifact traces
+- easier harness swaps (Codex, Claude Code, custom agents)
+
+### 2. Framework Adapters, Not Framework Lock-In
+
+LangChain/deep-agent integrations are convenience wrappers over the same tool
+registry and execution layer.
+
+Why:
+
+- avoids rewriting time-series logic for each framework
+- keeps tool behavior consistent across interfaces
+- reduces migration risk as framework APIs change
+
+### 3. Artifacts Over Chat
+
+Chat is the control plane. Files are the product.
+
+Tools should emit paths and structured outputs (plots, JSON, reports, logs)
+that can be reviewed, diffed, cached, and reused.
+
+### 4. Skills Encode Domain Priors
+
+`SKILL.md` runbooks are lightweight domain policies: ordering, defaults, and
+done criteria for real workflows.
+
+Why:
+
+- lowers tool-selection errors
+- improves repeatability across agent runtimes
+- keeps knowledge in plain text, close to code
+
+### 5. Sandboxes Handle Dependency Reality
+
+Time-series stacks are dependency-heavy and often inconsistent across machines.
+Sandboxed backends isolate environments and provide resource controls.
+
+Tradeoff:
+
+- better reliability and safety
+- higher complexity and potential latency/cost overhead
+
+## Practical Rule
+
+Keep the CLI contract stable; iterate quickly on agents, UI, and execution
+strategy around that stable core.

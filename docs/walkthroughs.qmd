@@ -1,0 +1,161 @@
+---
+title: "Demo Walkthroughs"
+---
+
+Step-by-step guides for the three built-in demos.
+Every command works out of the box with `--no-llm`; add an `OPENAI_API_KEY` to unlock LLM-generated reports.
+
+## Activity Recognition (synthetic data) {#synth}
+
+### 1. Generate data and run the demo
+
+```bash
+uv run ts-agents demo window-classification --no-llm
+```
+
+This single command:
+
+1. Generates a synthetic labeled-stream CSV (`data/demo_labeled_stream.csv`)
+2. Sweeps candidate window sizes and scores each with a windowed classifier
+3. Evaluates the best window on a held-out test split
+4. Writes plots and a Markdown report
+
+### 2. Interpret the outputs
+
+All artifacts land in `outputs/demo/` by default.
+
+| Artifact | What it tells you |
+|----------|-------------------|
+| `window_selection.json` | Per-window scores and the chosen `best_window_size` |
+| `window_scores.png` | Visual: score vs window size |
+| `eval.json` | Final metrics — accuracy, F1, confusion matrix, class counts |
+| `confusion_matrix.png` | Heatmap of predicted vs true labels |
+| `report.md` | One-page Markdown summary (classifier, best window, scores) |
+
+### 3. Customize the run
+
+```bash
+# Different synthetic scenario (gait, stairs, industrial)
+uv run ts-agents demo window-classification --no-llm --scenario gait
+
+# Narrower window sweep with a specific classifier and metric
+uv run ts-agents demo window-classification --no-llm \
+  --window-sizes 32,64,128 \
+  --classifier minirocket \
+  --metric balanced_accuracy
+```
+
+Key flags:
+
+| Flag | Default | Options |
+|------|---------|---------|
+| `--scenario` | `stairs` | `gait`, `stairs`, `industrial` |
+| `--window-sizes` | `32,64,96,128,160` | Comma-separated integers |
+| `--classifier` | `auto` | `auto`, `minirocket`, `rocket`, `knn` |
+| `--metric` | `balanced_accuracy` | `accuracy`, `balanced_accuracy`, `f1_macro` |
+| `--output-dir` | `outputs/demo` | Any path |
+
+### 4. LLM-backed variant
+
+Drop the `--no-llm` flag. The agent calls the same tools but writes a richer narrative report.
+
+```bash
+export OPENAI_API_KEY="sk-..."
+uv run ts-agents demo window-classification
+```
+
+---
+
+## Activity Recognition (WISDM data) {#wisdm}
+
+The WISDM demo uses real accelerometer data (2 subjects, 6 activities, ~33 k rows) checked in at `data/wisdm_subset.csv`.
+
+### Quick start
+
+```bash
+bash demo/run_demo_wisdm.sh
+```
+
+The script runs window-size selection, picks the best window, evaluates, and generates plots — all under `outputs/demo_wisdm/`.
+
+### Build a custom WISDM stream
+
+To download the full WISDM dataset and build your own labeled stream:
+
+```bash
+python data/make_demo_labeled_stream_wisdm.py \
+  --subject 1600 --device watch --sensor accel \
+  --activities walking,jogging,sitting,standing \
+  --trim-policy per_class_seconds \
+  --per-class-seconds walking=180,jogging=60,sitting=180,standing=180 \
+  --out data/demo_labeled_stream.csv
+```
+
+Then run the demo on that CSV:
+
+```bash
+uv run ts-agents demo window-classification --no-llm \
+  --csv-path data/demo_labeled_stream.csv
+```
+
+Output artifacts are the same as the synthetic demo: `window_selection.json`, `window_scores.png`, `eval.json`, `confusion_matrix.png`, and `report.md`.
+
+---
+
+## Forecasting Comparison {#forecasting}
+
+### 1. Run the demo
+
+```bash
+uv run ts-agents demo forecasting --no-llm
+```
+
+Compares forecasting methods on a built-in test series, writes metrics and a plot.
+
+### 2. Interpret the outputs
+
+Artifacts land in `outputs/demo/` by default.
+
+| Artifact | What it tells you |
+|----------|-------------------|
+| `forecast_comparison.json` | Per-method RMSE, MAE, MAPE and the best method |
+| `forecast_comparison.png` | Overlay plot of each method's forecast vs actuals |
+| `forecasting_report.md` | Markdown table with metrics and a recommendation |
+
+Example report snippet:
+
+```
+Run ID: Re200Rm200 | Variable: bx001_real | Horizon: 1
+Compared Methods: arima, theta | Best Method (RMSE): theta
+arima: RMSE=0.0294, MAE=0.0294, MAPE=18.36%
+theta: RMSE=0.0108, MAE=0.0108, MAPE=6.74%
+Recommendation: THETA (RMSE: 0.0108)
+```
+
+### 3. Customize the run
+
+```bash
+# More methods, longer horizon, full dataset
+uv run ts-agents demo forecasting --no-llm \
+  --methods arima,ets,theta \
+  --horizon 12 \
+  --full-data
+```
+
+Key flags:
+
+| Flag | Default | Options |
+|------|---------|---------|
+| `--methods` | `arima,theta` | `arima`, `ets`, `theta` (comma-separated) |
+| `--horizon` | `1` | Any positive integer |
+| `--full-data` | off | Use the full dataset instead of the test subset |
+| `--output-dir` | `outputs/demo` | Any path |
+
+### 4. LLM-backed report generation
+
+```bash
+export OPENAI_API_KEY="sk-..."
+uv run ts-agents demo forecasting
+```
+
+The LLM reads the comparison JSON and writes a narrative report with context and recommendations.

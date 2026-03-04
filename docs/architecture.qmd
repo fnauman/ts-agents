@@ -1,0 +1,124 @@
+---
+title: "Architecture"
+---
+
+This page describes the layered architecture of `ts-agents` and how the components fit together.
+
+## Layered model
+
+The system is organized as a pipeline: CLI commands flow through a registry into sandboxed execution, producing durable artifacts that front-ends consume.
+
+```{mermaid}
+flowchart LR
+  A[CLI Contract<br/>ts-agents run/tool/data/skills/demo/agent] --> B[Tool Registry<br/>metadata, params, cost, limits]
+  B --> C[Execution Layer<br/>local/subprocess/docker/daytona/modal]
+  C --> D[Artifacts<br/>plots, JSON, reports, logs]
+  D --> E[Front-Ends<br/>CLI agents, custom agents, Gradio]
+```
+
+## Tool execution flow
+
+When you run a tool, this is the path from CLI to output:
+
+```{mermaid}
+flowchart TD
+  A["CLI: ts-agents run &lt;tool&gt; --run X --var Y"] --> B[Tool Registry Lookup]
+  B --> C{Sandbox Mode?}
+  C -->|local| D[In-process execution]
+  C -->|subprocess| E[Separate Python process]
+  C -->|docker/daytona/modal| F[Container / cloud sandbox]
+  D --> G[Tool function runs]
+  E --> G
+  F --> G
+  G --> H["Output: text + base64 PNG plots"]
+  H --> I["--save → write text to file"]
+  H --> J["--extract-images → decode PNGs to assets/"]
+```
+
+## Repository layout
+
+```
+ts-agents/
+├── src/
+│   ├── cli/              # Click CLI commands (run, tool, data, demo, skills, agent)
+│   ├── tools/
+│   │   ├── registry.py   # Central tool metadata: schemas, costs, categories
+│   │   ├── agent_tools.py # _with_data wrappers that auto-load data + embed plots
+│   │   └── *.py          # Individual tool implementations by category
+│   ├── sandbox/          # Execution backends (local, subprocess, docker, daytona, modal)
+│   ├── agents/           # Simple and deep agent implementations
+│   └── ui/               # Gradio app components
+├── skills/               # SKILL.md workflow definitions
+│   ├── diagnostics/
+│   ├── forecasting/
+│   ├── decomposition/
+│   ├── classification/
+│   └── activity-recognition/
+├── data/                 # Built-in test datasets
+├── demo/                 # Demo runner scripts
+├── docs/                 # Quarto documentation (this site)
+│   └── talks/            # Presentation source (Quarto revealjs)
+└── tests/                # Test suite
+```
+
+## Components
+
+### CLI contract
+
+One command surface for discovery (`tool`, `data`), execution (`run`), demos, skills, and agent entrypoints. The CLI is the stable API — everything else can change behind it.
+
+::: {.callout-note}
+## Design consequence
+New tools are added once in the registry and immediately available through every front-end. No tool needs its own CLI subcommand.
+:::
+
+### Tool registry
+
+Central metadata for tool schemas, costs, categories, and defaults. The registry enables:
+
+- Consistent invocation across direct CLI usage and agent wrappers
+- Cost-aware tool selection (agents can filter by `--max-cost`)
+- Bundle-based tool sets (`minimal`, `standard`, `full`, `demo`)
+
+### Execution layer
+
+Backends provide portability and isolation:
+
+| Mode | Isolation | Use case |
+|------|-----------|----------|
+| `local` | None (in-process) | Fastest; development and debugging |
+| `subprocess` | Process-level | Safe default for untrusted inputs |
+| `docker` | Container | Reproducible environments |
+| `daytona` / `modal` | Cloud sandbox | Scale and remote execution |
+
+::: {.callout-note}
+## Design consequence
+Switching sandbox mode is a single flag (`--sandbox docker`). Tool code does not change — only the execution wrapper differs.
+:::
+
+### Artifacts
+
+Durable files are first-class outputs:
+
+- **Analysis payloads** — JSON and text results
+- **Visual assets** — base64-encoded plots, extractable to PNGs via `--extract-images`
+- **Report artifacts** — Quarto documents (`.qmd`) rendered to PDF/HTML
+- **Execution logs** — structured logs for debugging
+
+::: {.callout-note}
+## Design consequence
+Operational debugging is file/log-driven, not chat-history-dependent. Benchmarks and workflows remain reproducible by replaying CLI commands.
+:::
+
+### Front-ends
+
+Multiple front-ends share the same core:
+
+- **Coding-agent runtimes** — Claude Code, Codex, Gemini, Windsurf (skills exported per-agent)
+- **Custom in-repo agents** — simple (single-turn) and deep (multi-step orchestrator)
+- **Gradio app** — interactive UI for exploration
+
+::: {.callout-note}
+## Design consequence
+Front-end changes never require algorithm rewrites. A new agent integration is just a skills export target.
+:::

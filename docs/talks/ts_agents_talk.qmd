@@ -1,0 +1,548 @@
+---
+title: "Building Data Science Agents in the Real World"
+subtitle: "Lessons from ts-agents: a CLI-first time-series automation toolkit"
+author: "Farrukh Nauman · InertialRange Labs AB"
+date: "March 2026"
+format:
+  revealjs:
+    theme: [default, custom.scss]
+    slide-number: true
+    controls: true
+    navigation-mode: linear
+    transition: fade
+    incremental: false
+    code-copy: false
+    footer: "ts-agents"
+    highlight-style: monokai
+    code-block-height: 480px
+    width: 1280
+    height: 720
+    margin: 0.08
+---
+
+## {.center}
+
+::: {.title-pillars}
+
+:::: {.columns}
+
+::: {.column width="33%"}
+::: {.pillar}
+[CLI-first]{.pillar-title}
+
+Stable contract for tools \
+Composes with shell/CI \
+Artifacts are paths
+:::
+:::
+
+::: {.column width="33%"}
+::: {.pillar}
+[Skills]{.pillar-title}
+
+`SKILL.md` runbooks \
+Domain priors + checklists \
+Works with many harnesses
+:::
+:::
+
+::: {.column width="33%"}
+::: {.pillar}
+[Sandboxes]{.pillar-title}
+
+Isolate messy deps \
+Scale compute when needed \
+Save logs + outputs
+:::
+:::
+
+::::
+:::
+
+
+## Scope: a "personal assistant data scientist" for time series
+
+Make quick-n-dirty analysis fast, repeatable, and hackable.
+
+### What this repo is
+
+- A batteries-included time-series toolkit (**60+ tools**) exposed as one CLI: `ts-agents`
+- A thin agent layer that can drive the CLI and produce artifacts (plots, reports)
+- A modular workbench: swap UI / agent harness / execution backend without rewriting tools
+
+
+## Scope (cont.)
+
+### What it is not
+
+- Not a monolithic end-user GUI product (yet)
+- Not "just an agent framework" — the value is in tool contracts + priors
+- Not trying to replace Claude Code / Codex as general harnesses
+
+### Roadmap direction
+
+Add richer GUI interactions (artifact browser + job monitor + review UX) — but keep the CLI as the stable spine.
+
+
+## What is ts-agents?
+
+**CLI + skills + sandboxes + optional UI/agents**
+
+:::: {.columns}
+::: {.column width="50%"}
+
+- CLI-first workflow (`ts-agents ...`) for scripting, composing, automation
+- Tool registry with metadata (category, cost, params, timeouts)
+- Sandbox executor backends: `local`, `subprocess`, `docker`, `daytona`, `modal`
+- Optional front-ends: Gradio UI + simple (LangChain) and deep (multi-agent) modes
+
+:::
+::: {.column width="50%"}
+
+#### Quickstart
+
+```bash
+uv sync
+uv run ts-agents demo forecasting --no-llm
+uv run ts-agents tool list
+uv run ts-agents run forecast_theta_with_data \
+  --run Re200Rm200 \
+  --var bx001_real \
+  --param horizon=30
+```
+:::
+::::
+
+Design choice: **artifacts over chat** — tools write plots/reports to disk; the agent returns paths + summaries.
+
+
+## Architecture: CLI is the stable contract
+
+Agents and UIs are optional front-ends.
+
+```
+┌──────────────────────────────────┐    ┌──────────────────────────────┐
+│  ts-agents CLI (contract)        │    │  Front-ends (swappable)      │
+│  run / tool / skills / data /    │    │                              │
+│  demo / agent                    │    │  • Claude Code / Codex CLI   │
+└──────────┬───────────────────────┘    │  • Custom agents (simple +   │
+           │                            │    deep via LangChain)       │
+           ▼                            │  • Gradio UI                 │
+┌──────────────────────────────────┐    └──────────────────────────────┘
+│  Tool registry + wrappers        │               ▲
+│  metadata: params + cost +       │               │
+│  timeouts                        ├───────────────┘
+│  wrap: LangChain / deepagent     │
+└──────────┬───────────────────────┘
+           │
+           ▼
+┌──────────────────────────────────┐
+│  Execution layer (sandboxes)     │
+│  local • subprocess • docker •   │
+│  daytona • modal                 │
+└──────────┬───────────────────────┘
+           │
+           ▼
+┌──────────────────────────────────┐
+│  Artifacts (outputs/…)           │
+│  plots • tables • JSON •         │
+│  QMD/PDF • logs                  │
+└──────────────────────────────────┘
+```
+
+
+## How do you expose time-series skills to agents?
+
+Five common integration styles (and why they feel different).
+
+| Approach | What the agent sees | Tradeoffs |
+|---|---|---|
+| Function tool-calls (LangChain, deepagents) | JSON-schema tools; direct function calls | Great framework UX; wrappers/parsers can be brittle |
+| **Single CLI contract** (`ts-agents`) | One command surface + stable artifacts | Composable, debuggable, harness-friendly |
+| Many small CLIs | Dozens of commands and pipes | Strong Unix composability; weaker discoverability |
+| Service/API (HTTP/gRPC) | Network calls + JSON | Good for multi-user governance; infra/auth overhead |
+| Notebook/interpreter | Inline Python/cells | Flexible exploration; weaker repeatability |
+
+**Key idea:** pick a stable contract first (CLI or API), then add wrappers as convenience layers.
+
+
+## What ts-agents implements (in the end)
+
+CLI as the primary interface + wrappers for agent frameworks.
+
+:::: {.columns}
+::: {.column width="50%"}
+
+#### Implemented
+
+- One package → one CLI entrypoint: `ts-agents`
+- Tools registered with metadata: params, cost, timeouts
+- CLI routes execution through sandboxes; outputs saved as artifacts
+- Optional wrappers for function-calls (LangChain / deepagents)
+- `SKILL.md` runbooks for reliable external harness execution
+
+:::
+::: {.column width="50%"}
+
+#### Contract examples
+
+```bash
+# discover tools
+uv run ts-agents tool list --bundle demo
+
+# run a tool with stable args
+uv run ts-agents run \
+  stl_decompose_with_data \
+  --run Re200Rm200 \
+  --var bx001_real
+
+# export SKILL.md
+uv run ts-agents skills export --all-agents
+```
+:::
+::::
+
+**Why this matters:** you can swap the "brain" (Claude/Codex/LangChain) without rewriting the time-series code.
+
+
+## Two paths to automation
+
+Both exist in `ts-agents` — the point is to compare tradeoffs.
+
+:::: {.columns}
+::: {.column width="48%"}
+
+#### Path A: Custom agent harness
+
+- LangChain / tool schemas + wrappers
+- Simple agent (flat) for testing
+- Deep agent (orchestrator + subagents)
+- UI must handle plots/logs/reports
+- Full control… and full maintenance cost
+
+:::
+::: {.column width="48%"}
+
+#### Path B: Reuse a mature harness
+
+- `SKILL.md` runbooks define workflows + outputs
+- Claude Code / Codex drives `ts-agents` in a terminal
+- Artifacts are paths; review via diff + git
+- Composability: shell scripts, Make, CI
+- Low glue-code; fewer failure modes
+
+:::
+::::
+
+**Practical recommendation:** start with Path B. Build Path A only when you need strict policies, custom UX, or deep integrations.
+
+
+## Lesson: SKILL.md + mature CLIs beat bespoke harnesses
+
+Plain-text runbooks are a high-leverage domain prior.
+
+:::: {.columns}
+::: {.column width="48%"}
+
+#### What mature CLI agents give you for free
+
+- ✓ Project-wide search/navigation
+- ✓ File-aware editing + diffs
+- ✓ Command execution + logs
+- ✓ Session persistence + resumption
+- ✓ Permissions/sandboxing + audit trails
+- ✓ Background execution for long commands
+
+:::
+::: {.column width="48%"}
+
+#### When a custom harness is still worth it
+
+- Strict tool policies + centralized auditability
+- Non-developer UI requirements
+- Deep proprietary integrations (data stores, schedulers)
+- Latency-sensitive or offline deployments
+
+:::
+::::
+
+A skill is a cheap way to inject domain expertise: tool order, commands, artifacts, and done criteria.
+
+
+## Out-of-the-box harness power: Claude Code CLI vs Codex CLI
+
+These are **agent runtimes**, not just chat UIs.
+
+| Capability | Claude Code CLI | Codex CLI |
+|---|---|---|
+| Repo-aware editing | Multi-file in-terminal edits | Full-screen TUI + diffs |
+| Command execution | Shell commands with logs | Command runs with transcript |
+| Permissions/sandbox | Permission modes + sandbox | Approval modes (read-only/auto/full) |
+| Long-running work | Background bash + subagents | Background mode + cloud execution |
+| Session persistence | Resume/continue sessions | Persistent interactive sessions |
+| Context management | Auto-compaction near limits | Long-session context management |
+| Extensibility | Hooks + plugins + subagents | Skills + MCP + scripting |
+| Review workflow | Git-oriented flows | Built-in review presets |
+
+Implementing wait/resume/background/compaction/permissions/diffs in a custom harness is **real engineering work**.
+
+
+## Lesson: chat GUIs do not scale to real DS agents
+
+Multi-tool + multi-artifact workflows need a workbench.
+
+:::: {.columns}
+::: {.column width="48%"}
+
+#### A real agent UI needs
+
+1. Chat messages + reasoning traces
+2. Tool outputs (`stdout`/`stderr`, JSON)
+3. Intermediate artifacts (plots/tables/HTML)
+4. Report viewers (PDF/Quarto/Markdown)
+5. State inspection (files/sessions/caches)
+6. Progress + cancellation + retries
+
+:::
+::: {.column width="48%"}
+
+#### Why CLI-first works better initially
+
+- `stdout` is a universal UI (text/JSON)
+- Every artifact is a file path
+- Shell scripts / Make / CI provide composability
+- A thin GUI can browse artifacts and launch commands
+
+:::
+::::
+
+
+## Lesson: dependencies are the hidden killer
+
+Time-series stacks are fragmented; one env rarely covers everything.
+
+:::: {.columns}
+::: {.column width="48%"}
+
+#### Failure modes
+
+- Coverage gaps: best method in another library
+- Binary/system deps vary by OS/toolchain
+- Version conflicts (`numpy`/`torch`/`protobuf`, etc.)
+- Silent breakage: agent chooses tool, C-extension fails cryptically
+
+:::
+::: {.column width="48%"}
+
+#### Design response in ts-agents
+
+- Expose algorithms as CLI tools (stable contract)
+- Use lazy imports/conditional registration for optional deps
+- Use sandbox backends for per-tool environment isolation
+- Persist logs + artifacts for post-mortem debugging
+
+:::
+::::
+
+
+## Lesson: long-running compute breaks agent loops
+
+Minutes-to-hours jobs need async, progress, and resumption.
+
+**Submit → Execute → Progress → Artifacts → Resume**
+
+:::: {.columns}
+::: {.column width="48%"}
+
+#### What helped in ts-agents
+
+- Cost metadata per tool (`LOW` → `VERY_HIGH`) + approval gates
+- Timeouts and sandbox limits to avoid wedged runs
+- Report-first outputs (QMD/PDF) + intermediate artifacts
+- Treat expensive runs as batch jobs, not chat turns
+
+:::
+::: {.column width="48%"}
+
+#### Why mature harnesses matter
+
+- Claude Code: background bash commands + subagents
+- Codex: background mode + cloud task execution
+- Both: robust log capture + session continuity
+
+:::
+::::
+
+
+## Lesson: tool selection needs domain priors
+
+With many similar tools, LLMs often choose slow or mediocre defaults.
+
+*Typical failure:* given many classifiers, an agent jumps straight to expensive methods before cheap baselines.
+
+:::: {.columns}
+::: {.column width="55%"}
+
+#### How ts-agents injects priors
+
+- Tool metadata: category + estimated cost + parameter schema
+- Tool bundles (`minimal` / `demo` / `full`) to reduce choice set
+- `SKILL.md` decision trees ("try cheap baselines first…")
+- Benchmarks that reproduce failures and compare bundles
+
+:::
+::: {.column width="40%"}
+
+#### Practical heuristic
+
+1. **Cheap baselines**
+2. **Robust defaults**
+3. **Only then SOTA**
+
+In practice: tool ordering + cost flags + skills.
+
+:::
+::::
+
+
+## Sandboxes: where agents actually run
+
+Isolation + scalability + safety for tool execution.
+
+:::: {.columns}
+::: {.column width="48%"}
+
+#### What sandboxes solve
+
+- ✓ Per-tool environments (dependency conflict avoidance)
+- ✓ Hard resource limits (CPU/RAM/timeouts)
+- ✓ Network policy + data boundary controls
+- ✓ Reproducible execution + clean state
+- ✓ Burst compute for heavy scripts (cloud backends)
+
+`ts-agents` backends: `local` · `subprocess` · `docker` · `daytona` · `modal`
+
+:::
+::: {.column width="48%"}
+
+#### What sandboxes do NOT solve
+
+- Data gravity (large datasets still move)
+- Cold-start latency (spin-up/install time)
+- Cost governance (cloud bills)
+- Infra debug overhead (new failure modes)
+
+:::
+::::
+
+**Rule of thumb:** default local; burst to sandbox/cloud for heavy or messy deps; keep artifacts as the interface.
+
+
+## Why CLI-first: modularity + composability
+
+Hackable batteries-included beats reinventing the harness.
+
+:::: {.columns}
+::: {.column width="45%"}
+
+#### Advantages of one CLI contract
+
+- Composes with shell pipelines, Makefiles, CI
+- Easier debugging from logs + artifacts
+- Easier benchmarking from deterministic commands + bundles
+- Harness swaps: Claude/Codex/LangChain/custom
+- Competition tuning: add tools, adjust routing, pin environments
+
+:::
+::: {.column width="50%"}
+
+#### Composability example
+
+```bash
+# chain tools via artifacts
+uv run ts-agents run forecast_theta_with_data \
+  --run Re200Rm200 \
+  --var bx001_real \
+  --param horizon=30 \
+  --save outputs/theta.json
+
+# extract and post-process
+cat outputs/theta.json | \
+  jq '.forecast[0:10]' \
+  > outputs/preview.json
+
+# make it repeatable
+make demo-forecasting
+```
+:::
+::::
+
+Contrast: general-purpose CLIs are powerful, but they don't ship your domain tools.
+
+
+## Open problems + roadmap
+
+Where to invest next to make DS agents feel real.
+
+:::: {.columns}
+::: {.column width="48%"}
+
+#### Agent runtime
+
+- Async-first execution: queue/progress/cancel/resume
+- Automatic environment resolution: per-tool images/lockfiles + caching
+- Tool routing: hybrid LLM + heuristics + learned rankers
+- Evaluation harness: realistic tasks with latency/cost constraints
+
+:::
+::: {.column width="48%"}
+
+#### UI workbench
+
+- Artifact browser (plots/reports/tables) + provenance
+- Run history + diffs between experiments
+- Job monitor for long tasks + streaming logs
+- Human-in-the-loop review gates for expensive tools
+
+:::
+::::
+
+**North star:** keep the CLI contract stable while iterating agents + UI around it.
+
+
+## Key takeaways {.center}
+
+::: {.takeaways}
+
+1. **Invest in CLI tools + `SKILL.md` runbooks** — let mature CLI agents be your harness.
+
+2. **Treat artifacts as first-class outputs** — chat is just the control plane.
+
+3. **Dependencies are the #1 silent failure mode** — sandboxes reduce pain but add latency/cost.
+
+4. **Long-running compute needs runtime features** (background/progress/resume), not bigger prompts.
+
+5. **Tool routing needs domain priors:** cost metadata, bundles, and decision trees.
+
+6. **A stable CLI contract** keeps the system hackable and benchmark-friendly.
+:::
+
+
+## Thanks! {.center}
+
+Repo + docs: **[github.com/fnauman/ts-agents](https://github.com/fnauman/ts-agents)**
+
+#### Suggested live demo prompts
+
+```bash
+# scripted demo (no API key)
+uv run ts-agents demo forecasting --no-llm
+
+# agent run (requires OPENAI_API_KEY)
+uv run ts-agents agent run \
+  "Compare forecasting methods for bx001_real" \
+  --type deep
+
+# skills export for Claude/Codex
+uv run ts-agents skills export --all-agents
+```

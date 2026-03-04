@@ -1,0 +1,38 @@
+---
+title: "ts-agents docs"
+---
+
+`ts-agents` is a CLI-first toolkit for time-series analysis and agent automation.
+
+These docs capture the project's durable design choices so interfaces can evolve
+without rewriting the core toolchain.
+
+## Read This First
+
+- [Quickstart](quickstart.qmd): install and run your first command in under a minute
+- [CLI Examples](cli-examples.qmd): practical CLI patterns by example
+- [Walkthroughs](walkthroughs.qmd): step-by-step guides for the built-in demos
+- [Skills Guide](skills-guide.qmd): using, customizing, and creating skills
+- [Philosophy](philosophy.qmd): why the project is structured around a stable CLI contract
+- [Architecture](architecture.qmd): how tools, sandboxes, agents, and UI fit together
+
+## Related Repository Docs
+
+- Roadmap: `ROADMAP.md` (repository root)
+- Talk deck source: `docs/talks/ts_agents_talk.qmd`
+- Operational usage: `README.md`
+
+## Talk Preview
+
+Preview the rendered slide deck directly here, or open it in its own page:
+
+- [Open talk in full view](talks/ts_agents_talk.qmd)
+
+<iframe
+  src="talks/ts_agents_talk.html"
+  width="100%"
+  height="680"
+  style="border: 1px solid #d0d7de; border-radius: 8px;"
+  loading="lazy"
+  title="ts-agents talk preview">
+</iframe>

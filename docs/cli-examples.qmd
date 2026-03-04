@@ -1,0 +1,146 @@
+---
+title: "CLI Quick Reference"
+---
+
+Practical patterns for the `ts-agents` CLI. Not exhaustive — just the commands you'll reach for most often.
+
+## Data discovery
+
+```bash
+# List all available runs and variables
+uv run ts-agents data list
+
+# Only run IDs
+uv run ts-agents data list --runs
+
+# Only variable names
+uv run ts-agents data list --variables
+
+# Use the full dataset instead of the test subset
+uv run ts-agents data list --full-data
+```
+
+## Tool discovery
+
+```bash
+# All registered tools
+uv run ts-agents tool list
+
+# Tools in a specific bundle
+uv run ts-agents tool list --bundle demo
+uv run ts-agents tool list --bundle standard
+
+# Tools in a category
+uv run ts-agents tool list --category forecasting
+uv run ts-agents tool list --category classification
+
+# Filter by cost
+uv run ts-agents tool list --max-cost medium
+
+# JSON output
+uv run ts-agents tool list --category forecasting --json
+```
+
+Common bundles: `minimal` (5 tools), `standard` (15), `full` (25+), `demo`, `demo_windowing`, `demo_forecasting`.
+
+## Running tools directly
+
+Use `ts-agents run <tool>` to call any tool from the command line.
+
+```bash
+# STL decomposition
+uv run ts-agents run stl_decompose_with_data \
+  --run Re200Rm200 --var bx001_real
+
+# Theta forecast with a custom horizon
+uv run ts-agents run forecast_theta_with_data \
+  --run Re200Rm200 --var bx001_real \
+  --param horizon=30
+
+# Window-size selection with multiple params
+uv run ts-agents run select_window_size_from_csv \
+  --param csv_path=data/demo_labeled_stream.csv \
+  --param value_columns=x,y,z \
+  --param label_column=label \
+  --param window_sizes=32,64,96,128,160 \
+  --param metric=balanced_accuracy \
+  --param classifier=minirocket \
+  --json \
+  --save outputs/demo/window_selection.json
+```
+
+Key flags:
+
+| Flag | Purpose |
+|------|---------|
+| `--run` | Run ID |
+| `--var` | Variable name |
+| `--param key=value` | Tool parameter (repeatable) |
+| `--json` | JSON output |
+| `--approve` | Approve very-high-cost tools |
+
+## Saving output and extracting images
+
+Tools can embed images as base64 payloads. Use `--save` and `--extract-images` to capture everything:
+
+```bash
+uv run ts-agents run forecast_theta_with_data \
+  --run Re200Rm200 --var bx001_real \
+  --param horizon=30 \
+  --save outputs/Re200Rm200/theta.txt \
+  --extract-images outputs/Re200Rm200/assets
+```
+
+This writes the text output to `theta.txt` and any embedded plots to `assets/` as PNGs.
+
+## Agent mode
+
+```bash
+# Simple agent (single-turn, fast)
+uv run ts-agents agent run "Find peaks in bx001_real for Re200Rm200"
+
+# Deep agent (multi-step orchestrator)
+uv run ts-agents agent run --type deep \
+  "Compare forecasting methods for bx001_real"
+
+# Restrict to a tool bundle
+uv run ts-agents agent run --type simple --tool-bundle demo \
+  "Run the windowing demo workflow"
+
+# Deep agent with auto-approval
+uv run ts-agents agent run --type deep --approval auto \
+  "Compare forecasting methods for bx001_real"
+```
+
+| Flag | Default | Options |
+|------|---------|---------|
+| `--type` | `simple` | `simple`, `deep` |
+| `--tool-bundle` | `standard` | Any bundle name |
+| `--approval` | `off` | `off`, `auto`, `prompt` |
+
+## Sandbox modes
+
+Control where tool code executes with `--sandbox`:
+
+```bash
+# Default — in-process, no isolation
+uv run ts-agents run stl_decompose_with_data --run Re200Rm200 --var bx001_real
+
+# Separate Python process
+uv run ts-agents run stl_decompose_with_data --run Re200Rm200 --var bx001_real \
+  --sandbox subprocess
+
+# Docker container (requires: ./build_docker_sandbox.sh)
+uv run ts-agents run stl_decompose_with_data --run Re200Rm200 --var bx001_real \
+  --sandbox docker
+```
+
+| Mode | Isolation | Requirements |
+|------|-----------|--------------|
+| `local` | None (in-process) | None |
+| `subprocess` | Separate process | None |
+| `docker` | Container | Docker + `./build_docker_sandbox.sh` |
+| `daytona` | Cloud sandbox | `pip install daytona` + API key |
+| `modal` | Serverless cloud | `pip install modal` + `modal setup` |
+
+You can also set the default via the `TS_AGENTS_SANDBOX_MODE` environment variable.

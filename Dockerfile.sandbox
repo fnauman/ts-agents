@@ -1,0 +1,28 @@
+FROM python:3.11-slim
+
+# A conservative sandbox image that can run ts-agents tools.
+#
+# Build:
+#   docker build -f Dockerfile.sandbox -t ts-agents-sandbox:latest .
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# System dependencies for common scientific Python wheels.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      build-essential \
+      git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy just the minimal project files for editable install.
+COPY pyproject.toml uv.lock README.md ./
+COPY src ./src
+
+RUN python -m pip install --upgrade pip && \
+    python -m pip install -e .
+
+# Default command is the sandbox runner help.
+CMD ["python", "-m", "src.sandbox.runner", "--help"]

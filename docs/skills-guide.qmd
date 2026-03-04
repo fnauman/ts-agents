@@ -1,0 +1,320 @@
+---
+title: "Using and Customizing Skills"
+---
+
+Skills are reusable workflow definitions that tell an AI agent *how* to use `ts-agents` tools for a specific task.
+Each skill is a Markdown file (`SKILL.md`) with YAML frontmatter describing the workflow, required tools, and step-by-step instructions.
+
+## The 5 canonical skills
+
+| Skill | Description |
+|-------|-------------|
+| **activity-recognition** | End-to-end labeled-stream activity recognition: generate data, select window size, evaluate classifier, produce plots and report |
+| **forecasting** | Forecast future values, choose baselines, compare methods (ARIMA, ETS, Theta) |
+| **classification** | Supervised time-series classification with KNN/DTW, ROCKET, or HIVE-COTE |
+| **diagnostics** | Quick EDA: descriptive stats, autocorrelation, periodicity, spectral density, complexity |
+| **decomposition** | Trend/seasonal/residual decomposition via STL, MSTL, HP filter, or Holt-Winters |
+
+All skills live in `skills/<name>/SKILL.md` and are synced to agent-specific directories on export.
+
+## Invoking a skill
+
+Skills work with any agent that reads project-level instruction files.
+Point the agent at the skill and provide context:
+
+**Claude Code**
+```
+Run the activity-recognition skill on data/demo_labeled_stream.csv
+```
+
+**Codex / other agents**
+```
+Follow the forecasting skill to compare ARIMA and Theta
+on Re200Rm200 / bx001_real with horizon 12
+```
+
+The agent reads the `SKILL.md`, discovers the required tools, and executes the workflow.
+
+## Customizing skill outputs
+
+### Plot-producing tools
+
+Most `_with_data` tools embed base64-encoded PNG plots in their output.
+Use `--save` to write the text output to disk and `--extract-images` to pull embedded plots out as separate PNG files.
+
+```bash
+uv run ts-agents run stl_decompose_with_data \
+  --run Re200Rm200 --var bx001_real \
+  --save outputs/stl.txt \
+  --extract-images outputs/assets
+```
+
+The table below lists every tool that produces a plot, organized by analysis phase:
+
+| Phase | Tool | Plot description |
+|-------|------|------------------|
+| **Diagnostics** | `compute_autocorrelation_with_data` | ACF bar chart by lag |
+| **Spectral** | `compute_spectrum_with_data` | Log-log power spectral density |
+| **Spectral** | `compute_coherence_with_data` | Coherence vs frequency |
+| **Decomposition** | `stl_decompose_with_data` | 4-panel: original, trend, seasonal, residual |
+| **Decomposition** | `mstl_decompose_with_data` | 4-panel: original, trend, seasonal, residual |
+| **Decomposition** | `hp_filter_with_data` | 3-panel: original, HP trend, cyclic residual |
+| **Decomposition** | `holt_winters_decompose_with_data` | 4-panel: original, trend, seasonal, residual |
+| **Patterns** | `detect_peaks_with_data` | Series with peak markers |
+| **Patterns** | `segment_changepoint_with_data` | Series with changepoint lines |
+| **Patterns** | `analyze_matrix_profile_with_data` | 2-panel: series + matrix profile distances |
+| **Patterns** | `find_motifs_with_data` | Series with highlighted top motif |
+| **Patterns** | `find_discords_with_data` | Series with highlighted anomaly |
+| **Patterns** | `segment_fluss_with_data` | Series with segment boundaries |
+| **Patterns** | `analyze_recurrence_with_data` | 2D recurrence plot |
+| **Forecasting** | `forecast_arima_with_data` | History vs forecast with confidence intervals |
+| **Forecasting** | `forecast_ets_with_data` | History vs forecast |
+| **Forecasting** | `forecast_theta_with_data` | History vs forecast |
+| **Forecasting** | `forecast_ensemble_with_data` | History vs ensemble forecast |
+
+### PDF reports via a comprehensive analysis skill
+
+A skill can orchestrate many plot-producing tools, extract all images, compose a Quarto document, and render to PDF — all in one workflow. Here is a complete `SKILL.md` example:
+
+````markdown
+---
+name: comprehensive-report
+description: Full diagnostic, decomposition, pattern, and forecast analysis rendered as a PDF report
+tasks: [report, pdf, comprehensive]
+tools:
+  - describe_series_with_data
+  - compute_autocorrelation_with_data
+  - compute_spectrum_with_data
+  - stl_decompose_with_data
+  - hp_filter_with_data
+  - detect_peaks_with_data
+  - segment_changepoint_with_data
+  - analyze_matrix_profile_with_data
+  - forecast_theta_with_data
+  - forecast_ets_with_data
+  - forecast_arima_with_data
+---
+
+## Objective
+
+Produce a single PDF report with plots from every analysis phase.
+
+## Workflow
+
+For the given `--run` and `--var`, execute each phase below.
+Use `--save` and `--extract-images` on every tool call so that
+plots land as PNGs in `outputs/<run>/assets/`.
+
+### 1. Diagnostics
+
+```bash
+uv run ts-agents run describe_series_with_data \
+  --run $RUN --var $VAR --save outputs/$RUN/describe.txt
+
+uv run ts-agents run compute_autocorrelation_with_data \
+  --run $RUN --var $VAR \
+  --save outputs/$RUN/acf.txt \
+  --extract-images outputs/$RUN/assets
+
+uv run ts-agents run compute_spectrum_with_data \
+  --run $RUN --var $VAR \
+  --save outputs/$RUN/psd.txt \
+  --extract-images outputs/$RUN/assets
+```
+
+### 2. Decomposition
+
+```bash
+uv run ts-agents run stl_decompose_with_data \
+  --run $RUN --var $VAR \
+  --save outputs/$RUN/stl.txt \
+  --extract-images outputs/$RUN/assets
+
+# Optional: HP filter for a smoother trend estimate
+uv run ts-agents run hp_filter_with_data \
+  --run $RUN --var $VAR \
+  --save outputs/$RUN/hp.txt \
+  --extract-images outputs/$RUN/assets
+```
+
+### 3. Pattern detection
+
+```bash
+uv run ts-agents run detect_peaks_with_data \
+  --run $RUN --var $VAR \
+  --save outputs/$RUN/peaks.txt \
+  --extract-images outputs/$RUN/assets
+
+uv run ts-agents run segment_changepoint_with_data \
+  --run $RUN --var $VAR \
+  --save outputs/$RUN/changepoints.txt \
+  --extract-images outputs/$RUN/assets
+
+uv run ts-agents run analyze_matrix_profile_with_data \
+  --run $RUN --var $VAR \
+  --save outputs/$RUN/mp.txt \
+  --extract-images outputs/$RUN/assets
+```
+
+### 4. Forecasting
+
+```bash
+uv run ts-agents run forecast_theta_with_data \
+  --run $RUN --var $VAR --param horizon=30 \
+  --save outputs/$RUN/theta.txt \
+  --extract-images outputs/$RUN/assets
+
+uv run ts-agents run forecast_ets_with_data \
+  --run $RUN --var $VAR --param horizon=30 \
+  --save outputs/$RUN/ets.txt \
+  --extract-images outputs/$RUN/assets
+
+uv run ts-agents run forecast_arima_with_data \
+  --run $RUN --var $VAR --param horizon=30 \
+  --save outputs/$RUN/arima.txt \
+  --extract-images outputs/$RUN/assets
+```
+
+### 5. Compose the Quarto document
+
+Create `outputs/$RUN/report.qmd` with this structure:
+
+```
+---
+title: "Comprehensive Analysis: $RUN / $VAR"
+format: pdf
+---
+
+## Diagnostics
+(paste key stats from describe.txt)
+
+![ACF](assets/acf_image_1.png)
+![PSD](assets/psd_image_1.png)
+
+## Decomposition
+![STL](assets/stl_image_1.png)
+![HP Filter](assets/hp_image_1.png)
+
+## Patterns
+![Peaks](assets/peaks_image_1.png)
+![Changepoints](assets/changepoints_image_1.png)
+![Matrix Profile](assets/mp_image_1.png)
+
+## Forecasting
+![Theta](assets/theta_image_1.png)
+![ETS](assets/ets_image_1.png)
+![ARIMA](assets/arima_image_1.png)
+
+## Summary
+(synthesize findings across all phases)
+```
+
+### 6. Render to PDF
+
+```bash
+cd outputs/$RUN && quarto render report.qmd --to pdf
+```
+
+## Guardrails
+
+- If any tool fails, log the error and continue with remaining tools.
+- If the series has fewer than 50 points, skip forecasting and warn the user.
+- Always verify that `assets/` contains the expected PNGs before composing the QMD.
+````
+
+### Example prompts
+
+These prompts ask an agent to run the comprehensive workflow:
+
+> Run a full analysis of Re200Rm200 / bx001_real: diagnostics, STL decomposition,
+> peak detection, changepoint segmentation, matrix profile, and Theta + ARIMA forecasts
+> with horizon 30. Save all plots and render a PDF report.
+
+> I need a comprehensive PDF report for every variable in the Re200Rm200 run.
+> For each variable: compute ACF, PSD, STL decomposition, detect peaks, and
+> forecast 20 steps with ETS. Compile all plots into a single Quarto PDF.
+
+### Requesting deeper analysis
+
+Chain skills in a single prompt:
+
+> Run diagnostics on Re200Rm200 / bx001_real to check for seasonality,
+> then decompose with STL, then forecast the trend component 30 steps ahead
+> using ARIMA and Theta. Compare the forecasts.
+
+This produces diagnostics artifacts, decomposition plots, and a forecast comparison — all in one session.
+
+### Modifying skill behavior
+
+Edit `skills/<name>/SKILL.md` directly:
+
+- **Add a step** — append to the `## Workflow` section (e.g., "7. Run complexity analysis on the residuals")
+- **Change defaults** — edit parameter values in the workflow steps
+- **Add guardrails** — insert validation steps (e.g., "If the series has fewer than 100 points, warn the user and stop")
+
+After editing, re-export so all agents pick up the change:
+
+```bash
+uv run ts-agents skills export --all-agents
+```
+
+## Creating a new skill
+
+```
+skills/
+  my-skill/
+    SKILL.md          # required — workflow definition
+```
+
+`SKILL.md` structure:
+
+```markdown
+---
+name: my-custom-skill
+description: One-line description of what the skill does
+tasks: [keyword1, keyword2]
+tools: [tool_a, tool_b]
+---
+
+## Objective
+What problem this skill solves.
+
+## Workflow
+1. Step one — call `tool_a` with these parameters ...
+2. Step two — call `tool_b` ...
+3. Summarize results.
+
+## Guardrails
+- Validation rules, limits, warnings.
+```
+
+Validate and export:
+
+```bash
+uv run ts-agents skills validate
+uv run ts-agents skills export --all-agents
+```
+
+## Export and sync commands
+
+```bash
+# List registered skills
+uv run ts-agents skills list
+
+# Validate frontmatter
+uv run ts-agents skills validate
+
+# Export to all agent directories (copy)
+uv run ts-agents skills export --all-agents
+
+# Export with symlinks (local dev, Unix only)
+uv run ts-agents skills export --all-agents --symlink
+
+# Export to a single agent
+uv run ts-agents skills export --agent claude
+
+# Generate an aggregate summary
+uv run ts-agents skills export --out skills/SKILLS.md
+```
+
+Supported agents: `claude`, `codex`, `gemini`, `windsurf`, `github`.

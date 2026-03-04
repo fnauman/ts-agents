@@ -1,0 +1,292 @@
+/*-- scss:defaults --*/
+
+$body-bg: #0f1729;
+$body-color: #e0e6ed;
+$link-color: #38bdf8;
+$link-color-hover: #7dd3fc;
+$selection-background-color: #38bdf866;
+
+$presentation-heading-color: #ffffff;
+$presentation-font-size-root: 26px;
+$code-block-bg: #0d1117;
+$code-color: #22d3ee;
+$code-bg: #1a2744;
+
+$font-family-sans-serif: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+$font-family-monospace: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+
+/*-- scss:rules --*/
+
+:root {
+  --accent: #38bdf8;
+  --accent2: #22d3ee;
+  --surface: #1a2744;
+  --surface-light: #243352;
+  --muted: #94a3b8;
+  --border: #334155;
+}
+
+/* ── Typography ───────────────────────────────────────── */
+
+.reveal h1, .reveal h2, .reveal h3, .reveal h4 {
+  text-transform: none;
+  letter-spacing: -0.01em;
+}
+
+.reveal h2 {
+  font-size: 1.6em;
+  margin-bottom: 0.6em;
+  border-bottom: 2px solid var(--accent);
+  padding-bottom: 0.25em;
+  display: inline-block;
+}
+
+.reveal h3 {
+  font-size: 1.1em;
+  color: var(--accent);
+  margin-bottom: 0.3em;
+}
+
+.reveal h4 {
+  font-size: 0.95em;
+  color: var(--accent2);
+  margin-bottom: 0.3em;
+  font-weight: 600;
+}
+
+.reveal p {
+  line-height: 1.55;
+  margin-bottom: 0.5em;
+}
+
+.reveal strong {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.reveal em {
+  color: var(--accent2);
+}
+
+/* ── Title slide ──────────────────────────────────────── */
+
+#title-slide h1,
+.reveal .slides > section:first-child h1 {
+  font-size: 2.2em;
+  background: linear-gradient(135deg, #ffffff 0%, var(--accent) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 0.15em;
+}
+
+#title-slide .subtitle {
+  font-size: 1.1em;
+  color: var(--muted);
+}
+
+#title-slide .author {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+#title-slide .date {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+/* ── Lists ────────────────────────────────────────────── */
+
+.reveal ul {
+  list-style: none;
+  padding-left: 1em;
+}
+
+.reveal ul > li {
+  position: relative;
+  padding-left: 0.2em;
+  margin-bottom: 0.35em;
+  line-height: 1.5;
+}
+
+.reveal ul > li::before {
+  content: "▸";
+  color: var(--accent);
+  font-weight: bold;
+  position: absolute;
+  left: -1em;
+}
+
+.reveal ol > li {
+  margin-bottom: 0.35em;
+  line-height: 1.5;
+}
+
+.reveal ol > li::marker {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* ── Code blocks ──────────────────────────────────────── */
+
+.reveal pre {
+  background: #0d1117;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.7em 1em;
+  font-size: 0.65em;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  width: 100%;
+  margin: 0.4em auto;
+}
+
+.reveal pre code {
+  line-height: 1.45;
+  color: #e6edf3;
+  background: transparent;
+  padding: 0;
+}
+
+.reveal code {
+  font-size: 0.88em;
+  background: var(--surface);
+  color: var(--accent2);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
+.reveal pre code {
+  font-size: 1em;
+  background: transparent;
+}
+
+/* ── Tables ───────────────────────────────────────────── */
+
+.reveal table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.72em;
+  margin: 0.6em 0;
+}
+
+.reveal table th {
+  background: var(--surface);
+  color: var(--accent);
+  font-weight: 600;
+  text-align: left;
+  padding: 0.55em 0.7em;
+  border-bottom: 2px solid var(--accent);
+}
+
+.reveal table td {
+  padding: 0.45em 0.7em;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.reveal table tr:hover td {
+  background: var(--surface-light);
+}
+
+/* ── Columns gap ──────────────────────────────────────── */
+
+.reveal .columns {
+  gap: 1.5em;
+}
+
+/* ── Pillar cards (title slide) ───────────────────────── */
+
+.pillar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--accent);
+  border-radius: 8px;
+  padding: 0.8em 1em;
+  text-align: center;
+  font-size: 0.8em;
+  line-height: 1.6;
+}
+
+.pillar .pillar-title {
+  display: block;
+  font-size: 1.15em;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 0.4em;
+}
+
+.pillar ul {
+  list-style: none;
+  padding: 0;
+}
+
+.pillar ul li::before {
+  display: none;
+}
+
+.pillar ul li {
+  padding-left: 0;
+}
+
+/* ── Takeaways ────────────────────────────────────────── */
+
+.takeaways ol {
+  counter-reset: takeaway;
+  list-style: none !important;
+  padding-left: 0;
+}
+
+.takeaways ol > li {
+  counter-increment: takeaway;
+  position: relative;
+  padding-left: 2.2em;
+  margin-bottom: 0.5em;
+  font-size: 0.88em;
+}
+
+.takeaways ol > li::before {
+  content: counter(takeaway);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1.6em;
+  height: 1.6em;
+  background: var(--accent);
+  color: $body-bg;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.85em;
+}
+
+/* ── Footer + slide number ────────────────────────────── */
+
+.reveal .slide-number {
+  color: var(--muted);
+  font-size: 0.6em;
+  background: transparent;
+}
+
+/* ── Links ────────────────────────────────────────────── */
+
+.reveal a {
+  text-decoration: none;
+  border-bottom: 1px dotted var(--accent);
+}
+
+.reveal a:hover {
+  border-bottom-style: solid;
+}
+
+/* ── Blockquotes ──────────────────────────────────────── */
+
+.reveal blockquote {
+  background: var(--surface);
+  border-left: 4px solid var(--accent);
+  padding: 0.6em 1em;
+  margin: 0.6em 0;
+  font-style: normal;
+  border-radius: 0 6px 6px 0;
+}
