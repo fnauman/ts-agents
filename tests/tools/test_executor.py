@@ -16,6 +16,18 @@ def test_execution_context_coerces_string():
     assert ctx.sandbox_mode == SandboxMode.LOCAL
 
 
+def test_execution_context_daytona_bootstrap_defaults():
+    ctx = ExecutionContext(sandbox_mode="daytona")
+    assert ctx.sandbox_mode == SandboxMode.DAYTONA
+    assert ctx.daytona_snapshot == "daytonaio/sandbox:0.4.3"
+    assert ctx.daytona_repo_url == "https://github.com/fnauman/ts-agents"
+    assert ctx.daytona_install_editable is True
+    assert ctx.daytona_stream_logs is True
+    assert ctx.daytona_log_file is None
+    assert ctx.modal_stream_logs is True
+    assert ctx.modal_log_file is None
+
+
 def test_execution_result_serializes_analysis_result():
     result = PeakResult(
         method="test",
