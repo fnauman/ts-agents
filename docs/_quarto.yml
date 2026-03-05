@@ -22,6 +22,10 @@ website:
         text: Architecture
       - href: talks/ts_agents_talk.qmd
         text: Talk
+    right:
+      - icon: github
+        href: https://github.com/fnauman/ts-agents
+        aria-label: GitHub repository
 
 format:
   html:
