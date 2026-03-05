@@ -77,11 +77,14 @@ All optional. Set them via `export` or in `~/.env`.
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `OPENAI_API_KEY` | LLM agent/demo features | _(none — required for LLM mode)_ |
-| `OPENAI_MODEL` | Model override | `gpt-4o-mini` |
+| `OPENAI_MODEL` | Model override | `gpt-5-mini` |
 | `TS_AGENTS_DATA_DIR` | Full dataset path | bundled package data (or repo `./data`) |
 | `TS_AGENTS_USE_TEST_DATA` | Use bundled test data | `true` |
 | `TS_AGENTS_TEST_DATA_FILE` | Override test dataset filename | `short_real.csv` |
 | `TS_AGENTS_SANDBOX_MODE` | Default sandbox backend | `local` |
+
+Sandbox-specific environment variables (Docker/Daytona/Modal auth, snapshots,
+streaming, and log files) are documented in `SANDBOX.md`.
 
 ## CLI Usage
 
@@ -197,8 +200,8 @@ Tools run inside a sandbox. Pick one with `--sandbox <mode>` or set
 | **local** _(default)_ | None (in-process) | — |
 | **subprocess** | Separate Python process | — |
 | **docker** | Container | Docker running; build image first: `./build_docker_sandbox.sh` |
-| **daytona** | Cloud sandbox | `pip install daytona` + API key ([Daytona docs](https://www.daytona.io/docs)) |
-| **modal** | Serverless cloud | `pip install modal`, then `modal setup` (interactive login) and `modal deploy src/sandbox/modal_app.py` |
+| **daytona** | Cloud sandbox | `pip install daytona` + `DAYTONA_API_KEY` ([Daytona docs](https://www.daytona.io/docs)); default bootstrap clones this repo + runs `pip install -e` |
+| **modal** | Serverless cloud | `pip install modal`, run `modal token new` (opens browser auth) or set `MODAL_TOKEN_ID`/`MODAL_TOKEN_SECRET`, then deploy with `modal deploy -m src.sandbox.modal_app --env main --name ts-agents-sandbox` |
 
 If the chosen backend is unavailable at runtime the executor falls back to
 **local** with a warning.

@@ -3,7 +3,7 @@
 This file defines a Modal Function that can execute ts-agents tools remotely.
 
 Deploy:
-    modal deploy src/sandbox/modal_app.py
+    modal deploy -m src.sandbox.modal_app --env main --name ts-agents-sandbox
 
 Then configure ts-agents to use Modal as its sandbox backend by setting:
     TS_AGENTS_SANDBOX_MODE=modal
@@ -23,17 +23,22 @@ import modal
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PYPROJECT = REPO_ROOT / "pyproject.toml"
+SRC_ROOT = REPO_ROOT / "src"
+RESOURCES_ROOT = SRC_ROOT / "resources"
 
 
 app = modal.App("ts-agents-sandbox")
 
 # Build an image that:
 #  - installs dependencies from pyproject.toml
-#  - ships the local `src/` python package
+#  - ships the local `src/` and `ts_agents/` python packages
+#  - includes non-python runtime resources under src/resources
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install_from_pyproject(str(PYPROJECT))
     .add_local_python_source("src")
+    .add_local_python_source("ts_agents")
+    .add_local_dir(str(RESOURCES_ROOT), remote_path="/root/src/resources")
 )
 
 
