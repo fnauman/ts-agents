@@ -21,10 +21,14 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -116,19 +120,27 @@ class ExecutionContext:
     daytona_language: str = "python"
     daytona_ephemeral: bool = True
     daytona_name: Optional[str] = None
-    # Optional bootstrap: clone/install repo before running tools
-    daytona_repo_url: Optional[str] = None
+    # Use a Python-compatible Daytona snapshot by default.
+    daytona_snapshot: Optional[str] = "daytonaio/sandbox:0.4.3"
+    # Default bootstrap: clone/install repo before running tools.
+    # Set to "" to disable clone when using a prebuilt snapshot image.
+    daytona_repo_url: Optional[str] = "https://github.com/fnauman/ts-agents"
     daytona_repo_branch: Optional[str] = None
     daytona_repo_path: str = "workspace/ts-agents"
     daytona_git_username: Optional[str] = None
     daytona_git_password: Optional[str] = None
-    daytona_install_editable: bool = False
+    daytona_install_editable: bool = True
+    daytona_stream_logs: bool = True
+    daytona_log_file: Optional[str] = None
 
     # ------------------------------------------------------------------
     # Modal backend options
     # ------------------------------------------------------------------
     modal_app_name: Optional[str] = None
     modal_function_name: Optional[str] = None
+    modal_environment: Optional[str] = None
+    modal_stream_logs: bool = True
+    modal_log_file: Optional[str] = None
 
     def __post_init__(self) -> None:
         """Normalize sandbox mode inputs."""
@@ -801,6 +813,83 @@ class DaytonaBackend(ExecutorBackend):
             self._available = False
         return self._available
 
+    @staticmethod
+    def _coerce_bool_env(var_name: str, default: bool) -> bool:
+        raw = os.environ.get(var_name)
+        if raw is None:
+            return default
+        return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+    @staticmethod
+    def _sanitize_stream_chunk(text: str) -> str:
+        # Daytona PTY output may include control prefix bytes.
+        return text.replace("\x01", "")
+
+    def _run_command(
+        self,
+        sandbox: Any,
+        command: str,
+        *,
+        cwd: Optional[str],
+        timeout_s: int,
+        env: Optional[Dict[str, str]] = None,
+        stream_logs: bool = True,
+        label: str = "daytona",
+        log_file_handle: Optional[Any] = None,
+    ) -> tuple[int, str]:
+        """Execute a command inside Daytona and optionally stream output."""
+        def _emit(chunk: str) -> None:
+            line = f"[{label}] {chunk}"
+            print(line, end="", file=sys.stderr, flush=True)
+            if log_file_handle is not None:
+                log_file_handle.write(line)
+                if not line.endswith("\n"):
+                    log_file_handle.write("\n")
+                log_file_handle.flush()
+
+        if not stream_logs:
+            resp = sandbox.process.exec(command, cwd=cwd, timeout=timeout_s, env=env or None)
+            exit_code = getattr(resp, "exit_code", 0)
+            output = getattr(resp, "result", "") or ""
+            if log_file_handle is not None and output:
+                _emit(str(output))
+            return int(exit_code or 0), str(output)
+
+        pty = None
+        chunks: List[str] = []
+        session_id = f"ts-agents-{uuid.uuid4().hex[:8]}"
+        try:
+            pty = sandbox.process.create_pty_session(session_id, cwd=cwd, envs=env or None)
+            pty.wait_for_connection(timeout=10.0)
+            pty.send_input(command + "\n")
+            pty.send_input("exit\n")
+
+            def _on_data(data: bytes) -> None:
+                chunk = self._sanitize_stream_chunk(data.decode("utf-8", errors="ignore"))
+                chunks.append(chunk)
+                _emit(chunk)
+
+            result = pty.wait(on_data=_on_data, timeout=float(timeout_s))
+            exit_code = result.exit_code
+            if exit_code is None:
+                # Timed out or disconnected before receiving terminal exit code.
+                if result.error:
+                    chunks.append(result.error)
+                return 124, "".join(chunks)
+            return int(exit_code), "".join(chunks)
+        except Exception:
+            # Best-effort fallback when PTY APIs are unavailable.
+            resp = sandbox.process.exec(command, cwd=cwd, timeout=timeout_s, env=env or None)
+            exit_code = getattr(resp, "exit_code", 0)
+            output = getattr(resp, "result", "") or ""
+            return int(exit_code or 0), str(output)
+        finally:
+            if pty is not None:
+                try:
+                    pty.disconnect()
+                except Exception:
+                    pass
+
     def execute(
         self,
         tool_name: str,
@@ -826,6 +915,13 @@ class DaytonaBackend(ExecutorBackend):
             )
 
         timeout_s = context.timeout_seconds or int(os.environ.get("TS_AGENTS_DAYTONA_TIMEOUT", "300"))
+        stream_logs = self._coerce_bool_env("TS_AGENTS_DAYTONA_STREAM", context.daytona_stream_logs)
+        daytona_log_file = os.environ.get("TS_AGENTS_DAYTONA_LOG_FILE", context.daytona_log_file or "").strip() or None
+        daytona_log_handle = None
+        if daytona_log_file:
+            log_path = Path(daytona_log_file).expanduser()
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            daytona_log_handle = log_path.open("a", encoding="utf-8")
 
         request_payload = {
             "tool_name": tool_name,
@@ -842,36 +938,116 @@ class DaytonaBackend(ExecutorBackend):
         try:
             from daytona import Daytona, CreateSandboxFromSnapshotParams
 
+            repo_path = (context.daytona_repo_path or "workspace/ts-agents").rstrip("/")
+            if not repo_path:
+                repo_path = "workspace/ts-agents"
+
             daytona = Daytona()
+            daytona_snapshot = os.environ.get("TS_AGENTS_DAYTONA_SNAPSHOT", context.daytona_snapshot or "").strip() or None
             create_params = CreateSandboxFromSnapshotParams(
                 language=context.daytona_language or "python",
                 name=context.daytona_name,
                 ephemeral=bool(context.daytona_ephemeral),
+                snapshot=daytona_snapshot,
             )
             sandbox = daytona.create(create_params)
 
-            # Optional: bootstrap by cloning a repo and (optionally) installing.
+            # Optional bootstrap by cloning a repo and installing dependencies.
             if context.daytona_repo_url:
                 try:
-                    # Lazy import: GitOperations classes may not be needed.
-                    sandbox.git.clone(
-                        context.daytona_repo_url,
-                        path=context.daytona_repo_path,
-                        branch=context.daytona_repo_branch,
-                        username=context.daytona_git_username,
-                        password=context.daytona_git_password,
-                    )
-                    if context.daytona_install_editable:
-                        sandbox.process.exec(
-                            f"python -m pip install -e {context.daytona_repo_path}",
-                            cwd=context.daytona_repo_path,
-                            timeout=timeout_s,
+                    # Prefer shell clone for better diagnostics and streamable logs.
+                    if context.daytona_git_username or context.daytona_git_password:
+                        # Preserve explicit credential fields for private repositories.
+                        sandbox.git.clone(
+                            context.daytona_repo_url,
+                            path=repo_path,
+                            branch=context.daytona_repo_branch,
+                            username=context.daytona_git_username,
+                            password=context.daytona_git_password,
                         )
-                except Exception as e:
-                    logger.warning(f"Daytona bootstrap step failed: {e}")
+                    else:
+                        branch_part = ""
+                        if context.daytona_repo_branch:
+                            branch_part = f"--branch {shlex.quote(context.daytona_repo_branch)} --single-branch "
+                        clone_cmd = (
+                            f"rm -rf {shlex.quote(repo_path)} && "
+                            f"git clone {branch_part}{shlex.quote(context.daytona_repo_url)} {shlex.quote(repo_path)}"
+                        )
+                        clone_exit, clone_output = self._run_command(
+                            sandbox,
+                            clone_cmd,
+                            cwd=None,
+                            timeout_s=timeout_s,
+                            stream_logs=stream_logs,
+                            label="daytona-bootstrap",
+                            log_file_handle=daytona_log_handle,
+                        )
+                        if clone_exit != 0:
+                            err = ToolError(
+                                code=ToolErrorCode.DEPENDENCY_ERROR,
+                                message=f"Daytona bootstrap clone failed (exit_code={clone_exit}).",
+                                recoverable=True,
+                                tool_name=tool_name,
+                                details={"result": clone_output},
+                            )
+                            return ExecutionResult(
+                                status=ExecutionStatus.FAILED,
+                                error=err,
+                                formatted_output=str(err),
+                                duration_ms=(time.time() - start_time) * 1000,
+                                metadata={"tool_name": tool_name, "backend": "daytona"},
+                            )
 
-            # I/O paths inside the sandbox
-            remote_dir = "workspace/ts_agents_io"
+                    if context.daytona_install_editable:
+                        install_cmd = (
+                            "bash -lc "
+                            + shlex.quote(
+                                "python -m venv .ts-agents-venv && "
+                                ". .ts-agents-venv/bin/activate && "
+                                "python -m pip install -e ."
+                            )
+                        )
+                        install_exit, install_output = self._run_command(
+                            sandbox,
+                            install_cmd,
+                            cwd=repo_path,
+                            timeout_s=timeout_s,
+                            stream_logs=stream_logs,
+                            label="daytona-install",
+                            log_file_handle=daytona_log_handle,
+                        )
+                        if install_exit != 0:
+                            err = ToolError(
+                                code=ToolErrorCode.DEPENDENCY_ERROR,
+                                message=f"Daytona bootstrap install failed (exit_code={install_exit}).",
+                                recoverable=True,
+                                tool_name=tool_name,
+                                details={"result": install_output},
+                            )
+                            return ExecutionResult(
+                                status=ExecutionStatus.FAILED,
+                                error=err,
+                                formatted_output=str(err),
+                                duration_ms=(time.time() - start_time) * 1000,
+                                metadata={"tool_name": tool_name, "backend": "daytona"},
+                            )
+                except Exception as e:
+                    err = ToolError(
+                        code=ToolErrorCode.DEPENDENCY_ERROR,
+                        message=f"Daytona bootstrap clone/install failed: {e!r}",
+                        recoverable=True,
+                        tool_name=tool_name,
+                    )
+                    return ExecutionResult(
+                        status=ExecutionStatus.FAILED,
+                        error=err,
+                        formatted_output=str(err),
+                        duration_ms=(time.time() - start_time) * 1000,
+                        metadata={"tool_name": tool_name, "backend": "daytona"},
+                    )
+
+            # Keep request/response files inside repo_path to avoid cwd/path ambiguity.
+            remote_dir = f"{repo_path}/.ts_agents_io"
             try:
                 sandbox.fs.create_folder(remote_dir, "755")
             except Exception:
@@ -880,6 +1056,8 @@ class DaytonaBackend(ExecutorBackend):
 
             req_remote = f"{remote_dir}/request.json"
             resp_remote = f"{remote_dir}/response.json"
+            req_runner = ".ts_agents_io/request.json"
+            resp_runner = ".ts_agents_io/response.json"
 
             sandbox.fs.upload_file(
                 json.dumps(request_payload, indent=2, default=str).encode("utf-8"),
@@ -887,25 +1065,31 @@ class DaytonaBackend(ExecutorBackend):
             )
 
             env = {k: str(v) for k, v in (context.environment or {}).items()}
+            runner_python = "python"
+            if context.daytona_install_editable and context.daytona_repo_url:
+                runner_python = ".ts-agents-venv/bin/python"
             cmd = (
-                f"python -m src.sandbox.runner --input {req_remote} --output {resp_remote}"
+                f"{runner_python} -m src.sandbox.runner --input {req_runner} --output {resp_runner}"
             )
-            resp = sandbox.process.exec(
+            run_exit, run_output = self._run_command(
+                sandbox,
                 cmd,
-                cwd=context.daytona_repo_path or None,
-                timeout=timeout_s,
+                cwd=repo_path,
+                timeout_s=timeout_s,
                 env=env or None,
+                stream_logs=stream_logs,
+                label="daytona-run",
+                log_file_handle=daytona_log_handle,
             )
 
             # Daytona returns an object with exit_code/result.
-            exit_code = getattr(resp, "exit_code", 0)
-            if exit_code != 0:
+            if run_exit != 0:
                 err = ToolError(
                     code=ToolErrorCode.COMPUTATION_ERROR,
-                    message=f"Daytona process execution failed (exit_code={exit_code}).",
+                    message=f"Daytona process execution failed (exit_code={run_exit}).",
                     recoverable=True,
                     tool_name=tool_name,
-                    details={"result": getattr(resp, "result", None)},
+                    details={"result": run_output},
                 )
                 return ExecutionResult(
                     status=ExecutionStatus.FAILED,
@@ -938,6 +1122,11 @@ class DaytonaBackend(ExecutorBackend):
                     sandbox.delete()
                 except Exception:
                     pass
+            if daytona_log_handle is not None:
+                try:
+                    daytona_log_handle.close()
+                except Exception:
+                    pass
 
 
 class ModalBackend(ExecutorBackend):
@@ -951,6 +1140,67 @@ class ModalBackend(ExecutorBackend):
         self.app_name = app_name
         self.function_name = function_name
         self._available: Optional[bool] = None
+
+    @staticmethod
+    def _coerce_bool_env(var_name: str, default: bool) -> bool:
+        raw = os.environ.get(var_name)
+        if raw is None:
+            return default
+        return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+    @staticmethod
+    def _open_log_file(path_value: Optional[str]) -> Optional[Any]:
+        if not path_value:
+            return None
+        path = Path(path_value).expanduser()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path.open("a", encoding="utf-8")
+
+    @staticmethod
+    def _emit_log(line: str, log_file_handle: Optional[Any]) -> None:
+        print(line, end="", file=sys.stderr, flush=True)
+        if log_file_handle is not None:
+            log_file_handle.write(line)
+            if not line.endswith("\n"):
+                log_file_handle.write("\n")
+            log_file_handle.flush()
+
+    def _start_modal_log_stream(
+        self,
+        *,
+        app_name: str,
+        environment_name: Optional[str],
+        log_file_handle: Optional[Any],
+        timestamps: bool,
+    ) -> tuple[Optional[subprocess.Popen], Optional[threading.Thread]]:
+        if shutil.which("modal") is None:
+            return None, None
+        cmd = ["modal", "app", "logs", app_name]
+        if environment_name:
+            cmd.extend(["--env", environment_name])
+        if timestamps:
+            cmd.append("--timestamps")
+
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+
+        def _reader() -> None:
+            if proc.stdout is None:
+                return
+            try:
+                for line in proc.stdout:
+                    self._emit_log(f"[modal-log] {line}", log_file_handle)
+            except Exception:
+                pass
+
+        thread = threading.Thread(target=_reader, daemon=True)
+        thread.start()
+        return proc, thread
 
     def is_available(self) -> bool:
         if self._available is not None:
@@ -987,13 +1237,32 @@ class ModalBackend(ExecutorBackend):
                 metadata={"tool_name": tool_name, "backend": "modal"},
             )
 
+        modal_log_file = os.environ.get("TS_AGENTS_MODAL_LOG_FILE", context.modal_log_file or "").strip() or None
+        modal_log_handle = self._open_log_file(modal_log_file)
+        logs_proc: Optional[subprocess.Popen] = None
+        logs_thread: Optional[threading.Thread] = None
         try:
             import modal
 
             app_name = context.modal_app_name or os.environ.get("TS_AGENTS_MODAL_APP") or self.app_name
             fn_name = context.modal_function_name or os.environ.get("TS_AGENTS_MODAL_FUNCTION") or self.function_name
+            environment_name = context.modal_environment or os.environ.get("MODAL_ENVIRONMENT") or None
+            stream_logs = self._coerce_bool_env("TS_AGENTS_MODAL_STREAM", context.modal_stream_logs)
+            modal_timestamps = self._coerce_bool_env("TS_AGENTS_MODAL_LOG_TIMESTAMPS", False)
 
-            fn = modal.Function.from_name(app_name, fn_name)
+            self._emit_log(
+                f"[modal] invoking app={app_name} function={fn_name} env={environment_name or '(default)'}\n",
+                modal_log_handle,
+            )
+            if stream_logs:
+                logs_proc, logs_thread = self._start_modal_log_stream(
+                    app_name=app_name,
+                    environment_name=environment_name,
+                    log_file_handle=modal_log_handle,
+                    timestamps=modal_timestamps,
+                )
+
+            fn = modal.Function.from_name(app_name, fn_name, environment_name=environment_name)
 
             request = {
                 "tool_name": tool_name,
@@ -1007,11 +1276,19 @@ class ModalBackend(ExecutorBackend):
             }
 
             response_dict = fn.remote(request)
+            self._emit_log("[modal] remote call completed\n", modal_log_handle)
             result = ExecutionResult.from_dict(response_dict)
-            result.metadata = {**(result.metadata or {}), "backend": "modal", "app": app_name, "function": fn_name}
+            result.metadata = {
+                **(result.metadata or {}),
+                "backend": "modal",
+                "app": app_name,
+                "function": fn_name,
+                "environment": environment_name,
+            }
             return result
 
         except Exception as e:
+            self._emit_log(f"[modal] execution error: {e!r}\n", modal_log_handle)
             err = ToolError.from_exception(e, tool_name=tool_name)
             return ExecutionResult(
                 status=ExecutionStatus.FAILED,
@@ -1020,6 +1297,27 @@ class ModalBackend(ExecutorBackend):
                 duration_ms=(time.time() - start_time) * 1000,
                 metadata={"tool_name": tool_name, "backend": "modal"},
             )
+        finally:
+            if logs_proc is not None:
+                try:
+                    if logs_proc.poll() is None:
+                        logs_proc.terminate()
+                        try:
+                            logs_proc.wait(timeout=3)
+                        except subprocess.TimeoutExpired:
+                            logs_proc.kill()
+                except Exception:
+                    pass
+            if logs_thread is not None:
+                try:
+                    logs_thread.join(timeout=1)
+                except Exception:
+                    pass
+            if modal_log_handle is not None:
+                try:
+                    modal_log_handle.close()
+                except Exception:
+                    pass
 
 
 class ToolExecutor:
