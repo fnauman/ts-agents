@@ -3,6 +3,16 @@ name: Deploy Docs
 on:
   push:
     branches: [main]
+    paths:
+      - "docs/**"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    paths:
+      - "docs/**"
+      - ".github/workflows/docs.yml"
+  pull_request_target:
+    types: [closed]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -16,9 +26,13 @@ concurrency:
 
 jobs:
   build:
+    if: github.event_name != 'pull_request_target' || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # For merged PR fallback deploys, build the exact merged commit.
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
 
       - uses: quarto-dev/quarto-actions/setup@v2
 
@@ -30,6 +44,7 @@ jobs:
           path: docs/_site
 
   deploy:
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     environment:
