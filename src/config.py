@@ -69,7 +69,7 @@ DEFAULT_USE_TEST_DATA = os.environ.get("TS_AGENTS_USE_TEST_DATA", "true").lower(
 # =============================================================================
 
 # OpenAI model to use
-OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5-mini")
 
 # =============================================================================
 # Persistence Configuration

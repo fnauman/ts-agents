@@ -77,7 +77,7 @@ All optional. Set them via `export` or in `~/.env`.
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `OPENAI_API_KEY` | LLM agent/demo features | _(none — required for LLM mode)_ |
-| `OPENAI_MODEL` | Model override | `gpt-4o-mini` |
+| `OPENAI_MODEL` | Model override | `gpt-5-mini` |
 | `TS_AGENTS_DATA_DIR` | Full dataset path | bundled package data (or repo `./data`) |
 | `TS_AGENTS_USE_TEST_DATA` | Use bundled test data | `true` |
 | `TS_AGENTS_TEST_DATA_FILE` | Override test dataset filename | `short_real.csv` |
