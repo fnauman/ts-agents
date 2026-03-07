@@ -12,6 +12,7 @@ without rewriting the core toolchain.
 - [Quickstart](quickstart.qmd): install and run your first command in under a minute
 - [CLI Examples](cli-examples.qmd): practical CLI patterns by example
 - [Walkthroughs](walkthroughs.qmd): step-by-step guides for the built-in demos
+- [Hugging Face Spaces](huggingface-spaces.qmd): deploy a public Gradio demo from the hosted `app.py` entrypoint
 - [Skills Guide](skills-guide.qmd): using, customizing, and creating skills
 - [Philosophy](philosophy.qmd): why the project is structured around a stable CLI contract
 - [Architecture](architecture.qmd): how tools, sandboxes, agents, and UI fit together

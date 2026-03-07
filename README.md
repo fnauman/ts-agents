@@ -1,18 +1,89 @@
 # ts-agents
 
 [![Docs](https://img.shields.io/badge/docs-online-blue)](https://fnauman.github.io/ts-agents/)
+[![Python](https://img.shields.io/badge/python-3.11%2B-3776AB)](#installation)
+[![License](https://img.shields.io/badge/license-MIT-2EA44F)](LICENSE)
 
-ts-agents is a time-series analysis toolkit with:
-- a CLI-first workflow (`ts-agents`)
-- a Gradio app (`python main.py`)
-- tool-driven agent workflows (simple + deep)
+`ts-agents` is a CLI-first toolkit for time-series analysis and agent-driven
+automation. It combines:
+- a stable CLI contract for reproducible runs (`ts-agents`)
+- inspectable artifacts instead of chat-only outputs (plots, JSON, reports)
+- optional sandboxes for safer execution (`local`, `subprocess`, `docker`, `daytona`, `modal`)
+- both a Gradio UI (`python main.py`) and tool-driven agents (simple + deep)
 
 It ships with three out-of-the-box demos:
 - `window-classification` (synthetic labeled-stream window-size selection + evaluation)
 - `window-classification --csv-path data/wisdm_subset.csv` (WISDM real accelerometer data)
 - `forecasting` (baseline comparison and report artifacts)
 
+**Start here:** [Quickstart](#quickstart) | [Choose your path](#choose-your-path) | [Docs site](https://fnauman.github.io/ts-agents/) | [Demo walkthroughs](docs/walkthroughs.qmd) | [Hosted demo guide](docs/huggingface-spaces.qmd)
+
 ![ts-agents demo](demo/assets/demo.gif)
+
+## Table of Contents
+
+- [Choose your path](#choose-your-path)
+- [Why ts-agents instead of using statsforecast/sktime/aeon directly?](#why-ts-agents-instead-of-using-statsforecastsktimeaeon-directly)
+- [Design principles](#design-principles)
+- [Quickstart](#quickstart)
+- [Installation](#installation)
+- [CLI usage](#cli-usage)
+- [Gradio app](#gradio-app)
+- [Sandbox backends](#sandbox-backends)
+- [Guides](#guides)
+- [Development](#development)
+
+## Choose Your Path
+
+### 1. Run a deterministic demo in under a minute
+
+Use the scripted flows when you want a quick proof that the toolchain works,
+without requiring an LLM key.
+
+```bash
+uv sync
+uv run ts-agents demo window-classification --no-llm
+uv run ts-agents demo forecasting --no-llm
+```
+
+### 2. Use the CLI on bundled or custom data
+
+Use the CLI when you want reproducible commands, saved artifacts, and easy
+automation.
+
+```bash
+uv run ts-agents tool list --bundle demo
+uv run ts-agents run stl_decompose_with_data --run Re200Rm200 --var bx001_real
+uv run ts-agents demo window-classification --csv-path data/wisdm_subset.csv --no-llm
+```
+
+### 3. Launch the UI or prepare a hosted demo
+
+Use the Gradio app for interactive exploration, or the hosted entrypoint for a
+public manual-mode deployment.
+
+```bash
+uv run python main.py
+python app.py
+```
+
+For hosted deployment details, see [docs/huggingface-spaces.qmd](docs/huggingface-spaces.qmd).
+
+## Why ts-agents Instead of Using statsforecast/sktime/aeon Directly?
+
+Those libraries are excellent algorithm/toolkit layers, and `ts-agents`
+intentionally builds on that ecosystem rather than trying to replace it.
+
+Use the underlying libraries directly when:
+- you only need one modeling library inside a notebook or a custom pipeline
+- you do not need artifacts, tool routing, or sandboxed execution
+
+Use `ts-agents` when you want:
+- a stable CLI contract that works the same across demos, agents, and automation
+- artifact-first outputs (plots, JSON, markdown/report assets) instead of chat-only responses
+- reusable skills and tool bundles that encode workflow guidance
+- optional sandbox backends for isolation, deployment, and heavier workloads
+- swappable front ends: CLI, Gradio UI, or custom agent orchestration
 
 ## Design Principles
 
@@ -66,6 +137,15 @@ cd ts-agents
 uv sync
 ```
 
+Local editable install from a source checkout:
+
+```bash
+python -m pip install -e .
+```
+
+PyPI and prebuilt container publishing are planned, but source install is the
+supported path today.
+
 CLI entrypoints:
 - Preferred: `ts-agents ...`
 - Also supported: `python -m ts_agents ...`
@@ -85,6 +165,16 @@ All optional. Set them via `export` or in `~/.env`.
 
 Sandbox-specific environment variables (Docker/Daytona/Modal auth, snapshots,
 streaming, and log files) are documented in `SANDBOX.md`.
+
+### Hosted Demo Deployment
+
+The repo now includes a hosted Gradio entrypoint at `app.py` intended for
+public demos such as Hugging Face Spaces. It defaults to:
+- manual analysis mode (`agent` disabled)
+- no session persistence
+- a public-safe configuration that does not require `OPENAI_API_KEY`
+
+See [docs/huggingface-spaces.qmd](docs/huggingface-spaces.qmd) for deployment instructions and optional agent-mode configuration.
 
 ## CLI Usage
 
