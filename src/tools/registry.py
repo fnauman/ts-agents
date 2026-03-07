@@ -470,7 +470,7 @@ def _register_default_tools() -> None:
         find_discords_with_data,
         segment_changepoint_with_data,
         segment_fluss_with_data,
-        compute_spectrum_with_data,
+        compute_psd_with_data,
         detect_periodicity_with_data,
         compute_coherence_with_data,
         sample_entropy_with_data,
@@ -1426,7 +1426,7 @@ def _register_default_tools() -> None:
         description="Compute Power Spectral Density using Welch's method.",
         category=ToolCategory.SPECTRAL,
         cost=ComputationalCost.LOW,
-        core_function=compute_spectrum_with_data,
+        core_function=compute_psd_with_data,
         dependencies=["scipy", "matplotlib"],
         parameters=[
             ToolParameter("variable_name", "str", "Variable name to analyze"),

@@ -67,6 +67,14 @@ class TestToolRegistry:
         assert "fs" in param_names
         assert params_by_name["sample_rate"].default is None
 
+    def test_compute_psd_with_data_uses_consistent_wrapper_name(self):
+        """PSD with-data tool should point at the correctly named wrapper."""
+        from src.tools.registry import ToolRegistry
+
+        tool = ToolRegistry.get("compute_psd_with_data")
+
+        assert tool.core_function.__name__ == "compute_psd_with_data"
+
     def test_with_data_registry_params_match_wrapper_signatures(self):
         """All _with_data registry params should be accepted by wrapper signatures."""
         from src.tools.registry import ToolRegistry

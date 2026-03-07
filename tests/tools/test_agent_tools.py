@@ -8,7 +8,13 @@ def _patch_plotting(monkeypatch, agent_tools):
         def plot(self, *args, **kwargs):
             return None
 
+        def loglog(self, *args, **kwargs):
+            return None
+
         def axvline(self, *args, **kwargs):
+            return None
+
+        def legend(self, *args, **kwargs):
             return None
 
         def set_title(self, *args, **kwargs):
@@ -224,6 +230,77 @@ def test_segment_changepoint_with_data_prefers_n_segments(monkeypatch):
 
     assert "Error in Changepoint" not in output
     assert observed["n_segments"] == 5
+
+
+def test_segment_fluss_with_data_formats_segment_result(monkeypatch):
+    from src.tools import agent_tools
+    import src.core.patterns as patterns
+
+    def fake_get_series_data(variable_name, unique_id):
+        return np.array([0.0, 0.1, 1.0, 1.1, -0.2, -0.1])
+
+    def fake_segment_fluss(series, m=50, n_segments=3, n_regimes=None):
+        return SimpleNamespace(
+            changepoints=[2, 4],
+            n_segments=3,
+            segment_stats=[
+                {"start": 0, "end": 2, "length": 2, "mean": 0.05, "std": 0.05},
+                {"start": 2, "end": 4, "length": 2, "mean": 1.05, "std": 0.05},
+                {"start": 4, "end": 6, "length": 2, "mean": -0.15, "std": 0.05},
+            ],
+        )
+
+    monkeypatch.setattr(agent_tools, "_get_series_data", fake_get_series_data)
+    monkeypatch.setattr(patterns, "segment_fluss", fake_segment_fluss)
+    _patch_plotting(monkeypatch, agent_tools)
+
+    output = agent_tools.segment_fluss_with_data(
+        variable_name="bx001_real",
+        unique_id="Re200Rm200",
+        window_size=12,
+        n_segments=3,
+    )
+
+    assert "Error in FLUSS segmentation" not in output
+    assert "Changepoints detected at indices: [2, 4]" in output
+    assert "Segments: 3" in output
+    assert "Segment 1: start=0, end=2, length=2, mean=0.0500, std=0.0500" in output
+
+
+def test_compute_psd_with_data_aliases_spectrum_name(monkeypatch):
+    from src.tools import agent_tools
+    import src.core.spectral as spectral
+
+    def fake_get_series_data(variable_name, unique_id):
+        return np.array([1.0, 0.5, 0.25, 0.125])
+
+    def fake_compute_psd(series, sample_rate=1.0, method="welch", nperseg=None):
+        return SimpleNamespace(
+            frequencies=np.array([0.25, 0.5]),
+            psd=np.array([1.0, 0.5]),
+            spectral_slope=-1.75,
+        )
+
+    monkeypatch.setattr(agent_tools, "_get_series_data", fake_get_series_data)
+    monkeypatch.setattr(spectral, "compute_psd", fake_compute_psd)
+    _patch_plotting(monkeypatch, agent_tools)
+
+    output = agent_tools.compute_psd_with_data(
+        variable_name="bx001_real",
+        unique_id="Re200Rm200",
+        sampling_rate=2.0,
+    )
+    alias_output = agent_tools.compute_spectrum_with_data(
+        variable_name="bx001_real",
+        unique_id="Re200Rm200",
+        sampling_rate=2.0,
+    )
+
+    assert "Error in PSD" not in output
+    assert "Power Spectral Density for bx001_real:" in output
+    assert "Dominant Frequency: 0.2500" in output
+    assert "Spectral Slope: -1.7500" in output
+    assert alias_output == output
 
 
 def test_compute_coherence_with_data_accepts_sampling_aliases(monkeypatch):
