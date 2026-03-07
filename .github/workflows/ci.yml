@@ -29,3 +29,6 @@ jobs:
 
       - name: Run tests
         run: uv run python -m pytest -q
+
+      - name: Build package artifacts
+        run: uv build

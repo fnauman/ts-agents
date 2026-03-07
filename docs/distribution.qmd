@@ -1,0 +1,59 @@
+---
+title: "Distribution"
+---
+
+This page captures the repo's distribution and publishing paths.
+
+## Python Package
+
+- Package name target: `ts-agents`
+- Build backend: `setuptools`
+- Build command:
+
+```bash
+uv build
+```
+
+Publishing automation lives in `.github/workflows/publish-pypi.yml`.
+
+The workflow is designed for GitHub Actions -> PyPI trusted publishing and runs
+on version tags (`v*`) or manual dispatch.
+
+## GitHub Release Flow
+
+Release tags use the form `vX.Y.Z`.
+
+Recommended release steps:
+
+1. update `CHANGELOG.md`
+2. create/push the git tag
+3. create the GitHub release
+4. run or verify the package/image publish workflows
+
+## Sandbox Container Image
+
+The sandbox container is built from `Dockerfile.sandbox`.
+
+- Local build:
+
+```bash
+./build_docker_sandbox.sh
+```
+
+- Published image target:
+
+```text
+ghcr.io/fnauman/ts-agents-sandbox
+```
+
+Automation lives in `.github/workflows/publish-sandbox-image.yml`.
+
+The published image is intended to give users a prebuilt sandbox backend instead
+of requiring a local Docker build before first use.
+
+## Notes
+
+- The source checkout remains the primary install path until the first PyPI
+  publish is completed.
+- The docs/README should only advertise `pip install ts-agents` after the first
+  successful publish.
