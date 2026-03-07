@@ -54,7 +54,7 @@ The table below lists every tool that produces a plot, organized by analysis pha
 | Phase | Tool | Plot description |
 |-------|------|------------------|
 | **Diagnostics** | `compute_autocorrelation_with_data` | ACF bar chart by lag |
-| **Spectral** | `compute_spectrum_with_data` | Log-log power spectral density |
+| **Spectral** | `compute_psd_with_data` | Log-log power spectral density |
 | **Spectral** | `compute_coherence_with_data` | Coherence vs frequency |
 | **Decomposition** | `stl_decompose_with_data` | 4-panel: original, trend, seasonal, residual |
 | **Decomposition** | `mstl_decompose_with_data` | 4-panel: original, trend, seasonal, residual |
@@ -84,7 +84,7 @@ tasks: [report, pdf, comprehensive]
 tools:
   - describe_series_with_data
   - compute_autocorrelation_with_data
-  - compute_spectrum_with_data
+  - compute_psd_with_data
   - stl_decompose_with_data
   - hp_filter_with_data
   - detect_peaks_with_data
@@ -116,7 +116,7 @@ uv run ts-agents run compute_autocorrelation_with_data \
   --save outputs/$RUN/acf.txt \
   --extract-images outputs/$RUN/assets
 
-uv run ts-agents run compute_spectrum_with_data \
+uv run ts-agents run compute_psd_with_data \
   --run $RUN --var $VAR \
   --save outputs/$RUN/psd.txt \
   --extract-images outputs/$RUN/assets
