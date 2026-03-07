@@ -16,7 +16,7 @@ It ships with three out-of-the-box demos:
 - `window-classification --csv-path data/wisdm_subset.csv` (WISDM real accelerometer data)
 - `forecasting` (baseline comparison and report artifacts)
 
-**Start here:** [Quickstart](#quickstart) | [Choose your path](#choose-your-path) | [Docs site](https://fnauman.github.io/ts-agents/) | [Demo walkthroughs](docs/walkthroughs.qmd) | [Hosted demo guide](docs/huggingface-spaces.qmd)
+**Start here:** [Quickstart](#quickstart) | [Choose your path](#choose-your-path) | [Docs site](https://fnauman.github.io/ts-agents/) | [Distribution guide](docs/distribution.qmd) | [Demo walkthroughs](docs/walkthroughs.qmd) | [Hosted demo guide](docs/huggingface-spaces.qmd)
 
 ![ts-agents demo](demo/assets/demo.gif)
 
@@ -143,8 +143,14 @@ Local editable install from a source checkout:
 python -m pip install -e .
 ```
 
-PyPI and prebuilt container publishing are planned, but source install is the
-supported path today.
+Source install is the supported path today.
+
+Publishing setup in this repo targets:
+- PyPI package name: `ts-agents`
+- sandbox image: `ghcr.io/fnauman/ts-agents-sandbox`
+
+See [docs/distribution.qmd](docs/distribution.qmd) for the release, PyPI, and
+GHCR publishing flow.
 
 CLI entrypoints:
 - Preferred: `ts-agents ...`
@@ -175,6 +181,14 @@ public demos such as Hugging Face Spaces. It defaults to:
 - a public-safe configuration that does not require `OPENAI_API_KEY`
 
 See [docs/huggingface-spaces.qmd](docs/huggingface-spaces.qmd) for deployment instructions and optional agent-mode configuration.
+
+## Distribution
+
+- Package metadata is configured for the `ts-agents` distribution name.
+- GitHub Actions includes a PyPI publish workflow for tagged releases.
+- GitHub Actions includes a GHCR workflow for publishing the sandbox image built
+  from `Dockerfile.sandbox`.
+- GitHub release/tag/docs flow is summarized in [docs/distribution.qmd](docs/distribution.qmd).
 
 ## CLI Usage
 

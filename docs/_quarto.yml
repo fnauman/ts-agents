@@ -12,6 +12,8 @@ website:
         text: Quickstart
       - href: cli-examples.qmd
         text: CLI Examples
+      - href: distribution.qmd
+        text: Distribution
       - href: walkthroughs.qmd
         text: Walkthroughs
       - href: huggingface-spaces.qmd

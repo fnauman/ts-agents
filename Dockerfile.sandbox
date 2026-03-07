@@ -20,6 +20,7 @@ RUN apt-get update && \
 # Copy just the minimal project files for editable install.
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
+COPY ts_agents ./ts_agents
 
 RUN python -m pip install --upgrade pip && \
     python -m pip install -e .

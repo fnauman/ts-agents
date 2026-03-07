@@ -43,7 +43,11 @@ dependencies = [
 ]
 
 [project.urls]
+Homepage = "https://fnauman.github.io/ts-agents/"
+Documentation = "https://fnauman.github.io/ts-agents/"
 Repository = "https://github.com/fnauman/ts-agents"
+Issues = "https://github.com/fnauman/ts-agents/issues"
+Changelog = "https://github.com/fnauman/ts-agents/blob/main/CHANGELOG.md"
 
 [project.scripts]
 ts-agents = "ts_agents.__main__:main"
