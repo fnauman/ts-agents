@@ -70,7 +70,7 @@ def build_skills_markdown() -> str:
         "- ts-agents agent run \"<prompt>\"",
         "- ts-agents skills export --out skills_export",
         "- ts-agents skills validate",
-        "- python -m ts_agents ...  # supported compatibility entrypoint",
+        "- python -m ts_agents ...  # supported module entrypoint",
         "",
         "## Tool Bundles",
     ]

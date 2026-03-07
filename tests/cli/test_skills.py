@@ -125,4 +125,4 @@ def test_build_skills_markdown_uses_cli_script_examples():
 
     markdown = cli_skills.build_skills_markdown()
     assert "ts-agents data list" in markdown
-    assert "python -m ts_agents ...  # supported compatibility entrypoint" in markdown
+    assert "python -m ts_agents ...  # supported module entrypoint" in markdown

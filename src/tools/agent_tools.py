@@ -355,35 +355,42 @@ def knn_classify_with_data(variable_name: str, unique_id: str, k: int = 1) -> st
 
 # Spectral/Analysis Wrappers
 
-def compute_spectrum_with_data(variable_name: str, unique_id: str, sampling_rate: float = 1.0) -> str:
+def compute_psd_with_data(variable_name: str, unique_id: str, sampling_rate: float = 1.0) -> str:
     from src.core.spectral import compute_psd
     try:
         series = _get_series_data(variable_name, unique_id)
-        # Use compute_psd instead of compute_spectrum
         result = compute_psd(series, sample_rate=sampling_rate)
-        
-        output = f"Spectrum Analysis for {variable_name}:\n"
-        # result.frequencies and result.psd
+
+        output = f"Power Spectral Density for {variable_name}:\n"
         freqs = result.frequencies
         power = result.psd
         output += f"Dominant Frequency: {freqs[np.argmax(power)]:.4f}\n"
         output += f"Spectral Slope: {result.spectral_slope:.4f}\n"
-        
+
         plt = _get_plt()
         fig, ax = plt.subplots(figsize=(10, 6))
-        ax.loglog(freqs, power) # Log-log is usually better for PSD
-        ax.set_xlabel('Frequency')
-        ax.set_ylabel('Power Density')
-        ax.set_title(f'Power Spectral Density: {variable_name}')
+        ax.loglog(freqs, power)
+        ax.set_xlabel("Frequency")
+        ax.set_ylabel("Power Density")
+        ax.set_title(f"Power Spectral Density: {variable_name}")
         plt.tight_layout()
         buf = io.BytesIO()
-        plt.savefig(buf, format='png')
+        plt.savefig(buf, format="png")
         plt.close(fig)
         buf.seek(0)
         output += _create_plot_response(buf)
         return output
     except Exception as e:
-        return f"Error in spectrum: {str(e)}"
+        return f"Error in PSD: {str(e)}"
+
+
+def compute_spectrum_with_data(variable_name: str, unique_id: str, sampling_rate: float = 1.0) -> str:
+    """Backward-compatible alias for the renamed PSD wrapper."""
+    return compute_psd_with_data(
+        variable_name=variable_name,
+        unique_id=unique_id,
+        sampling_rate=sampling_rate,
+    )
 
 
 # ---------------------
@@ -562,27 +569,39 @@ def segment_fluss_with_data(variable_name: str, unique_id: str, window_size: int
     from src.core.patterns import segment_fluss
     try:
         series = _get_series_data(variable_name, unique_id)
-        # Map parameters: window_size -> m
         result = segment_fluss(series, m=window_size, n_segments=n_segments)
-        # assuming result has .segments or similar
-        output = f"FLUSS Segmentation: {result}\n" # Adjust based on actual result object structure
-        
+
+        output = f"FLUSS segmentation for {variable_name}:\n"
+        output += f"Changepoints detected at indices: {result.changepoints}\n"
+        output += f"Segments: {result.n_segments}\n"
+        if result.segment_stats:
+            output += "Segment statistics:\n"
+            for idx, stats in enumerate(result.segment_stats, start=1):
+                output += (
+                    f"- Segment {idx}: start={stats.get('start', 'n/a')}, "
+                    f"end={stats.get('end', 'n/a')}, "
+                    f"length={stats.get('length', 'n/a')}, "
+                    f"mean={stats.get('mean', float('nan')):.4f}, "
+                    f"std={stats.get('std', float('nan')):.4f}\n"
+                )
+
         plt = _get_plt()
         fig, ax = plt.subplots(figsize=(10, 6))
-        ax.plot(series)
-        # Assuming result has boundaries or similar
-        # If result is just a list of indices or object with 'segments'
-        # Placeholder for plotting logic if structure unknown, but better to try
+        ax.plot(series, label="Series")
+        for cp in result.changepoints:
+            ax.axvline(x=cp, color="r", linestyle="--", alpha=0.7)
+        if result.changepoints:
+            ax.legend()
         ax.set_title("FLUSS Segmentation")
         plt.tight_layout()
         buf = io.BytesIO()
-        plt.savefig(buf, format='png')
+        plt.savefig(buf, format="png")
         plt.close(fig)
         buf.seek(0)
         output += _create_plot_response(buf)
         return output
     except Exception as e:
-        return f"Error in FLUSS: {str(e)}"
+        return f"Error in FLUSS segmentation: {str(e)}"
 
 # Spectral (Additional)
 
