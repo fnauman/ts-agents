@@ -14,6 +14,8 @@ website:
         text: CLI Examples
       - href: walkthroughs.qmd
         text: Walkthroughs
+      - href: huggingface-spaces.qmd
+        text: HF Spaces
       - href: skills-guide.qmd
         text: Skills Guide
       - href: philosophy.qmd
