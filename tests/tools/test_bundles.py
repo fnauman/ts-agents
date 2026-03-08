@@ -219,6 +219,7 @@ class TestSubagentBundles:
         assert len(tools) > 0
         tool_names = [t.name for t in tools]
         assert any("forecast" in name for name in tool_names)
+        assert "forecast_seasonal_naive_with_data" in tool_names
 
     def test_get_patterns_subagent_bundle(self):
         """Test getting patterns subagent bundle."""

@@ -501,6 +501,7 @@ def get_subagent_bundle(subagent_name: str) -> List[ToolMetadata]:
         "forecasting": [
             "forecast_arima_with_data",
             "forecast_ets_with_data",
+            "forecast_seasonal_naive_with_data",
             "forecast_theta_with_data",
             "forecast_ensemble_with_data",
             "compare_forecasts_with_data",

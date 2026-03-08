@@ -37,11 +37,13 @@ def _parse_csv_list(value: str | None, default: Iterable[str]) -> list[str]:
 
 def _load_panel(dataset_path: Path, series_ids: list[str]) -> dict[str, dict[str, np.ndarray]]:
     df = pd.read_csv(dataset_path)
-    expected_columns = ["unique_id", "split", "ds", "y"]
-    if list(df.columns) != expected_columns:
+    required_columns = {"unique_id", "split", "ds", "y"}
+    missing_columns = sorted(required_columns.difference(df.columns))
+    if missing_columns:
         raise ValueError(
-            f"Unexpected dataset schema in {dataset_path}: {list(df.columns)}"
+            f"Missing required dataset columns in {dataset_path}: {missing_columns}"
         )
+    df = df.loc[:, ["unique_id", "split", "ds", "y"]]
 
     available_ids = set(df["unique_id"])
     missing_ids = [series_id for series_id in series_ids if series_id not in available_ids]
@@ -64,12 +66,13 @@ def _load_panel(dataset_path: Path, series_ids: list[str]) -> dict[str, dict[str
 
 def _smape(actual: np.ndarray, forecast: np.ndarray) -> float:
     denominator = np.abs(actual) + np.abs(forecast)
-    mask = denominator != 0
-    if not np.any(mask):
-        return 0.0
-    return float(
-        np.mean(200.0 * np.abs(actual[mask] - forecast[mask]) / denominator[mask])
+    contributions = np.divide(
+        200.0 * np.abs(actual - forecast),
+        denominator,
+        out=np.zeros_like(denominator, dtype=float),
+        where=denominator != 0,
     )
+    return float(np.mean(contributions))
 
 
 def _mae(actual: np.ndarray, forecast: np.ndarray) -> float:
