@@ -71,7 +71,8 @@ The example writes:
 - `REPORT.md`
 
 These are the concrete artifacts to inspect, share, and later assert in Chunk
-4C smoke tests.
+4C smoke tests. The reduced-profile smoke test now validates their presence and
+basic structure.
 
 ## Interpretation rules
 - Rank methods by holdout `sMAPE` first.
@@ -91,4 +92,4 @@ Return:
 ## Known limitations
 - This is a fixed reference workflow, not a general benchmark harness.
 - It does not replace the existing built-in forecasting demo.
-- Smoke-test artifact assertions are intentionally deferred to Chunk 4C.
+- The smoke test covers contract structure, not benchmark leadership claims.
