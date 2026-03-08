@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Iterable
 
@@ -176,6 +177,7 @@ def _write_report(
     horizon: int,
     season_length: int,
     rolling_origins: int,
+    best_method: str | None,
     summary_df: pd.DataFrame,
     plot_paths: list[Path],
     output_dir: Path,
@@ -185,7 +187,7 @@ def _write_report(
         .sort_values(["smape", "mae", "rmse"])
         .reset_index(drop=True)
     )
-    best_method = holdout_summary.iloc[0]["method"] if not holdout_summary.empty else "n/a"
+    display_best_method = best_method if best_method is not None else "n/a"
 
     lines = [
         "# Professional Forecasting Workflow Report",
@@ -208,7 +210,7 @@ def _write_report(
     lines.append("")
     lines.extend([
         "## Recommendation",
-        f"- recommended method: `{best_method}`",
+        f"- recommended method: `{display_best_method}`",
         "- ranking rule: lowest holdout sMAPE, with MAE/RMSE as tie-breakers",
         "",
         "## Generated artifacts",
@@ -232,7 +234,7 @@ def _write_report(
             "## Limitations",
             "- This is a fixed five-series reference workflow, not the full M4 benchmark.",
             "- The first implementation focuses on deterministic, reproducible artifacts rather than leaderboard tuning.",
-            "- Smoke-test assertions for these artifacts are intentionally deferred to Chunk 4C.",
+            "- The reduced smoke profile validates artifact production and structure, not benchmark leadership claims.",
             "",
         ]
     )
@@ -240,73 +242,33 @@ def _write_report(
     report_path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Run the professional forecasting workflow on the M4 Monthly mini-panel.",
-    )
-    parser.add_argument(
-        "--dataset",
-        type=Path,
-        default=DEFAULT_DATASET,
-        help="Path to the vendored M4 Monthly mini-panel CSV.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=DEFAULT_OUTPUT_DIR,
-        help="Directory where artifacts will be written.",
-    )
-    parser.add_argument(
-        "--series",
-        default=None,
-        help="Comma-separated series IDs to evaluate. Default: all reference series.",
-    )
-    parser.add_argument(
-        "--methods",
-        default=None,
-        help="Comma-separated forecasting methods. Default: seasonal_naive,theta,ets,arima.",
-    )
-    parser.add_argument(
-        "--horizon",
-        type=int,
-        default=DEFAULT_HORIZON,
-        help="Forecast horizon for rolling-origin and holdout evaluation.",
-    )
-    parser.add_argument(
-        "--season-length",
-        type=int,
-        default=DEFAULT_SEASON_LENGTH,
-        help="Season length forwarded to the forecasting methods.",
-    )
-    parser.add_argument(
-        "--rolling-origins",
-        type=int,
-        default=DEFAULT_ROLLING_ORIGINS,
-        help="Number of expanding-window backtest origins per series.",
-    )
-    parser.add_argument(
-        "--plot-series",
-        default=None,
-        help="Comma-separated series IDs to plot. Default: the first evaluated series.",
-    )
-    args = parser.parse_args()
+def run_workflow(
+    dataset_path: Path = DEFAULT_DATASET,
+    output_dir: Path = DEFAULT_OUTPUT_DIR,
+    series_ids: list[str] | None = None,
+    methods: list[str] | None = None,
+    horizon: int = DEFAULT_HORIZON,
+    season_length: int = DEFAULT_SEASON_LENGTH,
+    rolling_origins: int = DEFAULT_ROLLING_ORIGINS,
+    plot_series: list[str] | None = None,
+) -> dict[str, object]:
+    series_ids = list(series_ids) if series_ids is not None else list(DEFAULT_SERIES)
+    methods = list(methods) if methods is not None else list(DEFAULT_METHODS)
 
-    series_ids = _parse_csv_list(args.series, DEFAULT_SERIES)
-    methods = _parse_csv_list(args.methods, DEFAULT_METHODS)
     if not series_ids:
         raise ValueError("at least one series ID is required")
     if not methods:
         raise ValueError("at least one forecasting method is required")
-    plot_series = _parse_csv_list(args.plot_series, series_ids[:1]) or series_ids[:1]
+
+    plot_series = list(plot_series) if plot_series is not None else series_ids[:1]
     invalid_plot_series = [series_id for series_id in plot_series if series_id not in series_ids]
     if invalid_plot_series:
         raise ValueError(f"plot series must be a subset of --series: {invalid_plot_series}")
 
-    output_dir = args.output_dir
     plots_dir = output_dir / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
 
-    panel = _load_panel(args.dataset, series_ids)
+    panel = _load_panel(dataset_path, series_ids)
 
     metrics_rows: list[dict[str, object]] = []
     forecast_rows: list[dict[str, object]] = []
@@ -316,29 +278,29 @@ def main() -> None:
         train = panel[series_id]["train"]
         full_holdout = panel[series_id]["holdout"]
         full_holdout_ds = panel[series_id]["holdout_ds"]
-        if args.horizon > len(full_holdout):
+        if horizon > len(full_holdout):
             raise ValueError(
-                f"horizon {args.horizon} exceeds holdout length for {series_id}: "
+                f"horizon {horizon} exceeds holdout length for {series_id}: "
                 f"{len(full_holdout)}"
             )
-        holdout = full_holdout[:args.horizon]
-        holdout_ds = full_holdout_ds[:args.horizon]
+        holdout = full_holdout[:horizon]
+        holdout_ds = full_holdout_ds[:horizon]
 
         forecasts_by_method: dict[str, np.ndarray] = {}
 
         for origin_index, origin_end in enumerate(
-            _rolling_origins(len(train), args.horizon, args.rolling_origins),
+            _rolling_origins(len(train), horizon, rolling_origins),
             start=1,
         ):
             origin_train = train[:origin_end]
-            origin_actual = train[origin_end: origin_end + args.horizon]
+            origin_actual = train[origin_end: origin_end + horizon]
 
             for method in methods:
                 origin_forecast = _forecast_with_method(
                     method,
                     origin_train,
-                    args.horizon,
-                    args.season_length,
+                    horizon,
+                    season_length,
                 )
                 origin_scores = _score_forecast(origin_actual, origin_forecast)
                 metrics_rows.append(
@@ -355,8 +317,8 @@ def main() -> None:
             holdout_forecast = _forecast_with_method(
                 method,
                 train,
-                args.horizon,
-                args.season_length,
+                horizon,
+                season_length,
             )
             forecasts_by_method[method] = holdout_forecast
             holdout_scores = _score_forecast(holdout, holdout_forecast)
@@ -411,6 +373,14 @@ def main() -> None:
     forecasts_path = output_dir / "holdout_forecasts.csv"
     report_path = output_dir / "REPORT.md"
     run_summary_path = output_dir / "run_summary.json"
+    artifacts_manifest = {
+        "metrics_by_series": str(metrics_path),
+        "summary": str(summary_path),
+        "holdout_forecasts": str(forecasts_path),
+        "report": str(report_path),
+        "run_summary": str(run_summary_path),
+        "plots": [str(path) for path in plot_paths],
+    }
 
     metrics_df.to_csv(metrics_path, index=False)
     summary_df.to_csv(summary_path, index=False)
@@ -419,20 +389,14 @@ def main() -> None:
     run_summary_path.write_text(
         json.dumps(
             {
-                "dataset": str(args.dataset),
+                "dataset": str(dataset_path),
                 "series": series_ids,
                 "methods": methods,
-                "horizon": args.horizon,
-                "season_length": args.season_length,
-                "rolling_origins": args.rolling_origins,
+                "horizon": horizon,
+                "season_length": season_length,
+                "rolling_origins": rolling_origins,
                 "best_method": best_method,
-                "artifacts": {
-                    "metrics_by_series": str(metrics_path),
-                    "summary": str(summary_path),
-                    "holdout_forecasts": str(forecasts_path),
-                    "report": str(report_path),
-                    "plots": [str(path) for path in plot_paths],
-                },
+                "artifacts": artifacts_manifest,
             },
             indent=2,
         ),
@@ -441,20 +405,109 @@ def main() -> None:
 
     _write_report(
         report_path=report_path,
-        dataset_path=args.dataset,
+        dataset_path=dataset_path,
         series_ids=series_ids,
         methods=methods,
-        horizon=args.horizon,
-        season_length=args.season_length,
-        rolling_origins=args.rolling_origins,
+        horizon=horizon,
+        season_length=season_length,
+        rolling_origins=rolling_origins,
+        best_method=best_method,
         summary_df=summary_df,
         plot_paths=plot_paths,
         output_dir=output_dir,
     )
 
-    print(f"Wrote professional forecasting workflow artifacts to {output_dir}")
-    print(f"Best holdout method: {best_method}")
-    print(f"Summary: {summary_path}")
+    return {
+        "dataset": dataset_path,
+        "output_dir": output_dir,
+        "series": series_ids,
+        "methods": methods,
+        "horizon": horizon,
+        "season_length": season_length,
+        "rolling_origins": rolling_origins,
+        "best_method": best_method,
+        "artifacts": {
+            "metrics_by_series": Path(artifacts_manifest["metrics_by_series"]),
+            "summary": Path(artifacts_manifest["summary"]),
+            "holdout_forecasts": Path(artifacts_manifest["holdout_forecasts"]),
+            "report": Path(artifacts_manifest["report"]),
+            "run_summary": Path(artifacts_manifest["run_summary"]),
+            "plots": [Path(path) for path in artifacts_manifest["plots"]],
+        },
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Run the professional forecasting workflow on the M4 Monthly mini-panel.",
+    )
+    parser.add_argument(
+        "--dataset",
+        type=Path,
+        default=DEFAULT_DATASET,
+        help="Path to the vendored M4 Monthly mini-panel CSV.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=DEFAULT_OUTPUT_DIR,
+        help="Directory where artifacts will be written.",
+    )
+    parser.add_argument(
+        "--series",
+        default=None,
+        help="Comma-separated series IDs to evaluate. Default: all reference series.",
+    )
+    parser.add_argument(
+        "--methods",
+        default=None,
+        help="Comma-separated forecasting methods. Default: seasonal_naive,theta,ets,arima.",
+    )
+    parser.add_argument(
+        "--horizon",
+        type=int,
+        default=DEFAULT_HORIZON,
+        help="Forecast horizon for rolling-origin and holdout evaluation.",
+    )
+    parser.add_argument(
+        "--season-length",
+        type=int,
+        default=DEFAULT_SEASON_LENGTH,
+        help="Season length forwarded to the forecasting methods.",
+    )
+    parser.add_argument(
+        "--rolling-origins",
+        type=int,
+        default=DEFAULT_ROLLING_ORIGINS,
+        help="Number of expanding-window backtest origins per series.",
+    )
+    parser.add_argument(
+        "--plot-series",
+        default=None,
+        help="Comma-separated series IDs to plot. Default: the first evaluated series.",
+    )
+    args = parser.parse_args()
+
+    cli_plot_series = (
+        _parse_csv_list(args.plot_series, []) or None
+        if args.plot_series is not None
+        else None
+    )
+
+    result = run_workflow(
+        dataset_path=args.dataset,
+        output_dir=args.output_dir,
+        series_ids=_parse_csv_list(args.series, DEFAULT_SERIES),
+        methods=_parse_csv_list(args.methods, DEFAULT_METHODS),
+        horizon=args.horizon,
+        season_length=args.season_length,
+        rolling_origins=args.rolling_origins,
+        plot_series=cli_plot_series,
+    )
+
+    print(f"Wrote professional forecasting workflow artifacts to {result['output_dir']}")
+    print(f"Best holdout method: {result['best_method']}")
+    print(f"Summary: {result['artifacts']['summary']}")
 
 
 if __name__ == "__main__":
