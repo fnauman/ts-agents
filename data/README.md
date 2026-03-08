@@ -70,6 +70,27 @@ Re = 200 and magnetic Reynolds number Rm = 200. `ds` is the (integer) time step.
 This file is used as the default test dataset for the **forecasting demo**
 (`uv run ts-agents demo forecasting --no-llm`).
 
+## `m4_monthly_mini.csv` — M4 Monthly workflow subset
+
+A vendored mini-panel from the
+[M4 Monthly dataset](https://github.com/Nixtla/datasetsforecast), intended for
+the "professional forecasting workflow" spec and future smoke tests.
+
+| File | Series | Rows | Horizon | Version controlled |
+|------|--------|------|---------|--------------------|
+| **`m4_monthly_mini.csv`** | 5 (`M4`, `M10`, `M100`, `M1000`, `M1002`) | 1,466 | 18-step monthly holdout per series | yes |
+
+Schema:
+
+- `unique_id`: M4 Monthly series identifier
+- `split`: `train` or `holdout`
+- `ds`: 1-based time index within the full series
+- `y`: observed value
+
+This subset is intentionally small enough for deterministic tests. It is useful
+for workflow validation, but it is **not** meant to stand in for the full M4
+benchmark.
+
 ## `demo_labeled_stream.csv`
 
 A small single-subject demo stream (4 activities, ~10 min) used for quick demos

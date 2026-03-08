@@ -1,0 +1,179 @@
+---
+title: "Professional Forecasting Workflow"
+---
+
+This document defines the first "professional" forecasting workflow for
+`ts-agents`. It is a contract for future implementation work, not a claim that
+the full workflow already exists today.
+
+The goal is to make the next forecasting skill concrete and testable instead of
+leaving it as a vague "better forecasting" task.
+
+## Reference Dataset
+
+The reference workflow uses a **vendored mini-panel from the M4 Monthly
+dataset**:
+
+- repo copy: `data/m4_monthly_mini.csv`
+- packaged copy: `src/resources/data/m4_monthly_mini.csv`
+- frequency: monthly
+- seasonality: `12`
+- official M4 horizon: `18`
+- included series IDs:
+  - `M4`
+  - `M10`
+  - `M100`
+  - `M1000`
+  - `M1002`
+
+Why this dataset:
+
+- public and recognizable
+- seasonal enough to justify real forecasting decisions
+- small enough for deterministic smoke tests
+- vendored into the repo so future skills/tests do not depend on runtime
+  downloads
+
+What this dataset is **not**:
+
+- it is not a statistically representative sample of the full M4 benchmark
+- it is not the final benchmark story for the project
+- it is not meant to replace the existing built-in forecasting demo
+
+It is a stable reference panel for workflow design, example generation, and
+future automated validation.
+
+## Dataset Contract
+
+`m4_monthly_mini.csv` uses this schema:
+
+| Column | Meaning |
+|--------|---------|
+| `unique_id` | M4 Monthly series identifier |
+| `split` | `train` or `holdout` |
+| `ds` | 1-based time index within the full series |
+| `y` | observed value |
+
+Expected properties:
+
+- `5` total series
+- official monthly holdout length of `18` for every series
+- train lengths:
+  - `M4`: `82`
+  - `M10`: `366`
+  - `M100`: `292`
+  - `M1000`: `330`
+  - `M1002`: `306`
+
+## Workflow Contract
+
+### 1. Inputs
+
+The first professional workflow should operate on the vendored M4 mini-panel,
+with these fixed assumptions:
+
+- horizon: `18`
+- frequency: monthly
+- season length: `12`
+- panel scope: all five reference series by default
+
+### 2. Evaluation Protocol
+
+The workflow should use two evaluation layers:
+
+1. **Model selection on train split**
+   - expanding-window rolling-origin backtesting
+   - `2` forecast origins per series
+   - horizon `18` at each origin
+2. **Final evaluation on official holdout**
+   - refit on the full train split
+   - forecast the `18`-step official holdout
+   - score every required method on the vendored holdout rows
+
+This is intentionally more rigorous than the current single holdout comparison
+used by the existing demo.
+
+### 3. Required Methods
+
+The first implementation should support:
+
+- `seasonal_naive`
+- `theta`
+- `ets`
+- `arima`
+
+Notes:
+
+- `seasonal_naive` is required as the minimum serious baseline for monthly M4.
+- The existing repo already covers `theta`, `ets`, and `arima`.
+- More expensive methods should remain optional until the basic workflow and its
+  tests are stable.
+
+### 4. Required Metrics
+
+The first implementation should report:
+
+- `sMAPE` as the primary ranking metric
+- `MAE`
+- `RMSE`
+
+Follow-up metrics such as `MASE` or `OWA` can be added later, but they are not
+required for the first contract-complete implementation.
+
+### 5. Required Artifacts
+
+The workflow should produce all of the following:
+
+- a machine-readable metrics table by method and series
+- an aggregate summary across the five-series panel
+- forecast outputs for the official holdout window
+- at least one plot artifact showing train, holdout, and forecast
+- a short Markdown or Quarto report that explains:
+  - dataset
+  - protocol
+  - method ranking
+  - selected recommendation
+  - known limitations
+
+## Validation Contract
+
+Future implementation work should ship with at least two levels of validation.
+
+### Dataset Contract Test
+
+A fast unit test should assert:
+
+- the vendored CSV schema is unchanged
+- the expected five IDs are present
+- each series has an `18`-step holdout
+- the repo copy and packaged copy are identical
+
+### Workflow Smoke Test
+
+A deterministic smoke test should run a reduced profile:
+
+- series subset: `M4`, `M100`
+- methods: `seasonal_naive`, `theta`
+- outputs:
+  - metrics summary file
+  - forecast output file
+  - at least one plot
+  - short report
+
+The purpose of this smoke test is contract coverage, not leaderboard quality.
+
+## Non-Goals for the First Implementation
+
+The first workflow implementation does **not** need to:
+
+- run the full M4 benchmark
+- add neural or GPU-heavy models
+- depend on an LLM for validation
+- replace the current built-in demo
+
+## Recommended Next Steps
+
+1. Add the first implementation of `seasonal_naive`.
+2. Create `skills/forecasting/SKILL-pro.md` around this contract.
+3. Add the reduced smoke test profile.
+4. Add one end-to-end example that writes the required artifacts.
