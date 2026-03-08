@@ -175,13 +175,25 @@ def holt_winters_decompose_with_data(variable_name: str, unique_id: str, period:
 
 # Forecasting Wrappers
 
-def forecast_arima_with_data(variable_name: str, unique_id: str, horizon: int = 10, confidence_level: float = 0.95) -> str:
+def forecast_arima_with_data(
+    variable_name: str,
+    unique_id: str,
+    horizon: int = 10,
+    confidence_level: float = 0.95,
+    season_length: Optional[int] = None,
+) -> str:
     from src.core.forecasting import forecast_arima
     try:
         series = _get_series_data(variable_name, unique_id)
         # Convert confidence_level 0.95 to level [95]
         level_int = int(confidence_level * 100)
-        result = forecast_arima(series, horizon=horizon, level=[level_int])
+        forecast_kwargs = {
+            "horizon": horizon,
+            "level": [level_int],
+        }
+        if season_length is not None:
+            forecast_kwargs["season_length"] = season_length
+        result = forecast_arima(series, **forecast_kwargs)
         
         output = f"ARIMA Forecast for {variable_name} (run {unique_id}):\n"
         output += f"- Horizon: {horizon}\n"
@@ -210,11 +222,19 @@ def forecast_arima_with_data(variable_name: str, unique_id: str, horizon: int = 
     except Exception as e:
         return f"Error in ARIMA: {str(e)}"
 
-def forecast_ets_with_data(variable_name: str, unique_id: str, horizon: int = 10) -> str:
+def forecast_ets_with_data(
+    variable_name: str,
+    unique_id: str,
+    horizon: int = 10,
+    season_length: Optional[int] = None,
+) -> str:
     from src.core.forecasting import forecast_ets
     try:
         series = _get_series_data(variable_name, unique_id)
-        result = forecast_ets(series, horizon=horizon)
+        forecast_kwargs = {"horizon": horizon}
+        if season_length is not None:
+            forecast_kwargs["season_length"] = season_length
+        result = forecast_ets(series, **forecast_kwargs)
         
         output = f"ETS Forecast for {variable_name} (run {unique_id}):\n"
         output += f"First 5 predictions: {result.forecast[:5]}\n"
@@ -236,12 +256,20 @@ def forecast_ets_with_data(variable_name: str, unique_id: str, horizon: int = 10
     except Exception as e:
         return f"Error in ETS: {str(e)}"
 
-def forecast_theta_with_data(variable_name: str, unique_id: str, horizon: int = 10) -> str:
+def forecast_theta_with_data(
+    variable_name: str,
+    unique_id: str,
+    horizon: int = 10,
+    season_length: Optional[int] = None,
+) -> str:
     from src.core.forecasting import forecast_theta
     try:
         series = _get_series_data(variable_name, unique_id)
-        result = forecast_theta(series, horizon=horizon)
-        
+        forecast_kwargs = {"horizon": horizon}
+        if season_length is not None:
+            forecast_kwargs["season_length"] = season_length
+        result = forecast_theta(series, **forecast_kwargs)
+
         output = f"Theta Forecast for {variable_name} (run {unique_id}):\n"
         output += f"First 5 predictions: {result.forecast[:5]}\n"
         
@@ -261,6 +289,43 @@ def forecast_theta_with_data(variable_name: str, unique_id: str, horizon: int = 
         return output
     except Exception as e:
         return f"Error in Theta: {str(e)}"
+
+
+def forecast_seasonal_naive_with_data(
+    variable_name: str,
+    unique_id: str,
+    horizon: int = 10,
+    season_length: Optional[int] = None,
+) -> str:
+    from src.core.forecasting import forecast_seasonal_naive
+    try:
+        series = _get_series_data(variable_name, unique_id)
+        forecast_kwargs = {"horizon": horizon}
+        if season_length is not None:
+            forecast_kwargs["season_length"] = season_length
+        result = forecast_seasonal_naive(series, **forecast_kwargs)
+
+        output = f"Seasonal Naive Forecast for {variable_name} (run {unique_id}):\n"
+        output += f"- Horizon: {horizon}\n"
+        output += f"- Season length: {season_length or 1}\n"
+        output += f"- First 5 predictions: {result.forecast[:5]}\n"
+
+        plt = _get_plt()
+        fig, ax = plt.subplots(figsize=(10, 6))
+        hist = series[-min(len(series), 100):]
+        ax.plot(np.arange(len(hist)), hist, label='History')
+        x_pred = np.arange(len(hist), len(hist) + horizon)
+        ax.plot(x_pred, result.forecast, label='Forecast')
+        ax.legend()
+        plt.tight_layout()
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png')
+        plt.close(fig)
+        buf.seek(0)
+        output += _create_plot_response(buf)
+        return output
+    except Exception as e:
+        return f"Error in Seasonal Naive: {str(e)}"
 
 # Pattern Wrappers
 
@@ -399,21 +464,34 @@ def compute_spectrum_with_data(variable_name: str, unique_id: str, sampling_rate
 
 # Forecasting
 
-def forecast_ensemble_with_data(variable_name: str, unique_id: str, horizon: int = 10, models: list = None) -> str:
+def forecast_ensemble_with_data(
+    variable_name: str,
+    unique_id: str,
+    horizon: int = 10,
+    models: list = None,
+    season_length: Optional[int] = None,
+) -> str:
     from src.core.forecasting import forecast_ensemble
     try:
         series = _get_series_data(variable_name, unique_id)
-        result = forecast_ensemble(series, horizon=horizon, models=models)
+        forecast_kwargs = {
+            "horizon": horizon,
+            "models": models,
+        }
+        if season_length is not None:
+            forecast_kwargs["season_length"] = season_length
+        result = forecast_ensemble(series, **forecast_kwargs)
+        ensemble_forecast = result.get_ensemble()
         
         output = f"Ensemble Forecast for {variable_name}:\n"
-        output += f"First 5 predictions: {result.forecast[:5]}\n"
+        output += f"First 5 predictions: {ensemble_forecast[:5]}\n"
         
         plt = _get_plt()
         fig, ax = plt.subplots(figsize=(10, 6))
         hist = series[-min(len(series), 100):]
         ax.plot(np.arange(len(hist)), hist, label='History')
         x_pred = np.arange(len(hist), len(hist) + horizon)
-        ax.plot(x_pred, result.forecast, label='Ensemble Forecast', linewidth=2)
+        ax.plot(x_pred, ensemble_forecast, label='Ensemble Forecast', linewidth=2)
         
         # Plot individual models if available
         # Assuming result has a way to access individual forecasts, but for now just plotting ensemble
@@ -435,11 +513,18 @@ def compare_forecasts_with_data(
     horizon: int = 10,
     models: list = None,
     methods: list = None,
+    season_length: Optional[int] = None,
     ) -> str:
     from src.core.forecasting import compare_forecasts
     series = _get_series_data(variable_name, unique_id)
     selected_models = models if models is not None else methods
-    result = compare_forecasts(series, horizon=horizon, models=selected_models)
+    compare_kwargs = {
+        "horizon": horizon,
+        "models": selected_models,
+    }
+    if season_length is not None:
+        compare_kwargs["season_length"] = season_length
+    result = compare_forecasts(series, **compare_kwargs)
 
     output = f"Forecast Comparison for {variable_name}:\n"
     output += str(result)

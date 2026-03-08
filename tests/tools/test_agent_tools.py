@@ -55,10 +55,17 @@ def test_compare_forecasts_with_data_forwards_models(monkeypatch):
     def fake_get_series_data(variable_name, unique_id):
         return np.array([1.0, 2.0, 3.0, 4.0])
 
-    def fake_compare_forecasts(series, horizon=10, test_size=None, models=None):
+    def fake_compare_forecasts(
+        series,
+        horizon=10,
+        test_size=None,
+        models=None,
+        **kwargs,
+    ):
         observed["series"] = series
         observed["horizon"] = horizon
         observed["models"] = models
+        observed["extra_kwargs"] = kwargs
         return {"best_model": "theta", "metrics": {}}
 
     monkeypatch.setattr(agent_tools, "_get_series_data", fake_get_series_data)
@@ -74,6 +81,7 @@ def test_compare_forecasts_with_data_forwards_models(monkeypatch):
     assert "Error in Compare Forecasts" not in output
     assert observed["horizon"] == 12
     assert observed["models"] == ["theta"]
+    assert observed["extra_kwargs"] == {}
 
 
 def test_compare_forecasts_with_data_accepts_methods_alias(monkeypatch):
@@ -85,7 +93,13 @@ def test_compare_forecasts_with_data_accepts_methods_alias(monkeypatch):
     def fake_get_series_data(variable_name, unique_id):
         return np.array([1.0, 2.0, 3.0, 4.0])
 
-    def fake_compare_forecasts(series, horizon=10, test_size=None, models=None):
+    def fake_compare_forecasts(
+        series,
+        horizon=10,
+        test_size=None,
+        models=None,
+        season_length=None,
+    ):
         observed["models"] = models
         return {"best_model": "arima", "metrics": {}}
 
@@ -111,7 +125,13 @@ def test_compare_forecasts_with_data_models_take_precedence(monkeypatch):
     def fake_get_series_data(variable_name, unique_id):
         return np.array([1.0, 2.0, 3.0, 4.0])
 
-    def fake_compare_forecasts(series, horizon=10, test_size=None, models=None):
+    def fake_compare_forecasts(
+        series,
+        horizon=10,
+        test_size=None,
+        models=None,
+        season_length=None,
+    ):
         observed["models"] = models
         return {"best_model": "theta", "metrics": {}}
 
@@ -136,7 +156,13 @@ def test_compare_forecasts_with_data_propagates_errors(monkeypatch):
     def fake_get_series_data(variable_name, unique_id):
         return np.array([1.0, 2.0, 3.0, 4.0])
 
-    def fake_compare_forecasts(series, horizon=10, test_size=None, models=None):
+    def fake_compare_forecasts(
+        series,
+        horizon=10,
+        test_size=None,
+        models=None,
+        season_length=None,
+    ):
         raise ValueError("number sections must be larger than 0")
 
     monkeypatch.setattr(agent_tools, "_get_series_data", fake_get_series_data)
@@ -149,6 +175,106 @@ def test_compare_forecasts_with_data_propagates_errors(monkeypatch):
             horizon=12,
             models=["arima", "theta"],
         )
+
+
+def test_compare_forecasts_with_data_forwards_season_length(monkeypatch):
+    from src.tools import agent_tools
+    import src.core.forecasting as forecasting
+
+    observed = {}
+
+    def fake_get_series_data(variable_name, unique_id):
+        return np.array([1.0, 2.0, 3.0, 4.0])
+
+    def fake_compare_forecasts(
+        series,
+        horizon=10,
+        test_size=None,
+        models=None,
+        season_length=None,
+    ):
+        observed["season_length"] = season_length
+        return {"best_model": "seasonal_naive", "metrics": {}}
+
+    monkeypatch.setattr(agent_tools, "_get_series_data", fake_get_series_data)
+    monkeypatch.setattr(forecasting, "compare_forecasts", fake_compare_forecasts)
+
+    output = agent_tools.compare_forecasts_with_data(
+        variable_name="bx001_real",
+        unique_id="Re200Rm200",
+        models=["seasonal_naive"],
+        season_length=12,
+    )
+
+    assert "Error in Compare Forecasts" not in output
+    assert observed["season_length"] == 12
+
+
+def test_forecast_seasonal_naive_with_data_forwards_season_length(monkeypatch):
+    from src.tools import agent_tools
+    import src.core.forecasting as forecasting
+
+    observed = {}
+
+    def fake_get_series_data(variable_name, unique_id):
+        return np.array([1.0, 2.0, 3.0, 4.0])
+
+    def fake_forecast_seasonal_naive(series, horizon=10, level=None, season_length=None):
+        observed["horizon"] = horizon
+        observed["season_length"] = season_length
+        return SimpleNamespace(forecast=np.array([3.0, 4.0]))
+
+    monkeypatch.setattr(agent_tools, "_get_series_data", fake_get_series_data)
+    monkeypatch.setattr(forecasting, "forecast_seasonal_naive", fake_forecast_seasonal_naive)
+    _patch_plotting(monkeypatch, agent_tools)
+
+    output = agent_tools.forecast_seasonal_naive_with_data(
+        variable_name="bx001_real",
+        unique_id="Re200Rm200",
+        horizon=2,
+        season_length=12,
+    )
+
+    assert "Error in Seasonal Naive" not in output
+    assert observed["horizon"] == 2
+    assert observed["season_length"] == 12
+
+
+def test_forecast_ensemble_with_data_uses_get_ensemble(monkeypatch):
+    from src.tools import agent_tools
+    import src.core.forecasting as forecasting
+
+    observed = {}
+
+    def fake_get_series_data(variable_name, unique_id):
+        return np.array([1.0, 2.0, 3.0, 4.0])
+
+    class FakeEnsembleResult:
+        def get_ensemble(self):
+            return np.array([4.5, 5.5])
+
+    def fake_forecast_ensemble(series, horizon=10, models=None, season_length=None):
+        observed["horizon"] = horizon
+        observed["models"] = models
+        observed["season_length"] = season_length
+        return FakeEnsembleResult()
+
+    monkeypatch.setattr(agent_tools, "_get_series_data", fake_get_series_data)
+    monkeypatch.setattr(forecasting, "forecast_ensemble", fake_forecast_ensemble)
+    _patch_plotting(monkeypatch, agent_tools)
+
+    output = agent_tools.forecast_ensemble_with_data(
+        variable_name="bx001_real",
+        unique_id="Re200Rm200",
+        horizon=2,
+        models=["seasonal_naive", "theta"],
+        season_length=12,
+    )
+
+    assert "Error in Ensemble" not in output
+    assert observed["horizon"] == 2
+    assert observed["models"] == ["seasonal_naive", "theta"]
+    assert observed["season_length"] == 12
 
 
 def test_segment_changepoint_with_data_maps_n_changepoints_alias(monkeypatch):

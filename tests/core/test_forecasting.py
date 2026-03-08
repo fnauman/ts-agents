@@ -43,6 +43,21 @@ class TestForecasting:
         assert result.method == "auto_theta"
         assert len(result.forecast) == 20
 
+    def test_forecast_seasonal_naive(self):
+        """Test seasonal naive repeats the last observed season."""
+        from src.core.forecasting import forecast_seasonal_naive
+
+        x = np.tile(np.arange(1, 13, dtype=float), 2)
+
+        result = forecast_seasonal_naive(x, horizon=18, season_length=12)
+        expected = np.concatenate([
+            np.arange(1, 13, dtype=float),
+            np.arange(1, 7, dtype=float),
+        ])
+
+        assert result.method == "seasonal_naive"
+        np.testing.assert_allclose(result.forecast, expected)
+
     def test_forecast_ensemble(self):
         """Test ensemble forecasting."""
         from src.core.forecasting import forecast_ensemble
@@ -57,6 +72,25 @@ class TestForecasting:
         # Test ensemble average
         ensemble = result.get_ensemble()
         assert len(ensemble) == 20
+
+    def test_forecast_ensemble_supports_seasonal_naive(self):
+        """Test ensemble forecasting can include seasonal naive."""
+        from src.core.forecasting import forecast_ensemble
+
+        x = np.tile(np.arange(1, 13, dtype=float), 2)
+
+        result = forecast_ensemble(
+            x,
+            horizon=12,
+            models=["seasonal_naive"],
+            season_length=12,
+        )
+
+        assert "seasonal_naive" in result.forecasts
+        np.testing.assert_allclose(
+            result.forecasts["seasonal_naive"],
+            np.arange(1, 13, dtype=float),
+        )
 
     def test_forecast_arima_with_season_length(self):
         """Test ARIMA forecasting with season_length parameter."""
@@ -116,14 +150,15 @@ class TestForecasting:
         statistical.forecast_arima(x, horizon=5, season_length=season_length)
         statistical.forecast_ets(x, horizon=5, season_length=season_length)
         statistical.forecast_theta(x, horizon=5, season_length=season_length)
+        statistical.forecast_seasonal_naive(x, horizon=5, season_length=season_length)
         statistical.forecast_ensemble(
             x,
             horizon=5,
-            models=['arima', 'ets', 'theta'],
+            models=['arima', 'ets', 'theta', 'seasonal_naive'],
             season_length=season_length,
         )
 
-        assert captured_freqs == [1, 1, 1, 1]
+        assert captured_freqs == [1, 1, 1, 1, 1]
         assert all(isinstance(freq, int) for freq in captured_freqs)
 
     def test_compare_forecasts(self):
@@ -137,3 +172,22 @@ class TestForecasting:
         assert 'metrics' in results
         assert 'rankings' in results
         assert 'best_model' in results
+
+    def test_compare_forecasts_supports_seasonal_naive(self):
+        """Test forecast comparison can score the seasonal naive baseline."""
+        from src.core.forecasting import compare_forecasts
+
+        x = np.tile(np.arange(1, 13, dtype=float), 3)
+
+        results = compare_forecasts(
+            x,
+            horizon=12,
+            test_size=12,
+            models=["seasonal_naive"],
+            season_length=12,
+        )
+
+        assert results["best_model"] == "seasonal_naive"
+        assert results["metrics"]["seasonal_naive"]["mae"] == pytest.approx(0.0)
+        assert results["metrics"]["seasonal_naive"]["rmse"] == pytest.approx(0.0)
+        assert results["metrics"]["seasonal_naive"]["mape"] == pytest.approx(0.0)
