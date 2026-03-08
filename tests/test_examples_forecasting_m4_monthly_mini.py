@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import sys
 
 import numpy as np
 import pandas as pd
@@ -127,6 +128,7 @@ def test_run_workflow_reduced_profile_writes_expected_artifacts(tmp_path):
     assert Path(run_summary["artifacts"]["summary"]) == summary_path
     assert Path(run_summary["artifacts"]["holdout_forecasts"]) == forecasts_path
     assert Path(run_summary["artifacts"]["report"]) == report_path
+    assert Path(run_summary["artifacts"]["run_summary"]) == run_summary_path
     assert [Path(path) for path in run_summary["artifacts"]["plots"]] == plot_paths
 
     holdout_summary = summary_df[summary_df["phase"] == "holdout"].reset_index(drop=True)
@@ -134,6 +136,41 @@ def test_run_workflow_reduced_profile_writes_expected_artifacts(tmp_path):
 
     assert "# Professional Forecasting Workflow Report" in report
     assert "## Holdout ranking" in report
+    assert f"- recommended method: `{run_summary['best_method']}`" in report
     assert "metrics_by_series.csv" in report
     assert "holdout_forecasts.csv" in report
     assert "plots/M4.png" in report
+
+
+def test_main_treats_empty_plot_series_as_default(monkeypatch, tmp_path, capsys):
+    module = _load_example_module()
+    observed = {}
+
+    def fake_run_workflow(**kwargs):
+        observed.update(kwargs)
+        output_dir = kwargs["output_dir"]
+        summary_path = output_dir / "summary.csv"
+        return {
+            "output_dir": output_dir,
+            "best_method": "theta",
+            "artifacts": {"summary": summary_path},
+        }
+
+    monkeypatch.setattr(module, "run_workflow", fake_run_workflow)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "forecasting_m4_monthly_mini.py",
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--plot-series",
+            "",
+        ],
+    )
+
+    module.main()
+
+    assert observed["plot_series"] is None
+    output = capsys.readouterr().out
+    assert "Best holdout method: theta" in output

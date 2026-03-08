@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Iterable
 
@@ -176,6 +177,7 @@ def _write_report(
     horizon: int,
     season_length: int,
     rolling_origins: int,
+    best_method: str | None,
     summary_df: pd.DataFrame,
     plot_paths: list[Path],
     output_dir: Path,
@@ -185,7 +187,7 @@ def _write_report(
         .sort_values(["smape", "mae", "rmse"])
         .reset_index(drop=True)
     )
-    best_method = holdout_summary.iloc[0]["method"] if not holdout_summary.empty else "n/a"
+    display_best_method = best_method if best_method is not None else "n/a"
 
     lines = [
         "# Professional Forecasting Workflow Report",
@@ -208,7 +210,7 @@ def _write_report(
     lines.append("")
     lines.extend([
         "## Recommendation",
-        f"- recommended method: `{best_method}`",
+        f"- recommended method: `{display_best_method}`",
         "- ranking rule: lowest holdout sMAPE, with MAE/RMSE as tie-breakers",
         "",
         "## Generated artifacts",
@@ -371,6 +373,14 @@ def run_workflow(
     forecasts_path = output_dir / "holdout_forecasts.csv"
     report_path = output_dir / "REPORT.md"
     run_summary_path = output_dir / "run_summary.json"
+    artifacts_manifest = {
+        "metrics_by_series": str(metrics_path),
+        "summary": str(summary_path),
+        "holdout_forecasts": str(forecasts_path),
+        "report": str(report_path),
+        "run_summary": str(run_summary_path),
+        "plots": [str(path) for path in plot_paths],
+    }
 
     metrics_df.to_csv(metrics_path, index=False)
     summary_df.to_csv(summary_path, index=False)
@@ -386,13 +396,7 @@ def run_workflow(
                 "season_length": season_length,
                 "rolling_origins": rolling_origins,
                 "best_method": best_method,
-                "artifacts": {
-                    "metrics_by_series": str(metrics_path),
-                    "summary": str(summary_path),
-                    "holdout_forecasts": str(forecasts_path),
-                    "report": str(report_path),
-                    "plots": [str(path) for path in plot_paths],
-                },
+                "artifacts": artifacts_manifest,
             },
             indent=2,
         ),
@@ -407,6 +411,7 @@ def run_workflow(
         horizon=horizon,
         season_length=season_length,
         rolling_origins=rolling_origins,
+        best_method=best_method,
         summary_df=summary_df,
         plot_paths=plot_paths,
         output_dir=output_dir,
@@ -422,12 +427,12 @@ def run_workflow(
         "rolling_origins": rolling_origins,
         "best_method": best_method,
         "artifacts": {
-            "metrics_by_series": metrics_path,
-            "summary": summary_path,
-            "holdout_forecasts": forecasts_path,
-            "report": report_path,
-            "run_summary": run_summary_path,
-            "plots": plot_paths,
+            "metrics_by_series": Path(artifacts_manifest["metrics_by_series"]),
+            "summary": Path(artifacts_manifest["summary"]),
+            "holdout_forecasts": Path(artifacts_manifest["holdout_forecasts"]),
+            "report": Path(artifacts_manifest["report"]),
+            "run_summary": Path(artifacts_manifest["run_summary"]),
+            "plots": [Path(path) for path in artifacts_manifest["plots"]],
         },
     }
 
@@ -483,6 +488,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    cli_plot_series = (
+        _parse_csv_list(args.plot_series, []) or None
+        if args.plot_series is not None
+        else None
+    )
+
     result = run_workflow(
         dataset_path=args.dataset,
         output_dir=args.output_dir,
@@ -491,7 +502,7 @@ def main() -> None:
         horizon=args.horizon,
         season_length=args.season_length,
         rolling_origins=args.rolling_origins,
-        plot_series=_parse_csv_list(args.plot_series, []) if args.plot_series is not None else None,
+        plot_series=cli_plot_series,
     )
 
     print(f"Wrote professional forecasting workflow artifacts to {result['output_dir']}")
