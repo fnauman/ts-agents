@@ -1,7 +1,7 @@
 """Time series forecasting methods.
 
 This module provides functions for:
-- Statistical forecasting (ARIMA, ETS, Theta)
+- Statistical forecasting (ARIMA, ETS, Theta, Seasonal Naive)
 - Ensemble forecasting
 - Forecast comparison and evaluation
 """
@@ -10,6 +10,7 @@ from .statistical import (
     forecast_arima,
     forecast_ets,
     forecast_theta,
+    forecast_seasonal_naive,
     forecast_ensemble,
     compare_forecasts,
 )
@@ -18,6 +19,7 @@ __all__ = [
     "forecast_arima",
     "forecast_ets",
     "forecast_theta",
+    "forecast_seasonal_naive",
     "forecast_ensemble",
     "compare_forecasts",
 ]

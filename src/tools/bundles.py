@@ -77,6 +77,7 @@ STANDARD_BUNDLE = [
     # Forecasting
     "forecast_arima_with_data",
     "forecast_ets_with_data",
+    "forecast_seasonal_naive_with_data",
     "forecast_theta_with_data",
 
     # Spectral
@@ -114,6 +115,7 @@ FULL_BUNDLE = [
     # Forecasting - all methods
     "forecast_arima_with_data",
     "forecast_ets_with_data",
+    "forecast_seasonal_naive_with_data",
     "forecast_theta_with_data",
     "forecast_ensemble_with_data",
     "compare_forecasts_with_data",
@@ -166,6 +168,7 @@ CATEGORY_BUNDLES: Dict[str, List[str]] = {
     "forecasting": [
         "forecast_arima_with_data",
         "forecast_ets_with_data",
+        "forecast_seasonal_naive_with_data",
         "forecast_theta_with_data",
         "forecast_ensemble_with_data",
         "compare_forecasts_with_data",

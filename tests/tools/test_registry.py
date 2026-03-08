@@ -31,7 +31,7 @@ class TestToolRegistry:
         assert callable(tool.core_function)
 
     def test_compare_forecasts_with_data_has_models_and_alias(self):
-        """Test compare_forecasts_with_data parameters include models + compatibility alias."""
+        """Test compare_forecasts_with_data parameters include models + seasonal controls."""
         from src.tools.registry import ToolRegistry
 
         tool = ToolRegistry.get("compare_forecasts_with_data")
@@ -39,6 +39,16 @@ class TestToolRegistry:
 
         assert "models" in param_names
         assert "methods" in param_names
+        assert "season_length" in param_names
+
+    def test_forecast_seasonal_naive_with_data_has_season_length(self):
+        """Seasonal naive should be registered with its seasonal period control."""
+        from src.tools.registry import ToolRegistry
+
+        tool = ToolRegistry.get("forecast_seasonal_naive_with_data")
+        param_names = [param.name for param in tool.parameters]
+
+        assert "season_length" in param_names
 
     def test_segment_changepoint_with_data_has_expected_params(self):
         """Test segment_changepoint_with_data exposes core controls + compatibility alias."""
