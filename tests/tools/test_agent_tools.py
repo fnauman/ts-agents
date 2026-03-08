@@ -60,12 +60,12 @@ def test_compare_forecasts_with_data_forwards_models(monkeypatch):
         horizon=10,
         test_size=None,
         models=None,
-        season_length=None,
+        **kwargs,
     ):
         observed["series"] = series
         observed["horizon"] = horizon
         observed["models"] = models
-        observed["season_length"] = season_length
+        observed["extra_kwargs"] = kwargs
         return {"best_model": "theta", "metrics": {}}
 
     monkeypatch.setattr(agent_tools, "_get_series_data", fake_get_series_data)
@@ -81,7 +81,7 @@ def test_compare_forecasts_with_data_forwards_models(monkeypatch):
     assert "Error in Compare Forecasts" not in output
     assert observed["horizon"] == 12
     assert observed["models"] == ["theta"]
-    assert observed["season_length"] is None
+    assert observed["extra_kwargs"] == {}
 
 
 def test_compare_forecasts_with_data_accepts_methods_alias(monkeypatch):

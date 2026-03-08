@@ -187,12 +187,13 @@ def forecast_arima_with_data(
         series = _get_series_data(variable_name, unique_id)
         # Convert confidence_level 0.95 to level [95]
         level_int = int(confidence_level * 100)
-        result = forecast_arima(
-            series,
-            horizon=horizon,
-            level=[level_int],
-            season_length=season_length,
-        )
+        forecast_kwargs = {
+            "horizon": horizon,
+            "level": [level_int],
+        }
+        if season_length is not None:
+            forecast_kwargs["season_length"] = season_length
+        result = forecast_arima(series, **forecast_kwargs)
         
         output = f"ARIMA Forecast for {variable_name} (run {unique_id}):\n"
         output += f"- Horizon: {horizon}\n"
@@ -230,7 +231,10 @@ def forecast_ets_with_data(
     from src.core.forecasting import forecast_ets
     try:
         series = _get_series_data(variable_name, unique_id)
-        result = forecast_ets(series, horizon=horizon, season_length=season_length)
+        forecast_kwargs = {"horizon": horizon}
+        if season_length is not None:
+            forecast_kwargs["season_length"] = season_length
+        result = forecast_ets(series, **forecast_kwargs)
         
         output = f"ETS Forecast for {variable_name} (run {unique_id}):\n"
         output += f"First 5 predictions: {result.forecast[:5]}\n"
@@ -261,7 +265,10 @@ def forecast_theta_with_data(
     from src.core.forecasting import forecast_theta
     try:
         series = _get_series_data(variable_name, unique_id)
-        result = forecast_theta(series, horizon=horizon, season_length=season_length)
+        forecast_kwargs = {"horizon": horizon}
+        if season_length is not None:
+            forecast_kwargs["season_length"] = season_length
+        result = forecast_theta(series, **forecast_kwargs)
 
         output = f"Theta Forecast for {variable_name} (run {unique_id}):\n"
         output += f"First 5 predictions: {result.forecast[:5]}\n"
@@ -293,11 +300,10 @@ def forecast_seasonal_naive_with_data(
     from src.core.forecasting import forecast_seasonal_naive
     try:
         series = _get_series_data(variable_name, unique_id)
-        result = forecast_seasonal_naive(
-            series,
-            horizon=horizon,
-            season_length=season_length,
-        )
+        forecast_kwargs = {"horizon": horizon}
+        if season_length is not None:
+            forecast_kwargs["season_length"] = season_length
+        result = forecast_seasonal_naive(series, **forecast_kwargs)
 
         output = f"Seasonal Naive Forecast for {variable_name} (run {unique_id}):\n"
         output += f"- Horizon: {horizon}\n"
@@ -468,12 +474,13 @@ def forecast_ensemble_with_data(
     from src.core.forecasting import forecast_ensemble
     try:
         series = _get_series_data(variable_name, unique_id)
-        result = forecast_ensemble(
-            series,
-            horizon=horizon,
-            models=models,
-            season_length=season_length,
-        )
+        forecast_kwargs = {
+            "horizon": horizon,
+            "models": models,
+        }
+        if season_length is not None:
+            forecast_kwargs["season_length"] = season_length
+        result = forecast_ensemble(series, **forecast_kwargs)
         ensemble_forecast = result.get_ensemble()
         
         output = f"Ensemble Forecast for {variable_name}:\n"
@@ -511,12 +518,13 @@ def compare_forecasts_with_data(
     from src.core.forecasting import compare_forecasts
     series = _get_series_data(variable_name, unique_id)
     selected_models = models if models is not None else methods
-    result = compare_forecasts(
-        series,
-        horizon=horizon,
-        models=selected_models,
-        season_length=season_length,
-    )
+    compare_kwargs = {
+        "horizon": horizon,
+        "models": selected_models,
+    }
+    if season_length is not None:
+        compare_kwargs["season_length"] = season_length
+    result = compare_forecasts(series, **compare_kwargs)
 
     output = f"Forecast Comparison for {variable_name}:\n"
     output += str(result)
