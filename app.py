@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-from src.ui import create_app, launch_app
+from ts_agents.ui import create_app, launch_app
 
 
 def _env_flag(name: str, default: bool) -> bool:

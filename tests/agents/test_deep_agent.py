@@ -8,7 +8,7 @@ class TestSubagentDefinitions:
 
     def test_decomposition_subagent_structure(self):
         """Test decomposition subagent has required fields."""
-        from src.agents.deep.subagents import DECOMPOSITION_SUBAGENT
+        from ts_agents.agents.deep.subagents import DECOMPOSITION_SUBAGENT
 
         assert "name" in DECOMPOSITION_SUBAGENT
         assert "description" in DECOMPOSITION_SUBAGENT
@@ -20,7 +20,7 @@ class TestSubagentDefinitions:
 
     def test_forecasting_subagent_structure(self):
         """Test forecasting subagent has required fields."""
-        from src.agents.deep.subagents import FORECASTING_SUBAGENT
+        from ts_agents.agents.deep.subagents import FORECASTING_SUBAGENT
 
         assert "name" in FORECASTING_SUBAGENT
         assert "description" in FORECASTING_SUBAGENT
@@ -31,7 +31,7 @@ class TestSubagentDefinitions:
 
     def test_patterns_subagent_structure(self):
         """Test patterns subagent has required fields."""
-        from src.agents.deep.subagents import PATTERNS_SUBAGENT
+        from ts_agents.agents.deep.subagents import PATTERNS_SUBAGENT
 
         assert "name" in PATTERNS_SUBAGENT
         assert "description" in PATTERNS_SUBAGENT
@@ -42,7 +42,7 @@ class TestSubagentDefinitions:
 
     def test_classification_subagent_structure(self):
         """Test classification subagent has required fields."""
-        from src.agents.deep.subagents import CLASSIFICATION_SUBAGENT
+        from ts_agents.agents.deep.subagents import CLASSIFICATION_SUBAGENT
 
         assert "name" in CLASSIFICATION_SUBAGENT
         assert "description" in CLASSIFICATION_SUBAGENT
@@ -53,7 +53,7 @@ class TestSubagentDefinitions:
 
     def test_turbulence_subagent_structure(self):
         """Test turbulence subagent has required fields."""
-        from src.agents.deep.subagents import TURBULENCE_SUBAGENT
+        from ts_agents.agents.deep.subagents import TURBULENCE_SUBAGENT
 
         assert "name" in TURBULENCE_SUBAGENT
         assert "description" in TURBULENCE_SUBAGENT
@@ -69,7 +69,7 @@ class TestSubagentTools:
 
     def test_decomposition_tools_available(self):
         """Test decomposition subagent tools can be retrieved."""
-        from src.agents.deep.subagents.decomposition import get_decomposition_tools
+        from ts_agents.agents.deep.subagents.decomposition import get_decomposition_tools
 
         tools = get_decomposition_tools()
 
@@ -83,7 +83,7 @@ class TestSubagentTools:
 
     def test_forecasting_tools_available(self):
         """Test forecasting subagent tools can be retrieved."""
-        from src.agents.deep.subagents.forecasting import get_forecasting_tools
+        from ts_agents.agents.deep.subagents.forecasting import get_forecasting_tools
 
         tools = get_forecasting_tools()
 
@@ -92,7 +92,7 @@ class TestSubagentTools:
 
     def test_patterns_tools_available(self):
         """Test patterns subagent tools can be retrieved."""
-        from src.agents.deep.subagents.patterns import get_patterns_tools
+        from ts_agents.agents.deep.subagents.patterns import get_patterns_tools
 
         tools = get_patterns_tools()
 
@@ -101,7 +101,7 @@ class TestSubagentTools:
 
     def test_classification_tools_available(self):
         """Test classification subagent tools can be retrieved."""
-        from src.agents.deep.subagents.classification import get_classification_tools
+        from ts_agents.agents.deep.subagents.classification import get_classification_tools
 
         tools = get_classification_tools()
 
@@ -110,7 +110,7 @@ class TestSubagentTools:
 
     def test_turbulence_tools_available(self):
         """Test turbulence subagent tools can be retrieved."""
-        from src.agents.deep.subagents.turbulence import get_turbulence_tools
+        from ts_agents.agents.deep.subagents.turbulence import get_turbulence_tools
 
         tools = get_turbulence_tools()
 
@@ -123,7 +123,7 @@ class TestSubagentCall:
 
     def test_subagent_call_creation(self):
         """Test creating a subagent call record."""
-        from src.agents.deep.orchestrator import SubagentCall
+        from ts_agents.agents.deep.orchestrator import SubagentCall
 
         call = SubagentCall(
             subagent_name="decomposition-agent",
@@ -144,7 +144,7 @@ class TestDeepAgentTurn:
 
     def test_deep_agent_turn_creation(self):
         """Test creating a deep agent turn record."""
-        from src.agents.deep.orchestrator import DeepAgentTurn, SubagentCall
+        from ts_agents.agents.deep.orchestrator import DeepAgentTurn, SubagentCall
 
         turn = DeepAgentTurn(
             user_message="Analyze the spectral properties",
@@ -169,7 +169,7 @@ class TestDeepAgentTurn:
 
     def test_deep_agent_turn_with_approval(self):
         """Test deep agent turn that required approval."""
-        from src.agents.deep.orchestrator import DeepAgentTurn
+        from ts_agents.agents.deep.orchestrator import DeepAgentTurn
 
         turn = DeepAgentTurn(
             user_message="Run HC2 classifier",
@@ -186,7 +186,7 @@ class TestOrchestratorConfiguration:
 
     def test_get_all_subagents(self):
         """Test retrieving all subagent configurations."""
-        from src.agents.deep.orchestrator import get_all_subagents
+        from ts_agents.agents.deep.orchestrator import get_all_subagents
 
         subagents = get_all_subagents()
 
@@ -203,7 +203,7 @@ class TestOrchestratorConfiguration:
 
     def test_subagent_names(self):
         """Test that all expected subagent names are present."""
-        from src.agents.deep.orchestrator import get_all_subagents
+        from ts_agents.agents.deep.orchestrator import get_all_subagents
 
         subagents = get_all_subagents()
         names = [s["name"] for s in subagents]
@@ -216,7 +216,7 @@ class TestOrchestratorConfiguration:
 
     def test_create_interrupt_config_enabled(self):
         """Test interrupt config when approval is enabled."""
-        from src.agents.deep.orchestrator import create_interrupt_config
+        from ts_agents.agents.deep.orchestrator import create_interrupt_config
 
         config = create_interrupt_config(enable_approval=True)
 
@@ -228,7 +228,7 @@ class TestOrchestratorConfiguration:
 
     def test_create_interrupt_config_disabled(self):
         """Test interrupt config when approval is disabled."""
-        from src.agents.deep.orchestrator import create_interrupt_config
+        from ts_agents.agents.deep.orchestrator import create_interrupt_config
 
         config = create_interrupt_config(enable_approval=False)
 
@@ -236,7 +236,7 @@ class TestOrchestratorConfiguration:
 
     def test_get_expensive_tool_names(self):
         """Test retrieving expensive tool names."""
-        from src.agents.deep.orchestrator import get_expensive_tool_names
+        from ts_agents.agents.deep.orchestrator import get_expensive_tool_names
 
         expensive = get_expensive_tool_names()
 
@@ -247,7 +247,7 @@ class TestOrchestratorConfiguration:
     def test_create_deep_agent_does_not_require_langchain_anthropic(self, monkeypatch):
         """Deep agent creation should not fail if Anthropic package is absent."""
         import sys
-        import src.agents.deep.orchestrator as orchestrator
+        import ts_agents.agents.deep.orchestrator as orchestrator
 
         monkeypatch.delitem(sys.modules, "langchain_anthropic", raising=False)
         monkeypatch.setattr(orchestrator, "get_bundle", lambda name: [])
@@ -256,7 +256,7 @@ class TestOrchestratorConfiguration:
         monkeypatch.setattr(orchestrator, "_create_with_deepagents", lambda **kwargs: {"ok": True})
 
         agent = orchestrator.create_deep_agent(
-            model_name="gpt-4o-mini",
+            model_name="gpt-5-mini",
             enable_approval=False,
             enable_logging=False,
         )
@@ -268,7 +268,7 @@ class TestUtilityFunctions:
 
     def test_list_subagents(self):
         """Test listing subagents."""
-        from src.agents.deep import list_subagents
+        from ts_agents.agents.deep import list_subagents
 
         subagents = list_subagents()
 
@@ -281,7 +281,7 @@ class TestUtilityFunctions:
 
     def test_get_expensive_tools(self):
         """Test getting expensive tools info."""
-        from src.agents.deep import get_expensive_tools
+        from ts_agents.agents.deep import get_expensive_tools
 
         tools = get_expensive_tools()
 
@@ -293,7 +293,7 @@ class TestUtilityFunctions:
 
     def test_run_with_approval_function_exists(self):
         """Test that run_with_approval function exists."""
-        from src.agents.deep import run_with_approval
+        from ts_agents.agents.deep import run_with_approval
 
         assert callable(run_with_approval)
 
@@ -303,7 +303,7 @@ class TestDeepAgentChatDataStructures:
 
     def test_get_stats_computation(self):
         """Test stats computation logic."""
-        from src.agents.deep.orchestrator import SubagentCall
+        from ts_agents.agents.deep.orchestrator import SubagentCall
 
         # Sample data
         subagent_calls = [
@@ -337,7 +337,7 @@ class TestSystemPrompts:
 
     def test_orchestrator_system_prompt(self):
         """Test orchestrator system prompt content."""
-        from src.agents.deep.orchestrator import ORCHESTRATOR_SYSTEM_PROMPT
+        from ts_agents.agents.deep.orchestrator import ORCHESTRATOR_SYSTEM_PROMPT
 
         prompt = ORCHESTRATOR_SYSTEM_PROMPT
 
@@ -356,7 +356,7 @@ class TestSystemPrompts:
 
     def test_decomposition_system_prompt(self):
         """Test decomposition agent system prompt."""
-        from src.agents.deep.subagents.decomposition import DECOMPOSITION_SYSTEM_PROMPT
+        from ts_agents.agents.deep.subagents.decomposition import DECOMPOSITION_SYSTEM_PROMPT
 
         prompt = DECOMPOSITION_SYSTEM_PROMPT
 
@@ -368,7 +368,7 @@ class TestSystemPrompts:
 
     def test_forecasting_system_prompt(self):
         """Test forecasting agent system prompt."""
-        from src.agents.deep.subagents.forecasting import FORECASTING_SYSTEM_PROMPT
+        from ts_agents.agents.deep.subagents.forecasting import FORECASTING_SYSTEM_PROMPT
 
         prompt = FORECASTING_SYSTEM_PROMPT
 
@@ -379,7 +379,7 @@ class TestSystemPrompts:
 
     def test_patterns_system_prompt(self):
         """Test patterns agent system prompt."""
-        from src.agents.deep.subagents.patterns import PATTERNS_SYSTEM_PROMPT
+        from ts_agents.agents.deep.subagents.patterns import PATTERNS_SYSTEM_PROMPT
 
         prompt = PATTERNS_SYSTEM_PROMPT
 
@@ -390,7 +390,7 @@ class TestSystemPrompts:
 
     def test_classification_system_prompt(self):
         """Test classification agent system prompt."""
-        from src.agents.deep.subagents.classification import CLASSIFICATION_SYSTEM_PROMPT
+        from ts_agents.agents.deep.subagents.classification import CLASSIFICATION_SYSTEM_PROMPT
 
         prompt = CLASSIFICATION_SYSTEM_PROMPT
 
@@ -404,7 +404,7 @@ class TestSystemPrompts:
 
     def test_turbulence_system_prompt(self):
         """Test turbulence agent system prompt."""
-        from src.agents.deep.subagents.turbulence import TURBULENCE_SYSTEM_PROMPT
+        from ts_agents.agents.deep.subagents.turbulence import TURBULENCE_SYSTEM_PROMPT
 
         prompt = TURBULENCE_SYSTEM_PROMPT
 
@@ -422,7 +422,7 @@ class TestImports:
 
     def test_deep_agent_imports(self):
         """Test all deep agent imports work."""
-        from src.agents.deep import (
+        from ts_agents.agents.deep import (
             create_deep_agent,
             DeepAgentChat,
             DeepAgentTurn,
@@ -442,7 +442,7 @@ class TestImports:
 
     def test_subagent_imports(self):
         """Test subagent imports work."""
-        from src.agents.deep import (
+        from ts_agents.agents.deep import (
             DECOMPOSITION_SUBAGENT,
             FORECASTING_SUBAGENT,
             PATTERNS_SUBAGENT,
@@ -458,7 +458,7 @@ class TestImports:
 
     def test_agents_package_exports_deep(self):
         """Test main agents package exports deep agent."""
-        from src.agents import create_deep_agent, DeepAgentChat, list_subagents
+        from ts_agents.agents import create_deep_agent, DeepAgentChat, list_subagents
 
         assert callable(create_deep_agent)
         assert DeepAgentChat is not None

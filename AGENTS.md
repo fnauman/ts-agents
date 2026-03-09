@@ -32,17 +32,17 @@ uv run python -m pytest -q
 ```
 
 ### Environment variables
-- `TS_AGENTS_DATA_DIR` (optional): path to the dataset directory (see `src/config.py`)
-- `OPENAI_MODEL` (optional): defaults to `gpt-4o-mini` (see `src/config.py`)
+- `TS_AGENTS_DATA_DIR` (optional): path to the dataset directory (see `ts_agents/config.py`)
+- `OPENAI_MODEL` (optional): defaults to `gpt-5-mini` (see `ts_agents/config.py`)
 - `OPENAI_API_KEY` (required for agent chat in many setups)
 
 ## Repo map (where to look first)
 - `main.py` — app entrypoint (arg parsing + launch)
-- `src/ui/` — Gradio UI (tabs + chat)
-- `src/agents/` — agent implementations (simple + deep)
-- `src/tools/` — tool registry + wrappers (LangChain + deep agent tools)
-- `src/core/` — pure analysis implementations (decomposition, forecasting, patterns, classification, complexity, spectral)
-- `src/persistence/` — session persistence + caching
+- `ts_agents/ui/` — Gradio UI (tabs + chat)
+- `ts_agents/agents/` — agent implementations (simple + deep)
+- `ts_agents/tools/` — tool registry + wrappers (LangChain + deep agent tools)
+- `ts_agents/core/` — pure analysis implementations (decomposition, forecasting, patterns, classification, complexity, spectral)
+- `ts_agents/persistence/` — session persistence + caching
 - `tests/` — unit tests
 
 ## Working agreement (always follow)

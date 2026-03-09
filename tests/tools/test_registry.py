@@ -10,7 +10,7 @@ class TestToolRegistry:
 
     def test_registry_initialization(self):
         """Test that registry initializes with default tools."""
-        from src.tools.registry import ToolRegistry
+        from ts_agents.tools.registry import ToolRegistry
 
         # Force re-initialization
         ToolRegistry._initialized = False
@@ -23,7 +23,7 @@ class TestToolRegistry:
 
     def test_get_tool_by_name(self):
         """Test getting a tool by name."""
-        from src.tools.registry import ToolRegistry
+        from ts_agents.tools.registry import ToolRegistry
 
         tool = ToolRegistry.get("stl_decompose")
         assert tool.name == "stl_decompose"
@@ -32,7 +32,7 @@ class TestToolRegistry:
 
     def test_compare_forecasts_with_data_has_models_and_alias(self):
         """Test compare_forecasts_with_data parameters include models + seasonal controls."""
-        from src.tools.registry import ToolRegistry
+        from ts_agents.tools.registry import ToolRegistry
 
         tool = ToolRegistry.get("compare_forecasts_with_data")
         param_names = [param.name for param in tool.parameters]
@@ -43,7 +43,7 @@ class TestToolRegistry:
 
     def test_forecast_seasonal_naive_with_data_has_season_length(self):
         """Seasonal naive should be registered with its seasonal period control."""
-        from src.tools.registry import ToolRegistry
+        from ts_agents.tools.registry import ToolRegistry
 
         tool = ToolRegistry.get("forecast_seasonal_naive_with_data")
         param_names = [param.name for param in tool.parameters]
@@ -52,7 +52,7 @@ class TestToolRegistry:
 
     def test_segment_changepoint_with_data_has_expected_params(self):
         """Test segment_changepoint_with_data exposes core controls + compatibility alias."""
-        from src.tools.registry import ToolRegistry
+        from ts_agents.tools.registry import ToolRegistry
 
         tool = ToolRegistry.get("segment_changepoint_with_data")
         param_names = [param.name for param in tool.parameters]
@@ -66,7 +66,7 @@ class TestToolRegistry:
 
     def test_compute_coherence_with_data_has_sample_rate_aliases(self):
         """Test compute_coherence_with_data exposes sample_rate and compatibility aliases."""
-        from src.tools.registry import ToolRegistry
+        from ts_agents.tools.registry import ToolRegistry
 
         tool = ToolRegistry.get("compute_coherence_with_data")
         param_names = [param.name for param in tool.parameters]
@@ -79,7 +79,7 @@ class TestToolRegistry:
 
     def test_compute_psd_with_data_uses_consistent_wrapper_name(self):
         """PSD with-data tool should point at the correctly named wrapper."""
-        from src.tools.registry import ToolRegistry
+        from ts_agents.tools.registry import ToolRegistry
 
         tool = ToolRegistry.get("compute_psd_with_data")
 
@@ -87,7 +87,7 @@ class TestToolRegistry:
 
     def test_with_data_registry_params_match_wrapper_signatures(self):
         """All _with_data registry params should be accepted by wrapper signatures."""
-        from src.tools.registry import ToolRegistry
+        from ts_agents.tools.registry import ToolRegistry
 
         mismatches = []
         for tool in ToolRegistry.list_all():
@@ -114,21 +114,21 @@ class TestToolRegistry:
 
     def test_get_nonexistent_tool(self):
         """Test that getting nonexistent tool raises KeyError."""
-        from src.tools.registry import ToolRegistry
+        from ts_agents.tools.registry import ToolRegistry
 
         with pytest.raises(KeyError):
             ToolRegistry.get("nonexistent_tool_xyz")
 
     def test_get_optional(self):
         """Test get_optional returns None for missing tools."""
-        from src.tools.registry import ToolRegistry
+        from ts_agents.tools.registry import ToolRegistry
 
         assert ToolRegistry.get_optional("nonexistent_tool") is None
         assert ToolRegistry.get_optional("stl_decompose") is not None
 
     def test_list_by_category(self):
         """Test listing tools by category."""
-        from src.tools.registry import ToolRegistry, ToolCategory
+        from ts_agents.tools.registry import ToolRegistry, ToolCategory
 
         decomp_tools = ToolRegistry.list_by_category(ToolCategory.DECOMPOSITION)
         assert len(decomp_tools) >= 4  # STL, MSTL, HP, Holt-Winters
@@ -138,7 +138,7 @@ class TestToolRegistry:
 
     def test_list_by_max_cost(self):
         """Test listing tools by maximum cost."""
-        from src.tools.registry import ToolRegistry, ComputationalCost
+        from ts_agents.tools.registry import ToolRegistry, ComputationalCost
 
         low_cost = ToolRegistry.list_by_max_cost(ComputationalCost.LOW)
         medium_cost = ToolRegistry.list_by_max_cost(ComputationalCost.MEDIUM)
@@ -148,7 +148,7 @@ class TestToolRegistry:
 
     def test_list_by_exact_cost(self):
         """Test listing tools by exact cost."""
-        from src.tools.registry import ToolRegistry, ComputationalCost
+        from ts_agents.tools.registry import ToolRegistry, ComputationalCost
 
         low_tools = ToolRegistry.list_by_cost(ComputationalCost.LOW)
 
@@ -157,7 +157,7 @@ class TestToolRegistry:
 
     def test_search_tools(self):
         """Test searching tools by name/description."""
-        from src.tools.registry import ToolRegistry
+        from ts_agents.tools.registry import ToolRegistry
 
         results = ToolRegistry.search("decompose")
         assert len(results) > 0
@@ -167,7 +167,7 @@ class TestToolRegistry:
 
     def test_search_with_category_filter(self):
         """Test searching with category filter."""
-        from src.tools.registry import ToolRegistry, ToolCategory
+        from ts_agents.tools.registry import ToolRegistry, ToolCategory
 
         results = ToolRegistry.search(
             "forecast",
@@ -179,7 +179,7 @@ class TestToolRegistry:
 
     def test_tool_has_required_metadata(self):
         """Test that all tools have required metadata."""
-        from src.tools.registry import ToolRegistry
+        from ts_agents.tools.registry import ToolRegistry
 
         for tool in ToolRegistry.list_all():
             assert tool.name, "Tool must have a name"
@@ -190,7 +190,7 @@ class TestToolRegistry:
 
     def test_tool_to_schema(self):
         """Test converting tool metadata to JSON schema."""
-        from src.tools.registry import ToolRegistry
+        from ts_agents.tools.registry import ToolRegistry
 
         tool = ToolRegistry.get("detect_peaks")
         schema = tool.to_schema()
@@ -201,7 +201,7 @@ class TestToolRegistry:
 
     def test_category_summary(self):
         """Test getting category summary."""
-        from src.tools.registry import ToolRegistry
+        from ts_agents.tools.registry import ToolRegistry
 
         summary = ToolRegistry.get_tools_for_category_summary()
 
@@ -219,7 +219,7 @@ class TestToolMetadata:
 
     def test_get_signature(self):
         """Test getting function signature."""
-        from src.tools.registry import ToolRegistry
+        from ts_agents.tools.registry import ToolRegistry
 
         tool = ToolRegistry.get("stl_decompose")
         sig = tool.get_signature()
@@ -229,7 +229,7 @@ class TestToolMetadata:
 
     def test_to_schema_types(self):
         """Test JSON schema type conversion."""
-        from src.tools.registry import ToolRegistry
+        from ts_agents.tools.registry import ToolRegistry
 
         tool = ToolRegistry.get("stl_decompose")
         schema = tool.to_schema()
@@ -244,7 +244,7 @@ class TestComputationalCost:
 
     def test_cost_ordering(self):
         """Test that costs are properly ordered."""
-        from src.tools.registry import ComputationalCost, _COST_ORDER
+        from ts_agents.tools.registry import ComputationalCost, _COST_ORDER
 
         assert _COST_ORDER.index(ComputationalCost.LOW) < _COST_ORDER.index(ComputationalCost.MEDIUM)
         assert _COST_ORDER.index(ComputationalCost.MEDIUM) < _COST_ORDER.index(ComputationalCost.HIGH)
@@ -256,7 +256,7 @@ class TestToolExecution:
 
     def test_execute_detect_peaks(self):
         """Test executing the detect_peaks tool."""
-        from src.tools.registry import ToolRegistry
+        from ts_agents.tools.registry import ToolRegistry
 
         tool = ToolRegistry.get("detect_peaks")
 
@@ -270,7 +270,7 @@ class TestToolExecution:
 
     def test_execute_stl_decompose(self):
         """Test executing the stl_decompose tool."""
-        from src.tools.registry import ToolRegistry
+        from ts_agents.tools.registry import ToolRegistry
 
         tool = ToolRegistry.get("stl_decompose")
 
@@ -285,7 +285,7 @@ class TestToolExecution:
 
     def test_execute_describe_series(self):
         """Test executing the describe_series tool."""
-        from src.tools.registry import ToolRegistry
+        from ts_agents.tools.registry import ToolRegistry
 
         tool = ToolRegistry.get("describe_series")
 

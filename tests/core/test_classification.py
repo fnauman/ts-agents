@@ -36,7 +36,7 @@ class TestKNNClassification:
 
     def test_knn_classify_euclidean(self):
         """Test KNN with Euclidean distance."""
-        from src.core.classification import knn_classify
+        from ts_agents.core.classification import knn_classify
 
         X, y = create_synthetic_data(n_samples=40)
         X_train, y_train = X[:30], y[:30]
@@ -50,7 +50,7 @@ class TestKNNClassification:
 
     def test_knn_classify_dtw(self):
         """Test KNN with DTW distance."""
-        from src.core.classification import knn_classify
+        from ts_agents.core.classification import knn_classify
 
         X, y = create_synthetic_data(n_samples=30)
         X_train, y_train = X[:20], y[:20]
@@ -63,7 +63,7 @@ class TestKNNClassification:
 
     def test_compute_dtw_distance(self):
         """Test DTW distance computation."""
-        from src.core.classification import compute_dtw_distance
+        from ts_agents.core.classification import compute_dtw_distance
 
         x = np.sin(np.linspace(0, 2 * np.pi, 100))
         y = np.sin(np.linspace(0.5, 2.5 * np.pi, 100))
@@ -80,7 +80,7 @@ class TestROCKETClassification:
 
     def test_rocket_classify(self):
         """Test ROCKET classification."""
-        from src.core.classification import rocket_classify
+        from ts_agents.core.classification import rocket_classify
 
         X, y = create_synthetic_data(n_samples=40)
         X_train, y_train = X[:30], y[:30]
@@ -97,7 +97,7 @@ class TestEnsure3D:
 
     def test_ensure_3d_from_1d(self):
         """1D input should become (1, 1, n_timepoints)."""
-        from src.core.classification.utils import ensure_3d
+        from ts_agents.core.classification.utils import ensure_3d
 
         x = np.array([1, 2, 3, 4, 5])
         result = ensure_3d(x)
@@ -107,7 +107,7 @@ class TestEnsure3D:
 
     def test_ensure_3d_from_2d(self):
         """2D input should become (n_samples, 1, n_timepoints)."""
-        from src.core.classification.utils import ensure_3d
+        from ts_agents.core.classification.utils import ensure_3d
 
         x = np.array([[1, 2, 3], [4, 5, 6]])
         result = ensure_3d(x)
@@ -117,7 +117,7 @@ class TestEnsure3D:
 
     def test_ensure_3d_passthrough(self):
         """3D input should pass through unchanged."""
-        from src.core.classification.utils import ensure_3d
+        from ts_agents.core.classification.utils import ensure_3d
 
         x = np.random.randn(5, 2, 10)
         result = ensure_3d(x)
@@ -131,7 +131,7 @@ class TestCompareClassifiers:
 
     def test_compare_classifiers(self):
         """Test classifier comparison."""
-        from src.core.classification import compare_classifiers
+        from ts_agents.core.classification import compare_classifiers
 
         X, y = create_synthetic_data(n_samples=40)
         X_train, y_train = X[:30], y[:30]

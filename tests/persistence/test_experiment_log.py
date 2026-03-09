@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.persistence.experiment_log import (
+from ts_agents.persistence.experiment_log import (
     ExperimentStatus,
     ToolCall,
     ExperimentRun,
@@ -62,7 +62,7 @@ class TestExperimentRun:
         """Test creating an experiment run."""
         run = ExperimentRun(
             agent_type="simple",
-            model="gpt-4o-mini",
+            model="gpt-5-mini",
             query="Count the peaks",
         )
 
@@ -152,7 +152,7 @@ class TestExperimentLog:
         """Test saving and loading a run."""
         run = ExperimentRun(
             agent_type="simple",
-            model="gpt-4o-mini",
+            model="gpt-5-mini",
             query="Count the peaks",
         )
         run.add_tool_call(ToolCall(tool_name="detect_peaks"))

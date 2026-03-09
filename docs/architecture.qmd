@@ -39,7 +39,7 @@ flowchart TD
 
 ```
 ts-agents/
-├── src/
+├── ts_agents/
 │   ├── cli/              # Click CLI commands (run, tool, data, demo, skills, agent)
 │   ├── tools/
 │   │   ├── registry.py   # Central tool metadata: schemas, costs, categories

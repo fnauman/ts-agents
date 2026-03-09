@@ -23,7 +23,7 @@ Usage:
     python main.py --port 8080
 """
 
-from src.ui import create_app, launch_app
+from ts_agents.ui import create_app, launch_app
 
 
 def main():

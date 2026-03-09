@@ -480,7 +480,7 @@ def _add_skills_subcommands(subparsers: argparse._SubParsersAction) -> None:
 
 
 def _resolve_runtime_path(path: str) -> Path:
-    from src.runtime_paths import resolve_existing_path
+    from ts_agents.runtime_paths import resolve_existing_path
 
     resolved = resolve_existing_path(path)
     return resolved if resolved is not None else Path(path)
@@ -739,7 +739,7 @@ def _resolve_use_test_data(args: argparse.Namespace) -> Optional[bool]:
 
 
 def _handle_data_command(args: argparse.Namespace) -> Tuple[Any, str]:
-    from src import data_access
+    from ts_agents import data_access
 
     data_type = args.data_type
     use_test_data = _resolve_use_test_data(args)
@@ -780,8 +780,8 @@ def _handle_data_command(args: argparse.Namespace) -> Tuple[Any, str]:
 
 
 def _handle_tool_command(args: argparse.Namespace) -> Tuple[Any, str]:
-    from src.tools.registry import ToolRegistry, ToolCategory, ComputationalCost
-    from src.tools.bundles import get_bundle_names, get_bundle_summary
+    from ts_agents.tools.registry import ToolRegistry, ToolCategory, ComputationalCost
+    from ts_agents.tools.bundles import get_bundle_names, get_bundle_summary
 
     bundle = args.bundle
     if bundle:
@@ -840,8 +840,8 @@ def _handle_tool_command(args: argparse.Namespace) -> Tuple[Any, str]:
 
 
 def _handle_run_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]:
-    from src.tools.registry import ToolRegistry
-    from src.tools.executor import ExecutionContext, execute_tool
+    from ts_agents.tools.registry import ToolRegistry
+    from ts_agents.tools.executor import ExecutionContext, execute_tool
 
     try:
         metadata = ToolRegistry.get(args.tool)
@@ -895,7 +895,7 @@ def _approval_prompt(tool_name: str) -> bool:
 
 def _handle_agent_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]:
     if args.type == "simple":
-        from src.agents.simple.agent import run_single_query
+        from ts_agents.agents.simple.agent import run_single_query
 
         response = run_single_query(
             query=args.prompt,
@@ -904,7 +904,7 @@ def _handle_agent_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]
         )
         return {"response": response}, response
 
-    from src.agents.deep.orchestrator import create_deep_agent, run_with_approval
+    from ts_agents.agents.deep.orchestrator import create_deep_agent, run_with_approval
 
     enable_approval = args.approval != "off"
     agent = create_deep_agent(
@@ -1126,9 +1126,9 @@ def _run_forecasting_demo_comparison(args: argparse.Namespace):
     from pathlib import Path
     import warnings
 
-    from src import data_access
-    from src.cli.output import render_output, to_jsonable, write_output
-    from src.core.comparison import compare_forecasting_methods, plot_forecast_comparison
+    from ts_agents import data_access
+    from ts_agents.cli.output import render_output, to_jsonable, write_output
+    from ts_agents.core.comparison import compare_forecasting_methods, plot_forecast_comparison
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1194,7 +1194,7 @@ def _render_forecasting_report_with_llm(
     comparison_payload: Dict[str, Any],
 ) -> str:
     from langchain_openai import ChatOpenAI
-    from src.config import OPENAI_MODEL
+    from ts_agents.config import OPENAI_MODEL
 
     llm = ChatOpenAI(model=model_name or OPENAI_MODEL, temperature=0)
     prompt = (
@@ -1251,8 +1251,8 @@ def _run_demo_window_classification_scripted(args: argparse.Namespace) -> Dict[s
     from pathlib import Path
     import subprocess
 
-    from src.cli.output import render_output, to_jsonable, write_output
-    from src.core.windowing import (
+    from ts_agents.cli.output import render_output, to_jsonable, write_output
+    from ts_agents.core.windowing import (
         select_window_size_from_csv,
         evaluate_windowed_classifier_from_csv,
     )
@@ -1357,8 +1357,8 @@ def _run_demo_window_classification_llm(args: argparse.Namespace) -> Dict[str, A
     import subprocess
     from pathlib import Path
 
-    from src.agents.simple import SimpleAgentChat
-    from src.cli.output import write_output
+    from ts_agents.agents.simple import SimpleAgentChat
+    from ts_agents.cli.output import write_output
 
     if not os.environ.get("OPENAI_API_KEY"):
         raise ValueError(
@@ -1469,7 +1469,7 @@ def _run_demo_window_classification_llm(args: argparse.Namespace) -> Dict[str, A
 
 
 def _run_demo_forecasting_scripted(args: argparse.Namespace) -> Dict[str, Any]:
-    from src.cli.output import write_output
+    from ts_agents.cli.output import write_output
 
     artifacts = _run_forecasting_demo_comparison(args)
     report = _build_demo_forecasting_report(
@@ -1501,7 +1501,7 @@ def _run_demo_forecasting_scripted(args: argparse.Namespace) -> Dict[str, Any]:
 
 
 def _run_demo_forecasting_llm(args: argparse.Namespace) -> Dict[str, Any]:
-    from src.cli.output import write_output
+    from ts_agents.cli.output import write_output
 
     if not os.environ.get("OPENAI_API_KEY"):
         raise ValueError(

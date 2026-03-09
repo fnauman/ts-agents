@@ -8,13 +8,13 @@ class TestBenchmarkScenarios:
 
     def test_scenarios_registered(self):
         """Test that scenarios are registered."""
-        from src.agents.benchmarks.scenarios import BENCHMARK_SCENARIOS
+        from ts_agents.agents.benchmarks.scenarios import BENCHMARK_SCENARIOS
 
         assert len(BENCHMARK_SCENARIOS) > 0
 
     def test_simple_peak_count_scenario(self):
         """Test simple_peak_count scenario definition."""
-        from src.agents.benchmarks.scenarios import BENCHMARK_SCENARIOS
+        from ts_agents.agents.benchmarks.scenarios import BENCHMARK_SCENARIOS
 
         scenario = BENCHMARK_SCENARIOS.get("simple_peak_count")
 
@@ -24,7 +24,7 @@ class TestBenchmarkScenarios:
 
     def test_decomposition_choice_scenario(self):
         """Test decomposition_choice scenario definition."""
-        from src.agents.benchmarks.scenarios import BENCHMARK_SCENARIOS
+        from ts_agents.agents.benchmarks.scenarios import BENCHMARK_SCENARIOS
 
         scenario = BENCHMARK_SCENARIOS.get("decomposition_choice")
 
@@ -33,7 +33,7 @@ class TestBenchmarkScenarios:
 
     def test_scenario_has_expected_outcome(self):
         """Test that all scenarios have expected outcomes."""
-        from src.agents.benchmarks.scenarios import BENCHMARK_SCENARIOS
+        from ts_agents.agents.benchmarks.scenarios import BENCHMARK_SCENARIOS
 
         for name, scenario in BENCHMARK_SCENARIOS.items():
             assert scenario.expected is not None
@@ -42,7 +42,7 @@ class TestBenchmarkScenarios:
 
     def test_scenario_to_dict(self):
         """Test scenario serialization."""
-        from src.agents.benchmarks.scenarios import BENCHMARK_SCENARIOS
+        from ts_agents.agents.benchmarks.scenarios import BENCHMARK_SCENARIOS
 
         scenario = BENCHMARK_SCENARIOS["simple_peak_count"]
         data = scenario.to_dict()
@@ -54,7 +54,7 @@ class TestBenchmarkScenarios:
 
     def test_get_scenarios_by_difficulty(self):
         """Test filtering scenarios by difficulty."""
-        from src.agents.benchmarks.scenarios import (
+        from ts_agents.agents.benchmarks.scenarios import (
             get_scenarios_by_difficulty,
             Difficulty,
         )
@@ -72,7 +72,7 @@ class TestBenchmarkScenarios:
 
     def test_get_scenarios_by_category(self):
         """Test filtering scenarios by category."""
-        from src.agents.benchmarks.scenarios import get_scenarios_by_category
+        from ts_agents.agents.benchmarks.scenarios import get_scenarios_by_category
 
         patterns = get_scenarios_by_category("patterns")
 
@@ -82,7 +82,7 @@ class TestBenchmarkScenarios:
 
     def test_get_quick_benchmark_scenarios(self):
         """Test getting quick benchmark scenario list."""
-        from src.agents.benchmarks.scenarios import (
+        from ts_agents.agents.benchmarks.scenarios import (
             get_quick_benchmark_scenarios,
             BENCHMARK_SCENARIOS,
         )
@@ -96,7 +96,7 @@ class TestBenchmarkScenarios:
 
     def test_get_full_benchmark_scenarios(self):
         """Test getting full benchmark scenario list."""
-        from src.agents.benchmarks.scenarios import (
+        from ts_agents.agents.benchmarks.scenarios import (
             get_full_benchmark_scenarios,
             BENCHMARK_SCENARIOS,
         )
@@ -107,7 +107,7 @@ class TestBenchmarkScenarios:
 
     def test_get_scenario_categories(self):
         """Test getting all categories."""
-        from src.agents.benchmarks.scenarios import get_scenario_categories
+        from ts_agents.agents.benchmarks.scenarios import get_scenario_categories
 
         categories = get_scenario_categories()
 
@@ -121,7 +121,7 @@ class TestExpectedOutcome:
 
     def test_expected_outcome_defaults(self):
         """Test ExpectedOutcome default values."""
-        from src.agents.benchmarks.scenarios import ExpectedOutcome
+        from ts_agents.agents.benchmarks.scenarios import ExpectedOutcome
 
         expected = ExpectedOutcome()
 
@@ -134,7 +134,7 @@ class TestExpectedOutcome:
 
     def test_expected_outcome_with_values(self):
         """Test ExpectedOutcome with custom values."""
-        from src.agents.benchmarks.scenarios import ExpectedOutcome
+        from ts_agents.agents.benchmarks.scenarios import ExpectedOutcome
 
         expected = ExpectedOutcome(
             required_tools=["detect_peaks"],
@@ -154,8 +154,8 @@ class TestMetrics:
 
     def test_evaluate_response_basic(self):
         """Test basic response evaluation."""
-        from src.agents.benchmarks.metrics import evaluate_response
-        from src.agents.benchmarks.scenarios import ExpectedOutcome
+        from ts_agents.agents.benchmarks.metrics import evaluate_response
+        from ts_agents.agents.benchmarks.scenarios import ExpectedOutcome
 
         expected = ExpectedOutcome(
             required_tools=["detect_peaks"],
@@ -176,8 +176,8 @@ class TestMetrics:
 
     def test_evaluate_response_missing_tool(self):
         """Test evaluation when required tool is missing."""
-        from src.agents.benchmarks.metrics import evaluate_response
-        from src.agents.benchmarks.scenarios import ExpectedOutcome
+        from ts_agents.agents.benchmarks.metrics import evaluate_response
+        from ts_agents.agents.benchmarks.scenarios import ExpectedOutcome
 
         expected = ExpectedOutcome(
             required_tools=["detect_peaks"],
@@ -195,8 +195,8 @@ class TestMetrics:
 
     def test_evaluate_response_missing_content(self):
         """Test evaluation when required content is missing."""
-        from src.agents.benchmarks.metrics import evaluate_response
-        from src.agents.benchmarks.scenarios import ExpectedOutcome
+        from ts_agents.agents.benchmarks.metrics import evaluate_response
+        from ts_agents.agents.benchmarks.scenarios import ExpectedOutcome
 
         expected = ExpectedOutcome(
             required_tools=["detect_peaks"],
@@ -214,8 +214,8 @@ class TestMetrics:
 
     def test_evaluate_response_forbidden_tool(self):
         """Test evaluation when forbidden tool is used."""
-        from src.agents.benchmarks.metrics import evaluate_response
-        from src.agents.benchmarks.scenarios import ExpectedOutcome
+        from ts_agents.agents.benchmarks.metrics import evaluate_response
+        from ts_agents.agents.benchmarks.scenarios import ExpectedOutcome
 
         expected = ExpectedOutcome(
             required_tools=["detect_peaks"],
@@ -234,8 +234,8 @@ class TestMetrics:
 
     def test_evaluate_response_expects_number(self):
         """Test evaluation of number expectation."""
-        from src.agents.benchmarks.metrics import evaluate_response
-        from src.agents.benchmarks.scenarios import ExpectedOutcome
+        from ts_agents.agents.benchmarks.metrics import evaluate_response
+        from ts_agents.agents.benchmarks.scenarios import ExpectedOutcome
 
         expected = ExpectedOutcome(
             must_contain=[],
@@ -258,7 +258,7 @@ class TestMetrics:
 
     def test_evaluation_result_dataclass(self):
         """Test EvaluationResult dataclass."""
-        from src.agents.benchmarks.metrics import EvaluationResult
+        from ts_agents.agents.benchmarks.metrics import EvaluationResult
 
         result = EvaluationResult(
             tool_score=0.8,
@@ -275,7 +275,7 @@ class TestMetrics:
 
     def test_summarize_evaluations(self):
         """Test summarizing multiple evaluations."""
-        from src.agents.benchmarks.metrics import (
+        from ts_agents.agents.benchmarks.metrics import (
             EvaluationResult,
             summarize_evaluations,
         )
@@ -302,7 +302,7 @@ class TestMetrics:
 
     def test_summarize_evaluations_empty(self):
         """Test summarizing empty evaluation list."""
-        from src.agents.benchmarks.metrics import summarize_evaluations
+        from ts_agents.agents.benchmarks.metrics import summarize_evaluations
 
         summary = summarize_evaluations([])
 
@@ -314,11 +314,11 @@ class TestBenchmarkResult:
 
     def test_benchmark_result_creation(self):
         """Test creating a benchmark result."""
-        from src.agents.benchmarks.runner import BenchmarkResult
+        from ts_agents.agents.benchmarks.runner import BenchmarkResult
 
         result = BenchmarkResult(
             scenario_name="simple_peak_count",
-            model_name="gpt-4o-mini",
+            model_name="gpt-5-mini",
             tool_bundle="standard",
             tool_count=15,
             success=True,
@@ -333,12 +333,12 @@ class TestBenchmarkResult:
 
     def test_benchmark_result_to_dict(self):
         """Test serializing benchmark result."""
-        from src.agents.benchmarks.runner import BenchmarkResult
-        from src.agents.benchmarks.metrics import EvaluationResult
+        from ts_agents.agents.benchmarks.runner import BenchmarkResult
+        from ts_agents.agents.benchmarks.metrics import EvaluationResult
 
         result = BenchmarkResult(
             scenario_name="simple_peak_count",
-            model_name="gpt-4o-mini",
+            model_name="gpt-5-mini",
             tool_bundle="standard",
             tool_count=15,
             success=True,
@@ -363,7 +363,7 @@ class TestAgentConfig:
 
     def test_agent_config_defaults(self):
         """Test AgentConfig default values."""
-        from src.agents.benchmarks.runner import AgentConfig
+        from ts_agents.agents.benchmarks.runner import AgentConfig
 
         config = AgentConfig()
 
@@ -373,7 +373,7 @@ class TestAgentConfig:
 
     def test_agent_config_get_name(self):
         """Test AgentConfig name generation."""
-        from src.agents.benchmarks.runner import AgentConfig
+        from ts_agents.agents.benchmarks.runner import AgentConfig
 
         config1 = AgentConfig(tool_bundle="minimal")
         assert config1.get_name() == "minimal"
@@ -391,7 +391,7 @@ class TestAgentBenchmarkInfrastructure:
 
     def test_benchmark_class_exists(self):
         """Test that AgentBenchmark class can be instantiated."""
-        from src.agents.benchmarks.runner import AgentBenchmark
+        from ts_agents.agents.benchmarks.runner import AgentBenchmark
         import tempfile
         import os
 
@@ -403,7 +403,7 @@ class TestAgentBenchmarkInfrastructure:
 
     def test_summarize_results_empty(self):
         """Test summarizing empty results."""
-        from src.agents.benchmarks.runner import AgentBenchmark
+        from ts_agents.agents.benchmarks.runner import AgentBenchmark
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -415,8 +415,8 @@ class TestAgentBenchmarkInfrastructure:
 
     def test_summarize_results_with_data(self):
         """Test summarizing results with sample data."""
-        from src.agents.benchmarks.runner import AgentBenchmark, BenchmarkResult
-        from src.agents.benchmarks.metrics import EvaluationResult
+        from ts_agents.agents.benchmarks.runner import AgentBenchmark, BenchmarkResult
+        from ts_agents.agents.benchmarks.metrics import EvaluationResult
         import tempfile
 
         results = [
@@ -462,7 +462,7 @@ class TestAgentBenchmarkInfrastructure:
 
     def test_export_results(self):
         """Test exporting results to file."""
-        from src.agents.benchmarks.runner import AgentBenchmark, BenchmarkResult
+        from ts_agents.agents.benchmarks.runner import AgentBenchmark, BenchmarkResult
         import tempfile
         import json
 
@@ -498,12 +498,12 @@ class TestConvenienceFunctions:
 
     def test_run_quick_benchmark_function_exists(self):
         """Test that run_quick_benchmark function exists."""
-        from src.agents.benchmarks.runner import run_quick_benchmark
+        from ts_agents.agents.benchmarks.runner import run_quick_benchmark
 
         assert callable(run_quick_benchmark)
 
     def test_run_full_benchmark_function_exists(self):
         """Test that run_full_benchmark function exists."""
-        from src.agents.benchmarks.runner import run_full_benchmark
+        from ts_agents.agents.benchmarks.runner import run_full_benchmark
 
         assert callable(run_full_benchmark)

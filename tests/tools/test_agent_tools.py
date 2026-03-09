@@ -47,8 +47,8 @@ def _patch_plotting(monkeypatch, agent_tools):
 
 
 def test_compare_forecasts_with_data_forwards_models(monkeypatch):
-    from src.tools import agent_tools
-    import src.core.forecasting as forecasting
+    from ts_agents.tools import agent_tools
+    import ts_agents.core.forecasting as forecasting
 
     observed = {}
 
@@ -85,8 +85,8 @@ def test_compare_forecasts_with_data_forwards_models(monkeypatch):
 
 
 def test_compare_forecasts_with_data_accepts_methods_alias(monkeypatch):
-    from src.tools import agent_tools
-    import src.core.forecasting as forecasting
+    from ts_agents.tools import agent_tools
+    import ts_agents.core.forecasting as forecasting
 
     observed = {}
 
@@ -117,8 +117,8 @@ def test_compare_forecasts_with_data_accepts_methods_alias(monkeypatch):
 
 
 def test_compare_forecasts_with_data_models_take_precedence(monkeypatch):
-    from src.tools import agent_tools
-    import src.core.forecasting as forecasting
+    from ts_agents.tools import agent_tools
+    import ts_agents.core.forecasting as forecasting
 
     observed = {}
 
@@ -150,8 +150,8 @@ def test_compare_forecasts_with_data_models_take_precedence(monkeypatch):
 
 
 def test_compare_forecasts_with_data_propagates_errors(monkeypatch):
-    from src.tools import agent_tools
-    import src.core.forecasting as forecasting
+    from ts_agents.tools import agent_tools
+    import ts_agents.core.forecasting as forecasting
 
     def fake_get_series_data(variable_name, unique_id):
         return np.array([1.0, 2.0, 3.0, 4.0])
@@ -178,8 +178,8 @@ def test_compare_forecasts_with_data_propagates_errors(monkeypatch):
 
 
 def test_compare_forecasts_with_data_forwards_season_length(monkeypatch):
-    from src.tools import agent_tools
-    import src.core.forecasting as forecasting
+    from ts_agents.tools import agent_tools
+    import ts_agents.core.forecasting as forecasting
 
     observed = {}
 
@@ -211,8 +211,8 @@ def test_compare_forecasts_with_data_forwards_season_length(monkeypatch):
 
 
 def test_forecast_seasonal_naive_with_data_forwards_season_length(monkeypatch):
-    from src.tools import agent_tools
-    import src.core.forecasting as forecasting
+    from ts_agents.tools import agent_tools
+    import ts_agents.core.forecasting as forecasting
 
     observed = {}
 
@@ -241,8 +241,8 @@ def test_forecast_seasonal_naive_with_data_forwards_season_length(monkeypatch):
 
 
 def test_forecast_ensemble_with_data_uses_get_ensemble(monkeypatch):
-    from src.tools import agent_tools
-    import src.core.forecasting as forecasting
+    from ts_agents.tools import agent_tools
+    import ts_agents.core.forecasting as forecasting
 
     observed = {}
 
@@ -278,8 +278,8 @@ def test_forecast_ensemble_with_data_uses_get_ensemble(monkeypatch):
 
 
 def test_segment_changepoint_with_data_maps_n_changepoints_alias(monkeypatch):
-    from src.tools import agent_tools
-    import src.core.patterns as patterns
+    from ts_agents.tools import agent_tools
+    import ts_agents.core.patterns as patterns
 
     observed = {}
 
@@ -324,8 +324,8 @@ def test_segment_changepoint_with_data_maps_n_changepoints_alias(monkeypatch):
 
 
 def test_segment_changepoint_with_data_prefers_n_segments(monkeypatch):
-    from src.tools import agent_tools
-    import src.core.patterns as patterns
+    from ts_agents.tools import agent_tools
+    import ts_agents.core.patterns as patterns
 
     observed = {}
 
@@ -359,8 +359,8 @@ def test_segment_changepoint_with_data_prefers_n_segments(monkeypatch):
 
 
 def test_segment_fluss_with_data_formats_segment_result(monkeypatch):
-    from src.tools import agent_tools
-    import src.core.patterns as patterns
+    from ts_agents.tools import agent_tools
+    import ts_agents.core.patterns as patterns
 
     def fake_get_series_data(variable_name, unique_id):
         return np.array([0.0, 0.1, 1.0, 1.1, -0.2, -0.1])
@@ -394,8 +394,8 @@ def test_segment_fluss_with_data_formats_segment_result(monkeypatch):
 
 
 def test_compute_psd_with_data_aliases_spectrum_name(monkeypatch):
-    from src.tools import agent_tools
-    import src.core.spectral as spectral
+    from ts_agents.tools import agent_tools
+    import ts_agents.core.spectral as spectral
 
     def fake_get_series_data(variable_name, unique_id):
         return np.array([1.0, 0.5, 0.25, 0.125])
@@ -430,8 +430,8 @@ def test_compute_psd_with_data_aliases_spectrum_name(monkeypatch):
 
 
 def test_compute_coherence_with_data_accepts_sampling_aliases(monkeypatch):
-    from src.tools import agent_tools
-    import src.core.spectral as spectral
+    from ts_agents.tools import agent_tools
+    import ts_agents.core.spectral as spectral
 
     observed = {}
 
@@ -486,8 +486,8 @@ def test_compute_coherence_with_data_accepts_sampling_aliases(monkeypatch):
 
 
 def test_hurst_exponent_with_data_forwards_max_window(monkeypatch):
-    from src.tools import agent_tools
-    import src.core.complexity as complexity
+    from ts_agents.tools import agent_tools
+    import ts_agents.core.complexity as complexity
 
     observed = {}
 

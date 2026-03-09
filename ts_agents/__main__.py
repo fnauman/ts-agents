@@ -1,6 +1,6 @@
 """`python -m ts_agents` entrypoint."""
 
-from src.cli.main import main as _main
+from ts_agents.cli.main import main as _main
 
 
 def main() -> None:

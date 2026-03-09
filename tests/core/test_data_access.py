@@ -20,8 +20,8 @@ def _setup_test_data(monkeypatch, tmp_path):
     monkeypatch.setenv("TS_AGENTS_USE_TEST_DATA", "true")
     monkeypatch.setenv("TS_AGENTS_TEST_DATA_FILE", "short_real.csv")
 
-    import src.config as config
-    import src.data_access as data_access
+    import ts_agents.config as config
+    import ts_agents.data_access as data_access
 
     importlib.reload(config)
     importlib.reload(data_access)
@@ -60,8 +60,8 @@ def test_config_default_data_dir_is_runtime_resolved(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("TS_AGENTS_DATA_DIR", raising=False)
 
-    import src.config as config
-    from src.runtime_paths import resolve_default_data_dir
+    import ts_agents.config as config
+    from ts_agents.runtime_paths import resolve_default_data_dir
 
     importlib.reload(config)
 

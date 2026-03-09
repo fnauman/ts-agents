@@ -9,7 +9,7 @@ class TestPSD:
 
     def test_compute_psd_welch(self):
         """Test PSD computation with Welch method."""
-        from src.core.spectral import compute_psd
+        from ts_agents.core.spectral import compute_psd
 
         x = np.sin(np.linspace(0, 20 * np.pi, 1000)) + 0.1 * np.random.randn(1000)
 
@@ -21,7 +21,7 @@ class TestPSD:
 
     def test_compute_psd_periodogram(self):
         """Test PSD with periodogram method."""
-        from src.core.spectral import compute_psd
+        from ts_agents.core.spectral import compute_psd
 
         x = np.random.randn(500)
 
@@ -32,7 +32,7 @@ class TestPSD:
 
     def test_spectral_slope(self):
         """Test spectral slope computation."""
-        from src.core.spectral import compute_psd
+        from ts_agents.core.spectral import compute_psd
 
         # Random walk has 1/f^2 spectrum (slope ~ -2)
         x = np.cumsum(np.random.randn(2000))
@@ -44,7 +44,7 @@ class TestPSD:
 
     def test_compute_psd_short_series(self):
         """Short series should raise a clear error."""
-        from src.core.spectral import compute_psd
+        from ts_agents.core.spectral import compute_psd
 
         x = np.array([1.0])
         with pytest.raises(ValueError):
@@ -52,7 +52,7 @@ class TestPSD:
 
     def test_detect_periodicity(self):
         """Test periodicity detection."""
-        from src.core.spectral import detect_periodicity
+        from ts_agents.core.spectral import detect_periodicity
 
         # Create series with known period
         period = 50
@@ -69,7 +69,7 @@ class TestCoherence:
 
     def test_compute_coherence(self):
         """Test coherence computation."""
-        from src.core.spectral import compute_coherence
+        from ts_agents.core.spectral import compute_coherence
 
         # Two correlated signals
         t = np.linspace(0, 10, 1000)
@@ -84,7 +84,7 @@ class TestCoherence:
 
     def test_compute_coherence_uncorrelated(self):
         """Test coherence of uncorrelated signals."""
-        from src.core.spectral import compute_coherence
+        from ts_agents.core.spectral import compute_coherence
 
         x = np.random.randn(1000)
         y = np.random.randn(1000)
@@ -96,7 +96,7 @@ class TestCoherence:
 
     def test_compute_coherence_short_series(self):
         """Short series should raise a clear error."""
-        from src.core.spectral import compute_coherence
+        from ts_agents.core.spectral import compute_coherence
 
         x = np.array([1.0])
         with pytest.raises(ValueError):

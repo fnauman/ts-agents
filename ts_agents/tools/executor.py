@@ -446,7 +446,7 @@ class DockerBackend(ExecutorBackend):
     """Docker container execution backend.
 
     This backend executes tools in an isolated Docker container. It uses the
-    file-based runner contract in :mod:`src.sandbox.runner`.
+    file-based runner contract in :mod:`ts_agents.sandbox.runner`.
 
     Requirements
     ------------
@@ -553,7 +553,7 @@ class DockerBackend(ExecutorBackend):
                     image,
                     "python",
                     "-m",
-                    "src.sandbox.runner",
+                    "ts_agents.sandbox.runner",
                     "--input",
                     "/io/request.json",
                     "--output",
@@ -700,7 +700,7 @@ class SubprocessBackend(ExecutorBackend):
                 cmd = [
                     sys.executable,
                     "-m",
-                    "src.sandbox.runner",
+                    "ts_agents.sandbox.runner",
                     "--input",
                     str(req_path),
                     "--output",
@@ -1069,7 +1069,7 @@ class DaytonaBackend(ExecutorBackend):
             if context.daytona_install_editable and context.daytona_repo_url:
                 runner_python = ".ts-agents-venv/bin/python"
             cmd = (
-                f"{runner_python} -m src.sandbox.runner --input {req_runner} --output {resp_runner}"
+                f"{runner_python} -m ts_agents.sandbox.runner --input {req_runner} --output {resp_runner}"
             )
             run_exit, run_output = self._run_command(
                 sandbox,

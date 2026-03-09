@@ -9,8 +9,8 @@ class TestHelperFunctions:
 
     def test_format_description(self):
         """Test formatting tool description for LLM."""
-        from src.tools.registry import ToolRegistry
-        from src.tools.wrappers import _format_description_for_llm
+        from ts_agents.tools.registry import ToolRegistry
+        from ts_agents.tools.wrappers import _format_description_for_llm
 
         tool = ToolRegistry.get("stl_decompose")
         description = _format_description_for_llm(tool)
@@ -21,8 +21,8 @@ class TestHelperFunctions:
 
     def test_preprocess_args_list_to_array(self):
         """Test that list arguments are converted to numpy arrays."""
-        from src.tools.registry import ToolRegistry
-        from src.tools.wrappers import _preprocess_args
+        from ts_agents.tools.registry import ToolRegistry
+        from ts_agents.tools.wrappers import _preprocess_args
 
         tool = ToolRegistry.get("detect_peaks")
 
@@ -35,8 +35,8 @@ class TestHelperFunctions:
 
     def test_args_schema_does_not_force_sample_rate_for_coherence_with_data(self):
         """Legacy aliases should not be shadowed by an injected sample_rate default."""
-        from src.tools.registry import ToolRegistry
-        from src.tools.wrappers import _create_args_schema
+        from ts_agents.tools.registry import ToolRegistry
+        from ts_agents.tools.wrappers import _create_args_schema
 
         tool = ToolRegistry.get("compute_coherence_with_data")
         args_schema = _create_args_schema(tool)
@@ -66,8 +66,8 @@ class TestHelperFunctions:
 
     def test_format_result_simple_types(self):
         """Test formatting simple result types."""
-        from src.tools.registry import ToolRegistry
-        from src.tools.wrappers import _format_result_for_llm
+        from ts_agents.tools.registry import ToolRegistry
+        from ts_agents.tools.wrappers import _format_result_for_llm
 
         tool = ToolRegistry.get("count_peaks")
 
@@ -82,8 +82,8 @@ class TestHelperFunctions:
 
     def test_format_result_array(self):
         """Test formatting numpy array results."""
-        from src.tools.registry import ToolRegistry
-        from src.tools.wrappers import _format_result_for_llm
+        from ts_agents.tools.registry import ToolRegistry
+        from ts_agents.tools.wrappers import _format_result_for_llm
 
         tool = ToolRegistry.get("detect_peaks")
 
@@ -99,8 +99,8 @@ class TestHelperFunctions:
 
     def test_format_dataclass_result(self):
         """Test formatting dataclass results."""
-        from src.tools.registry import ToolRegistry
-        from src.tools.wrappers import _format_result_for_llm
+        from ts_agents.tools.registry import ToolRegistry
+        from ts_agents.tools.wrappers import _format_result_for_llm
 
         tool = ToolRegistry.get("detect_peaks")
 
@@ -119,7 +119,7 @@ class TestCallableWrapper:
 
     def test_create_callable_tool(self):
         """Test creating a callable tool wrapper."""
-        from src.tools.wrappers import create_callable_tool
+        from ts_agents.tools.wrappers import create_callable_tool
 
         detect_peaks = create_callable_tool("detect_peaks", format_result=False)
 
@@ -131,7 +131,7 @@ class TestCallableWrapper:
 
     def test_create_callable_tool_with_formatting(self):
         """Test callable tool with result formatting."""
-        from src.tools.wrappers import create_callable_tool
+        from ts_agents.tools.wrappers import create_callable_tool
 
         detect_peaks = create_callable_tool("detect_peaks", format_result=True)
 
@@ -148,7 +148,7 @@ class TestDeepagentWrapper:
 
     def test_wrap_for_deepagent(self):
         """Test wrapping tool for deepagent."""
-        from src.tools.wrappers import wrap_for_deepagent
+        from ts_agents.tools.wrappers import wrap_for_deepagent
 
         tool_def = wrap_for_deepagent("detect_peaks")
 
@@ -162,7 +162,7 @@ class TestDeepagentWrapper:
 
     def test_wrap_tools_for_deepagent(self):
         """Test wrapping multiple tools for deepagent."""
-        from src.tools.wrappers import wrap_tools_for_deepagent
+        from ts_agents.tools.wrappers import wrap_tools_for_deepagent
 
         tool_defs = wrap_tools_for_deepagent(["detect_peaks", "stl_decompose"])
 
@@ -173,7 +173,7 @@ class TestDeepagentWrapper:
 
     def test_deepagent_tool_execution(self):
         """Test executing a deepagent-wrapped tool."""
-        from src.tools.wrappers import wrap_for_deepagent
+        from ts_agents.tools.wrappers import wrap_for_deepagent
 
         tool_def = wrap_for_deepagent("describe_series")
 
@@ -190,8 +190,8 @@ class TestBatchCreation:
 
     def test_create_all_deepagent_tools(self):
         """Test creating all deepagent tools."""
-        from src.tools.wrappers import create_all_deepagent_tools
-        from src.tools.registry import ToolRegistry
+        from ts_agents.tools.wrappers import create_all_deepagent_tools
+        from ts_agents.tools.registry import ToolRegistry
 
         tools = create_all_deepagent_tools()
 
@@ -200,8 +200,8 @@ class TestBatchCreation:
 
     def test_create_deepagent_tools_with_category_filter(self):
         """Test creating deepagent tools with category filter."""
-        from src.tools.wrappers import create_all_deepagent_tools
-        from src.tools.registry import ToolCategory
+        from ts_agents.tools.wrappers import create_all_deepagent_tools
+        from ts_agents.tools.registry import ToolCategory
 
         tools = create_all_deepagent_tools(categories=[ToolCategory.DECOMPOSITION])
 
@@ -212,8 +212,8 @@ class TestBatchCreation:
 
     def test_create_deepagent_tools_with_cost_filter(self):
         """Test creating deepagent tools with cost filter."""
-        from src.tools.wrappers import create_all_deepagent_tools
-        from src.tools.registry import ComputationalCost
+        from ts_agents.tools.wrappers import create_all_deepagent_tools
+        from ts_agents.tools.registry import ComputationalCost
 
         low_cost_tools = create_all_deepagent_tools(
             max_cost=ComputationalCost.LOW
@@ -238,7 +238,7 @@ class TestLangChainWrapper:
 
     def test_wrap_for_langchain(self):
         """Test wrapping tool for LangChain."""
-        from src.tools.wrappers import wrap_for_langchain
+        from ts_agents.tools.wrappers import wrap_for_langchain
 
         tool = wrap_for_langchain("detect_peaks")
 
@@ -248,7 +248,7 @@ class TestLangChainWrapper:
 
     def test_wrap_tools_for_langchain(self):
         """Test wrapping multiple tools for LangChain."""
-        from src.tools.wrappers import wrap_tools_for_langchain
+        from ts_agents.tools.wrappers import wrap_tools_for_langchain
 
         tools = wrap_tools_for_langchain(["detect_peaks", "stl_decompose"])
 
@@ -256,8 +256,8 @@ class TestLangChainWrapper:
 
     def test_create_all_langchain_tools(self):
         """Test creating all LangChain tools."""
-        from src.tools.wrappers import create_all_langchain_tools
-        from src.tools.registry import ToolRegistry
+        from ts_agents.tools.wrappers import create_all_langchain_tools
+        from ts_agents.tools.registry import ToolRegistry
 
         tools = create_all_langchain_tools()
 

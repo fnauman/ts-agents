@@ -199,7 +199,7 @@ def _wrap_tools_with_logging(
                     log_entry["duration_ms"] = (time.time() - start_time) * 1000
                     log_entry["result_preview"] = str(result)[:200]
                     if capture_results:
-                        from src.cli.output import to_jsonable
+                        from ts_agents.cli.output import to_jsonable
                         log_entry["result_payload"] = to_jsonable(result)
                 except Exception as e:
                     log_entry["status"] = "error"

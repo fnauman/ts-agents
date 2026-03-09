@@ -71,7 +71,7 @@ Practical tips:
 ## Python workflow (recommended)
 ```python
 import numpy as np
-from src.core.classification import rocket_classify, compare_classifiers
+from ts_agents.core.classification import rocket_classify, compare_classifiers
 
 # Example toy data
 X_train = np.random.randn(50, 200)   # 50 series, length 200

@@ -64,10 +64,10 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src*", "ts_agents*"]
+include = ["ts_agents*"]
 
 [tool.setuptools.package-data]
-src = [
+ts_agents = [
     "resources/data/*",
     "resources/demo/*",
     "resources/demo/assets/*",

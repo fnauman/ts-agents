@@ -3,9 +3,9 @@
 import json
 import numpy as np
 
-from src.core.base import PeakResult
-from src.tools.executor import ExecutionContext, ExecutionResult, ExecutionStatus, SandboxMode
-from src.tools.results import DecompositionResult as ToolDecompositionResult
+from ts_agents.core.base import PeakResult
+from ts_agents.tools.executor import ExecutionContext, ExecutionResult, ExecutionStatus, SandboxMode
+from ts_agents.tools.results import DecompositionResult as ToolDecompositionResult
 
 
 def test_execution_context_coerces_string():
