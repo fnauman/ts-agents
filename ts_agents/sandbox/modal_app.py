@@ -1,9 +1,13 @@
-"""Modal app for ts-agents sandbox execution.
+"""Modal app for ts-agents sandbox execution from a source checkout.
 
 This file defines a Modal Function that can execute ts-agents tools remotely.
 
 Deploy:
     modal deploy -m ts_agents.sandbox.modal_app --env main --name ts-agents-sandbox
+
+This module assumes a repository checkout because it builds the Modal image from
+the local ``pyproject.toml`` and local ``ts_agents/`` source tree. It is not a
+general installed-package deployment entrypoint.
 
 Then configure ts-agents to use Modal as its sandbox backend by setting:
     TS_AGENTS_SANDBOX_MODE=modal
@@ -25,6 +29,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 PACKAGE_ROOT = REPO_ROOT / "ts_agents"
 RESOURCES_ROOT = PACKAGE_ROOT / "resources"
+
+if not PYPROJECT.is_file():
+    raise RuntimeError(
+        "ts_agents.sandbox.modal_app must be deployed from a source checkout "
+        "that contains pyproject.toml and the ts_agents package tree."
+    )
 
 
 app = modal.App("ts-agents-sandbox")

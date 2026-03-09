@@ -98,6 +98,10 @@ Then run any `ts-agents run ... --sandbox daytona` command.
 
 ## Modal
 
+The current Modal deploy module is a source-checkout path. It builds the Modal
+image from the repo's `pyproject.toml` and local `ts_agents/` tree, so deploy
+it from a git checkout rather than from an installed wheel.
+
 Install and authenticate (Modal uses token id/secret, not a single API key):
 
 ```bash
@@ -118,7 +122,7 @@ modal token new
 # Verify auth
 modal token info
 
-# Deploy the app in a specific Modal environment (recommended)
+# Deploy the app in a specific Modal environment (recommended, from repo root)
 modal deploy -m ts_agents.sandbox.modal_app --env main --name ts-agents-sandbox
 ```
 
@@ -157,7 +161,7 @@ uv run ts-agents run stl_decompose_with_data \
 Modal smoke test:
 
 ```bash
-# First deploy once after auth:
+# First deploy once after auth, from the repo root:
 uv run modal deploy -m ts_agents.sandbox.modal_app --env main --name ts-agents-sandbox
 
 uv run ts-agents run stl_decompose_with_data \

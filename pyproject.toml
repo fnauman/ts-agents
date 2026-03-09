@@ -11,6 +11,8 @@ authors = [
 keywords = ["time-series", "agents", "forecasting", "classification", "cli"]
 classifiers = [
     "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -72,6 +74,7 @@ include = ["ts_agents*"]
 
 [tool.setuptools.package-data]
 ts_agents = [
+    "py.typed",
     "resources/data/*",
     "resources/demo/*",
     "resources/demo/assets/*",

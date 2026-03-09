@@ -21,5 +21,4 @@ statsforecast>=2.0.3
 statsmodels>=0.14.2
 stumpy>=1.13.0
 ruptures>=1.1.9
-pytest>=9.0.2
 pyyaml>=6.0.2
