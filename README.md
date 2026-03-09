@@ -44,8 +44,8 @@ without requiring an LLM key.
 
 ```bash
 uv sync
-ts-agents demo window-classification --no-llm
-ts-agents demo forecasting --no-llm
+uv run ts-agents demo window-classification --no-llm
+uv run ts-agents demo forecasting --no-llm
 ```
 
 ### 2. Use the CLI on bundled or custom data
@@ -103,8 +103,8 @@ Canonical design docs:
 
 ```bash
 uv sync
-ts-agents demo window-classification --no-llm
-ts-agents demo forecasting --no-llm
+uv run ts-agents demo window-classification --no-llm
+uv run ts-agents demo forecasting --no-llm
 ```
 
 LLM-backed demo/report mode requires `OPENAI_API_KEY`. Either export it
@@ -120,7 +120,7 @@ echo 'OPENAI_API_KEY=your-key' >> ~/.env
 ```
 
 ```bash
-ts-agents demo window-classification
+uv run ts-agents demo window-classification
 ```
 
 The demo writes plots to `outputs/demo/` (e.g. `window_scores.png`).
