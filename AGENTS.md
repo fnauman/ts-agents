@@ -33,7 +33,7 @@ uv run python -m pytest -q
 
 ### Environment variables
 - `TS_AGENTS_DATA_DIR` (optional): path to the dataset directory (see `ts_agents/config.py`)
-- `OPENAI_MODEL` (optional): defaults to `gpt-4o-mini` (see `ts_agents/config.py`)
+- `OPENAI_MODEL` (optional): defaults to `gpt-5-mini` (see `ts_agents/config.py`)
 - `OPENAI_API_KEY` (required for agent chat in many setups)
 
 ## Repo map (where to look first)

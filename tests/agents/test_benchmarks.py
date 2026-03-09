@@ -318,7 +318,7 @@ class TestBenchmarkResult:
 
         result = BenchmarkResult(
             scenario_name="simple_peak_count",
-            model_name="gpt-4o-mini",
+            model_name="gpt-5-mini",
             tool_bundle="standard",
             tool_count=15,
             success=True,
@@ -338,7 +338,7 @@ class TestBenchmarkResult:
 
         result = BenchmarkResult(
             scenario_name="simple_peak_count",
-            model_name="gpt-4o-mini",
+            model_name="gpt-5-mini",
             tool_bundle="standard",
             tool_count=15,
             success=True,

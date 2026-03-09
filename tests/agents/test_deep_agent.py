@@ -256,7 +256,7 @@ class TestOrchestratorConfiguration:
         monkeypatch.setattr(orchestrator, "_create_with_deepagents", lambda **kwargs: {"ok": True})
 
         agent = orchestrator.create_deep_agent(
-            model_name="gpt-4o-mini",
+            model_name="gpt-5-mini",
             enable_approval=False,
             enable_logging=False,
         )
