@@ -4,7 +4,7 @@ import sys
 import gradio as gr
 
 
-def test_hosted_app_exports_gradio_blocks(monkeypatch):
+def test_hosted_app_lazily_builds_blocks(monkeypatch):
     for name in [
         "TS_AGENTS_ENABLE_AGENT",
         "TS_AGENTS_AGENT_TYPE",
@@ -19,7 +19,13 @@ def test_hosted_app_exports_gradio_blocks(monkeypatch):
     sys.modules.pop("ts_agents.hosted_app", None)
     module = importlib.import_module("ts_agents.hosted_app")
 
-    assert isinstance(module.app, gr.Blocks)
+    assert module._app is None
+
+    app = module.get_app()
+
+    assert isinstance(app, gr.Blocks)
+    assert module._app is app
+    assert module.app is app
 
 
 def test_hosted_app_env_flag_helper(monkeypatch):

@@ -59,7 +59,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          WHEEL=$(echo "$GITHUB_WORKSPACE"/dist/ts_agents-*.whl)
+          mapfile -t wheels < <(find "$GITHUB_WORKSPACE/dist" -maxdepth 1 -type f -name 'ts_agents-*.whl' | sort)
+          if [ "${#wheels[@]}" -ne 1 ]; then
+            echo "Expected exactly 1 wheel, found ${#wheels[@]}" >&2
+            printf '%s\n' "${wheels[@]}" >&2
+            exit 1
+          fi
+          WHEEL="${wheels[0]}"
           VENV=/tmp/ts-agents-release-smoke
           rm -rf "$VENV"
           uv venv "$VENV" --python 3.12
