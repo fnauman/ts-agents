@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from src.persistence.results_cache import (
+from ts_agents.persistence.results_cache import (
     ResultsCache,
     cached,
     init_cache,

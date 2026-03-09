@@ -36,7 +36,7 @@ from typing import Any, Dict
 def run_request(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Execute a tool request payload and return a serialized ExecutionResult."""
 
-    from src.tools.executor import ExecutionContext, SandboxMode, execute_tool
+    from ts_agents.tools.executor import ExecutionContext, SandboxMode, execute_tool
 
     tool_name = payload.get("tool_name")
     if not tool_name:

@@ -109,8 +109,8 @@ The core forecasting functions support `level=[80, 95]`, while the
 
 If you need intervals, use Python directly:
 ```python
-from src.data_access import get_series
-from src.core.forecasting import forecast_ets
+from ts_agents.data_access import get_series
+from ts_agents.core.forecasting import forecast_ets
 
 y = get_series("Re200Rm200", "bx001_real")
 res = forecast_ets(y, horizon=50, level=[80, 95], season_length=12)

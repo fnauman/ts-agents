@@ -1,7 +1,7 @@
 import argparse
 from pathlib import Path
 
-from src.cli.main import _handle_skills_command, build_parser
+from ts_agents.cli.main import _handle_skills_command, build_parser
 
 
 def test_parser_accepts_skills_export_symlink_flag():
@@ -14,7 +14,7 @@ def test_parser_accepts_skills_export_symlink_flag():
 
 
 def test_handle_skills_export_passes_symlink_flag(monkeypatch):
-    import src.cli.skills as cli_skills
+    import ts_agents.cli.skills as cli_skills
 
     observed = {}
 
@@ -65,7 +65,7 @@ def _write_minimal_skill(skills_dir: Path, name: str = "diagnostics") -> Path:
 
 
 def test_export_skills_agent_respects_output_root(monkeypatch, tmp_path):
-    import src.cli.skills as cli_skills
+    import ts_agents.cli.skills as cli_skills
 
     skills_dir = tmp_path / "skills"
     _write_minimal_skill(skills_dir)
@@ -80,7 +80,7 @@ def test_export_skills_agent_respects_output_root(monkeypatch, tmp_path):
 
 
 def test_export_skills_all_agents_respects_output_root(monkeypatch, tmp_path):
-    import src.cli.skills as cli_skills
+    import ts_agents.cli.skills as cli_skills
 
     skills_dir = tmp_path / "skills"
     _write_minimal_skill(skills_dir)
@@ -95,7 +95,7 @@ def test_export_skills_all_agents_respects_output_root(monkeypatch, tmp_path):
 
 
 def test_export_skills_agent_symlink_target_is_valid(monkeypatch, tmp_path):
-    import src.cli.skills as cli_skills
+    import ts_agents.cli.skills as cli_skills
 
     skills_dir = tmp_path / "skills"
     source_skill = _write_minimal_skill(skills_dir)
@@ -111,8 +111,8 @@ def test_export_skills_agent_symlink_target_is_valid(monkeypatch, tmp_path):
 
 
 def test_get_canonical_skills_dir_uses_runtime_default(monkeypatch, tmp_path):
-    import src.cli.skills as cli_skills
-    from src.runtime_paths import resolve_default_skills_dir
+    import ts_agents.cli.skills as cli_skills
+    from ts_agents.runtime_paths import resolve_default_skills_dir
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("TS_AGENTS_SKILLS_DIR", raising=False)
@@ -121,7 +121,7 @@ def test_get_canonical_skills_dir_uses_runtime_default(monkeypatch, tmp_path):
 
 
 def test_build_skills_markdown_uses_cli_script_examples():
-    import src.cli.skills as cli_skills
+    import ts_agents.cli.skills as cli_skills
 
     markdown = cli_skills.build_skills_markdown()
     assert "ts-agents data list" in markdown

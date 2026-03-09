@@ -6,7 +6,7 @@ import numpy as np
 
 
 def test_resolve_demo_report_path_uses_output_dir_for_default_report(tmp_path):
-    from src.cli.main import _resolve_demo_report_path
+    from ts_agents.cli.main import _resolve_demo_report_path
 
     args = argparse.Namespace(
         output_dir=str(tmp_path / "demo_out"),
@@ -18,7 +18,7 @@ def test_resolve_demo_report_path_uses_output_dir_for_default_report(tmp_path):
 
 
 def test_resolve_demo_report_path_keeps_explicit_path(tmp_path):
-    from src.cli.main import _resolve_demo_report_path
+    from ts_agents.cli.main import _resolve_demo_report_path
 
     explicit = tmp_path / "custom" / "report.md"
     args = argparse.Namespace(
@@ -31,8 +31,8 @@ def test_resolve_demo_report_path_keeps_explicit_path(tmp_path):
 
 
 def test_scripted_demo_writes_report(monkeypatch, tmp_path):
-    from src.cli.main import _run_demo_window_classification_scripted
-    import src.core.windowing as windowing
+    from ts_agents.cli.main import _run_demo_window_classification_scripted
+    import ts_agents.core.windowing as windowing
 
     class FakeSelection:
         best_window_size = 64
@@ -118,7 +118,7 @@ def test_scripted_demo_writes_report(monkeypatch, tmp_path):
 
 
 def test_demo_parser_includes_forecasting_subcommand():
-    from src.cli.main import build_parser
+    from ts_agents.cli.main import build_parser
 
     parser = build_parser()
     args = parser.parse_args(["demo", "forecasting", "--no-llm"])
@@ -129,7 +129,7 @@ def test_demo_parser_includes_forecasting_subcommand():
 
 
 def test_demo_forecasting_default_methods_are_stable_for_tiny_data():
-    from src.cli.main import build_parser
+    from ts_agents.cli.main import build_parser
 
     parser = build_parser()
     args = parser.parse_args(["demo", "forecasting", "--no-llm"])
@@ -138,7 +138,7 @@ def test_demo_forecasting_default_methods_are_stable_for_tiny_data():
 
 
 def test_demo_window_default_scenario_is_stairs():
-    from src.cli.main import build_parser
+    from ts_agents.cli.main import build_parser
 
     parser = build_parser()
     args = parser.parse_args(["demo", "window-classification", "--no-llm"])
@@ -147,16 +147,16 @@ def test_demo_window_default_scenario_is_stairs():
 
 
 def test_demo_window_default_csv_path_exists():
-    from src.cli.main import _default_demo_csv_path
+    from ts_agents.cli.main import _default_demo_csv_path
 
     assert Path(_default_demo_csv_path()).exists()
 
 
 def test_scripted_forecasting_demo_writes_report_and_json(monkeypatch, tmp_path):
-    from src.cli.main import _run_demo_forecasting_scripted
-    from src.core.comparison import ComparisonResult
-    import src.data_access as data_access
-    import src.core.comparison as comparison_mod
+    from ts_agents.cli.main import _run_demo_forecasting_scripted
+    from ts_agents.core.comparison import ComparisonResult
+    import ts_agents.data_access as data_access
+    import ts_agents.core.comparison as comparison_mod
 
     def fake_get_series(run_id, variable_name, use_test_data=None, data_type=None):
         return np.array([0.10, 0.12, 0.15, 0.14, 0.16])
@@ -208,8 +208,8 @@ def test_scripted_forecasting_demo_writes_report_and_json(monkeypatch, tmp_path)
 
 
 def test_demo_window_classification_cli_scripted_integration(monkeypatch, tmp_path):
-    from src.cli.main import run
-    import src.core.windowing as windowing
+    from ts_agents.cli.main import run
+    import ts_agents.core.windowing as windowing
 
     class FakeSelection:
         best_window_size = 96
@@ -286,10 +286,10 @@ def test_demo_window_classification_cli_scripted_integration(monkeypatch, tmp_pa
 
 
 def test_demo_forecasting_cli_scripted_integration(monkeypatch, tmp_path):
-    from src.cli.main import run
-    from src.core.comparison import ComparisonResult
-    import src.data_access as data_access
-    import src.core.comparison as comparison_mod
+    from ts_agents.cli.main import run
+    from ts_agents.core.comparison import ComparisonResult
+    import ts_agents.data_access as data_access
+    import ts_agents.core.comparison as comparison_mod
 
     monkeypatch.setattr(
         data_access,

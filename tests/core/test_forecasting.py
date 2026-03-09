@@ -10,7 +10,7 @@ class TestForecasting:
 
     def test_forecast_arima(self):
         """Test ARIMA forecasting."""
-        from src.core.forecasting import forecast_arima
+        from ts_agents.core.forecasting import forecast_arima
 
         # Create a simple series
         x = np.sin(np.linspace(0, 10 * np.pi, 200)) + 0.1 * np.random.randn(200)
@@ -23,7 +23,7 @@ class TestForecasting:
 
     def test_forecast_ets(self):
         """Test ETS forecasting."""
-        from src.core.forecasting import forecast_ets
+        from ts_agents.core.forecasting import forecast_ets
 
         x = np.sin(np.linspace(0, 10 * np.pi, 200)) + 0.1 * np.random.randn(200)
 
@@ -34,7 +34,7 @@ class TestForecasting:
 
     def test_forecast_theta(self):
         """Test Theta forecasting."""
-        from src.core.forecasting import forecast_theta
+        from ts_agents.core.forecasting import forecast_theta
 
         x = np.linspace(0, 10, 200) + 0.5 * np.random.randn(200)
 
@@ -45,7 +45,7 @@ class TestForecasting:
 
     def test_forecast_seasonal_naive(self):
         """Test seasonal naive repeats the last observed season."""
-        from src.core.forecasting import forecast_seasonal_naive
+        from ts_agents.core.forecasting import forecast_seasonal_naive
 
         x = np.tile(np.arange(1, 13, dtype=float), 2)
 
@@ -60,7 +60,7 @@ class TestForecasting:
 
     def test_forecast_ensemble(self):
         """Test ensemble forecasting."""
-        from src.core.forecasting import forecast_ensemble
+        from ts_agents.core.forecasting import forecast_ensemble
 
         x = np.sin(np.linspace(0, 10 * np.pi, 200)) + 0.1 * np.random.randn(200)
 
@@ -75,7 +75,7 @@ class TestForecasting:
 
     def test_forecast_ensemble_supports_seasonal_naive(self):
         """Test ensemble forecasting can include seasonal naive."""
-        from src.core.forecasting import forecast_ensemble
+        from ts_agents.core.forecasting import forecast_ensemble
 
         x = np.tile(np.arange(1, 13, dtype=float), 2)
 
@@ -94,7 +94,7 @@ class TestForecasting:
 
     def test_forecast_arima_with_season_length(self):
         """Test ARIMA forecasting with season_length parameter."""
-        from src.core.forecasting import forecast_arima
+        from ts_agents.core.forecasting import forecast_arima
 
         # Create seasonal series
         t = np.arange(200)
@@ -107,7 +107,7 @@ class TestForecasting:
 
     def test_forecast_ensemble_with_season_length(self):
         """Test ensemble forecasting with season_length parameter."""
-        from src.core.forecasting import forecast_ensemble
+        from ts_agents.core.forecasting import forecast_ensemble
 
         t = np.arange(200)
         x = np.sin(2 * np.pi * t / 12) + 0.1 * np.random.randn(200)
@@ -119,7 +119,7 @@ class TestForecasting:
 
     def test_numpy_integer_season_length_uses_unit_step_freq(self, monkeypatch):
         """Test NumPy integer season_length keeps StatsForecast freq at unit steps."""
-        import src.core.forecasting.statistical as statistical
+        import ts_agents.core.forecasting.statistical as statistical
 
         captured_freqs = []
 
@@ -163,7 +163,7 @@ class TestForecasting:
 
     def test_compare_forecasts(self):
         """Test forecast comparison."""
-        from src.core.forecasting import compare_forecasts
+        from ts_agents.core.forecasting import compare_forecasts
 
         x = np.sin(np.linspace(0, 20 * np.pi, 500)) + 0.1 * np.random.randn(500)
 
@@ -175,7 +175,7 @@ class TestForecasting:
 
     def test_compare_forecasts_supports_seasonal_naive(self):
         """Test forecast comparison can score the seasonal naive baseline."""
-        from src.core.forecasting import compare_forecasts
+        from ts_agents.core.forecasting import compare_forecasts
 
         x = np.tile(np.arange(1, 13, dtype=float), 3)
 

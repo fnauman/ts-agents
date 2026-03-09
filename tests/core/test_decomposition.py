@@ -9,7 +9,7 @@ class TestSTL:
 
     def test_stl_decompose_basic(self):
         """Test basic STL decomposition."""
-        from src.core.decomposition import stl_decompose
+        from ts_agents.core.decomposition import stl_decompose
 
         # Create series with trend and seasonality
         t = np.linspace(0, 10, 1000)
@@ -28,7 +28,7 @@ class TestSTL:
 
     def test_stl_decompose_auto_period(self):
         """Test STL with auto period detection."""
-        from src.core.decomposition import stl_decompose
+        from ts_agents.core.decomposition import stl_decompose
 
         # Create series with clear periodicity
         x = np.sin(np.linspace(0, 10 * np.pi, 1000)) + 0.1 * np.random.randn(1000)
@@ -40,7 +40,7 @@ class TestSTL:
 
     def test_stl_metrics(self):
         """Test that STL metrics are computed."""
-        from src.core.decomposition import stl_decompose
+        from ts_agents.core.decomposition import stl_decompose
 
         x = np.sin(np.linspace(0, 20 * np.pi, 2000)) + 0.05 * np.random.randn(2000)
         result = stl_decompose(x, period=100)
@@ -55,7 +55,7 @@ class TestHPFilter:
 
     def test_hp_filter_basic(self):
         """Test basic HP filter."""
-        from src.core.decomposition import hp_filter
+        from ts_agents.core.decomposition import hp_filter
 
         # Create series with trend and cycle
         t = np.linspace(0, 10, 1000)
@@ -71,7 +71,7 @@ class TestHPFilter:
 
     def test_hp_filter_auto_lambda(self):
         """Test HP filter with auto lambda."""
-        from src.core.decomposition import hp_filter
+        from ts_agents.core.decomposition import hp_filter
 
         x = np.random.randn(500) + np.linspace(0, 5, 500)
         result = hp_filter(x, lamb=None)
@@ -84,7 +84,7 @@ class TestMSTL:
 
     def test_mstl_decompose(self):
         """Test MSTL decomposition."""
-        from src.core.decomposition import mstl_decompose
+        from ts_agents.core.decomposition import mstl_decompose
 
         # Create series with multiple seasonalities
         t = np.linspace(0, 100, 10000)
@@ -103,7 +103,7 @@ class TestHoltWinters:
 
     def test_holt_winters_decompose(self):
         """Test Holt-Winters decomposition."""
-        from src.core.decomposition import holt_winters_decompose
+        from ts_agents.core.decomposition import holt_winters_decompose
 
         t = np.linspace(0, 10, 1000)
         x = 0.5 * t + np.sin(2 * np.pi * t) + 0.1 * np.random.randn(1000)

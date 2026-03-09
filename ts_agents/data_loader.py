@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src import config
+from ts_agents import config
 
 def load_data(data_type: str = "real", use_test_data: Optional[bool] = None):
     """

@@ -22,7 +22,6 @@ This keeps the default public demo focused on safe, zero-secret manual analysis.
 2. Upload this repo (or mirror the relevant files) so the Space sees:
    - `app.py`
    - `requirements.txt`
-   - `src/`
    - `ts_agents/`
    - `data/`
 3. Let Spaces install dependencies from `requirements.txt`.

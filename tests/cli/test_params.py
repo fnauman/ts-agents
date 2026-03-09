@@ -1,6 +1,6 @@
 import pytest
 
-from src.cli.main import (
+from ts_agents.cli.main import (
     _build_run_example_command,
     _parse_param_value,
     _raise_missing_required_error,
@@ -152,9 +152,9 @@ def test_extract_images_requires_save(capsys):
 
 def test_data_vars_command_does_not_require_runs_attribute(monkeypatch, capsys):
     import importlib
-    import src.data_access as data_access
+    import ts_agents.data_access as data_access
 
-    cli_main = importlib.import_module("src.cli.main")
+    cli_main = importlib.import_module("ts_agents.cli.main")
 
     monkeypatch.setattr(data_access, "list_runs", lambda **kwargs: ["Re200Rm200"])
     monkeypatch.setattr(data_access, "list_variables", lambda **kwargs: ["bx001_real", "by001_real"])
@@ -171,7 +171,7 @@ def test_data_vars_command_does_not_require_runs_attribute(monkeypatch, capsys):
 def test_run_extracts_images_when_saving(monkeypatch, tmp_path):
     import importlib
 
-    cli_main = importlib.import_module("src.cli.main")
+    cli_main = importlib.import_module("ts_agents.cli.main")
 
     def fake_handle_data_command(args):
         return {"ok": True}, "Result\n[IMAGE_DATA:ZmFrZQ==]"
@@ -202,7 +202,7 @@ def test_run_extracts_images_in_json_without_breaking_json(monkeypatch, tmp_path
     import importlib
     import json
 
-    cli_main = importlib.import_module("src.cli.main")
+    cli_main = importlib.import_module("ts_agents.cli.main")
 
     def fake_handle_data_command(args):
         return {"message": "Result [IMAGE_DATA:ZmFrZQ==]"}, None
@@ -234,10 +234,10 @@ def test_run_extracts_images_in_json_without_breaking_json(monkeypatch, tmp_path
 def test_cli_compare_forecasts_accepts_methods_alias(monkeypatch, capsys):
     import importlib
     import numpy as np
-    import src.core.forecasting as forecasting
-    import src.tools.agent_tools as agent_tools
+    import ts_agents.core.forecasting as forecasting
+    import ts_agents.tools.agent_tools as agent_tools
 
-    cli_main = importlib.import_module("src.cli.main")
+    cli_main = importlib.import_module("ts_agents.cli.main")
     observed = {}
 
     monkeypatch.setattr(
@@ -278,10 +278,10 @@ def test_cli_compare_forecasts_accepts_methods_alias(monkeypatch, capsys):
 def test_cli_compare_forecasts_surfaces_tool_failure(monkeypatch, capsys):
     import importlib
     import numpy as np
-    import src.core.forecasting as forecasting
-    import src.tools.agent_tools as agent_tools
+    import ts_agents.core.forecasting as forecasting
+    import ts_agents.tools.agent_tools as agent_tools
 
-    cli_main = importlib.import_module("src.cli.main")
+    cli_main = importlib.import_module("ts_agents.cli.main")
 
     monkeypatch.setattr(
         agent_tools,

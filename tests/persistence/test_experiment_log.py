@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.persistence.experiment_log import (
+from ts_agents.persistence.experiment_log import (
     ExperimentStatus,
     ToolCall,
     ExperimentRun,

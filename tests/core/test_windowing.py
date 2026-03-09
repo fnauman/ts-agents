@@ -1,9 +1,9 @@
 import numpy as np
 import warnings
 
-from src.core.base import ClassificationResult
-from src.core.windowing import select_window_size, evaluate_windowed_classifier
-import src.core.windowing.selection as window_selection
+from ts_agents.core.base import ClassificationResult
+from ts_agents.core.windowing import select_window_size, evaluate_windowed_classifier
+import ts_agents.core.windowing.selection as window_selection
 
 
 def _make_series():

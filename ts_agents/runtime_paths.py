@@ -18,7 +18,7 @@ def resolve_existing_path(path: PathLike) -> Optional[Path]:
     Resolution order:
     1) Absolute path as provided.
     2) Relative to repository checkout root.
-    3) Relative to package resource root (src/resources/).
+    3) Relative to package resource root (ts_agents/resources/).
     """
     candidate = Path(path)
     if candidate.is_absolute():

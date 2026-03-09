@@ -305,7 +305,7 @@ Tools run inside a sandbox. Pick one with `--sandbox <mode>` or set
 | **subprocess** | Separate Python process | — |
 | **docker** | Container | Docker running; build image first: `./build_docker_sandbox.sh` |
 | **daytona** | Cloud sandbox | `pip install daytona` + `DAYTONA_API_KEY` ([Daytona docs](https://www.daytona.io/docs)); default bootstrap clones this repo + runs `pip install -e` |
-| **modal** | Serverless cloud | `pip install modal`, run `modal token new` (opens browser auth) or set `MODAL_TOKEN_ID`/`MODAL_TOKEN_SECRET`, then deploy with `modal deploy -m src.sandbox.modal_app --env main --name ts-agents-sandbox` |
+| **modal** | Serverless cloud | `pip install modal`, run `modal token new` (opens browser auth) or set `MODAL_TOKEN_ID`/`MODAL_TOKEN_SECRET`, then deploy with `modal deploy -m ts_agents.sandbox.modal_app --env main --name ts-agents-sandbox` |
 
 If the chosen backend is unavailable at runtime the executor falls back to
 **local** with a warning.
@@ -332,12 +332,12 @@ For full details (env vars, resource limits, networking), see `SANDBOX.md`.
 ## Repository Layout
 
 - `main.py` - Gradio app entrypoint
-- `src/cli/` - CLI parser, command handlers, output helpers
-- `src/core/` - pure time-series algorithms
-- `src/tools/` - tool registry, wrappers, execution/sandbox routing
-- `src/agents/` - simple and deep agent implementations
-- `src/ui/` - Gradio tabs/components
-- `src/persistence/` - cache/session/experiment logging
+- `ts_agents/cli/` - CLI parser, command handlers, output helpers
+- `ts_agents/core/` - pure time-series algorithms
+- `ts_agents/tools/` - tool registry, wrappers, execution/sandbox routing
+- `ts_agents/agents/` - simple and deep agent implementations
+- `ts_agents/ui/` - Gradio tabs/components
+- `ts_agents/persistence/` - cache/session/experiment logging
 - `tests/` - unit and CLI tests
 - `data/` - sample datasets and data generation/download scripts
 - `skills/` - canonical skill definitions

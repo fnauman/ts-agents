@@ -119,7 +119,7 @@ modal token new
 modal token info
 
 # Deploy the app in a specific Modal environment (recommended)
-modal deploy -m src.sandbox.modal_app --env main --name ts-agents-sandbox
+modal deploy -m ts_agents.sandbox.modal_app --env main --name ts-agents-sandbox
 ```
 
 Configure and run:
@@ -137,7 +137,7 @@ If you see:
 
 - Check deployment visibility: `modal app list --env main`
 - Re-deploy explicitly into the same environment:
-  `modal deploy -m src.sandbox.modal_app --env main --name ts-agents-sandbox`
+  `modal deploy -m ts_agents.sandbox.modal_app --env main --name ts-agents-sandbox`
 - Ensure runtime lookup matches deploy target:
   `export MODAL_ENVIRONMENT=main`
 
@@ -158,7 +158,7 @@ Modal smoke test:
 
 ```bash
 # First deploy once after auth:
-uv run modal deploy -m src.sandbox.modal_app --env main --name ts-agents-sandbox
+uv run modal deploy -m ts_agents.sandbox.modal_app --env main --name ts-agents-sandbox
 
 uv run ts-agents run stl_decompose_with_data \
   --run Re200Rm200 \

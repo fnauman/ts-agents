@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.persistence.session_store import (
+from ts_agents.persistence.session_store import (
     SessionState,
     SessionStore,
     init_session_store,

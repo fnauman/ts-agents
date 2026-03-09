@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Tuple
 
 import yaml
 
-from src.runtime_paths import resolve_default_skills_dir
+from ts_agents.runtime_paths import resolve_default_skills_dir
 
 
 # Skill directory mappings for different agents
@@ -31,7 +31,7 @@ CLAUDE_CODE_FIELDS = ["disable-model-invocation", "allowed-tools"]
 
 def _format_tools_by_category() -> List[str]:
     """Format tools organized by category for SKILLS.md."""
-    from src.tools.bundles import CATEGORY_BUNDLES
+    from ts_agents.tools.bundles import CATEGORY_BUNDLES
 
     lines: List[str] = []
     for category_name, tools in CATEGORY_BUNDLES.items():
@@ -47,7 +47,7 @@ def _format_tools_by_category() -> List[str]:
 
 def build_skills_markdown() -> str:
     """Build the aggregate SKILLS.md summary file."""
-    from src.tools.bundles import (
+    from ts_agents.tools.bundles import (
         CATEGORY_BUNDLES,
         DEMO_BUNDLE,
         DEMO_WINDOWING_BUNDLE,

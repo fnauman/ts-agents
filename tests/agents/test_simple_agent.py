@@ -8,7 +8,7 @@ class TestPrompts:
 
     def test_get_system_prompt_basic(self):
         """Test generating basic system prompt."""
-        from src.agents.simple.prompts import get_system_prompt
+        from ts_agents.agents.simple.prompts import get_system_prompt
 
         prompt = get_system_prompt()
 
@@ -17,7 +17,7 @@ class TestPrompts:
 
     def test_get_system_prompt_with_tools(self):
         """Test system prompt includes tool names."""
-        from src.agents.simple.prompts import get_system_prompt
+        from ts_agents.agents.simple.prompts import get_system_prompt
 
         tool_names = ["stl_decompose", "detect_peaks", "forecast_arima"]
         prompt = get_system_prompt(tool_names=tool_names)
@@ -28,7 +28,7 @@ class TestPrompts:
 
     def test_get_system_prompt_with_data_info(self):
         """Test system prompt includes data info."""
-        from src.agents.simple.prompts import get_system_prompt
+        from ts_agents.agents.simple.prompts import get_system_prompt
 
         prompt = get_system_prompt(include_data_info=True)
 
@@ -37,7 +37,7 @@ class TestPrompts:
 
     def test_get_system_prompt_without_data_info(self):
         """Test system prompt can exclude data info."""
-        from src.agents.simple.prompts import get_system_prompt
+        from ts_agents.agents.simple.prompts import get_system_prompt
 
         prompt = get_system_prompt(include_data_info=False)
 
@@ -46,7 +46,7 @@ class TestPrompts:
 
     def test_get_system_prompt_custom_instructions(self):
         """Test system prompt with custom instructions."""
-        from src.agents.simple.prompts import get_system_prompt
+        from ts_agents.agents.simple.prompts import get_system_prompt
 
         custom = "Always respond in JSON format."
         prompt = get_system_prompt(custom_instructions=custom)
@@ -55,7 +55,7 @@ class TestPrompts:
 
     def test_get_bundle_prompt_minimal(self):
         """Test bundle-specific prompt for minimal."""
-        from src.agents.simple.prompts import get_bundle_prompt
+        from ts_agents.agents.simple.prompts import get_bundle_prompt
 
         prompt = get_bundle_prompt("minimal")
 
@@ -63,7 +63,7 @@ class TestPrompts:
 
     def test_get_bundle_prompt_standard(self):
         """Test bundle-specific prompt for standard."""
-        from src.agents.simple.prompts import get_bundle_prompt
+        from ts_agents.agents.simple.prompts import get_bundle_prompt
 
         prompt = get_bundle_prompt("standard")
 
@@ -71,7 +71,7 @@ class TestPrompts:
 
     def test_get_bundle_prompt_full(self):
         """Test bundle-specific prompt for full."""
-        from src.agents.simple.prompts import get_bundle_prompt
+        from ts_agents.agents.simple.prompts import get_bundle_prompt
 
         prompt = get_bundle_prompt("full")
 
@@ -79,7 +79,7 @@ class TestPrompts:
 
     def test_get_bundle_prompt_unknown(self):
         """Test bundle prompt for unknown bundle returns empty."""
-        from src.agents.simple.prompts import get_bundle_prompt
+        from ts_agents.agents.simple.prompts import get_bundle_prompt
 
         prompt = get_bundle_prompt("nonexistent_bundle")
 
@@ -91,7 +91,7 @@ class TestToolCallRecord:
 
     def test_tool_call_record_creation(self):
         """Test creating a tool call record."""
-        from src.agents.simple.agent import ToolCallRecord
+        from ts_agents.agents.simple.agent import ToolCallRecord
 
         record = ToolCallRecord(
             tool_name="detect_peaks",
@@ -108,7 +108,7 @@ class TestToolCallRecord:
 
     def test_tool_call_record_with_error(self):
         """Test tool call record with error."""
-        from src.agents.simple.agent import ToolCallRecord
+        from ts_agents.agents.simple.agent import ToolCallRecord
 
         record = ToolCallRecord(
             tool_name="detect_peaks",
@@ -125,7 +125,7 @@ class TestConversationTurn:
 
     def test_conversation_turn_creation(self):
         """Test creating a conversation turn."""
-        from src.agents.simple.agent import ConversationTurn, ToolCallRecord
+        from ts_agents.agents.simple.agent import ConversationTurn, ToolCallRecord
 
         turn = ConversationTurn(
             user_message="How many peaks?",
@@ -148,7 +148,7 @@ class TestAgentCreationConfiguration:
     def test_agent_metadata_stored(self):
         """Test that agent metadata is properly configured."""
         # This test verifies the configuration path, not actual agent creation
-        from src.tools.bundles import get_bundle_names
+        from ts_agents.tools.bundles import get_bundle_names
 
         # Verify bundles are properly configured
         minimal_tools = get_bundle_names("minimal")
@@ -160,7 +160,7 @@ class TestAgentCreationConfiguration:
 
     def test_tool_bundle_names_available(self):
         """Test that all expected bundles are available."""
-        from src.tools.bundles import list_available_bundles
+        from ts_agents.tools.bundles import list_available_bundles
 
         bundles = list_available_bundles()
 
@@ -197,7 +197,7 @@ class TestSimpleAgentChatDataStructures:
 
     def test_get_tool_stats_with_calls(self):
         """Test tool stats computation with sample data."""
-        from src.agents.simple.agent import ToolCallRecord
+        from ts_agents.agents.simple.agent import ToolCallRecord
 
         tool_calls = [
             ToolCallRecord(tool_name="detect_peaks", args={}, duration_ms=100),
@@ -238,12 +238,12 @@ class TestConvenienceFunctions:
 
     def test_compare_bundles_function_exists(self):
         """Test that compare_bundles_on_query function exists."""
-        from src.agents.simple.agent import compare_bundles_on_query
+        from ts_agents.agents.simple.agent import compare_bundles_on_query
 
         assert callable(compare_bundles_on_query)
 
     def test_run_single_query_function_exists(self):
         """Test that run_single_query function exists."""
-        from src.agents.simple.agent import run_single_query
+        from ts_agents.agents.simple.agent import run_single_query
 
         assert callable(run_single_query)

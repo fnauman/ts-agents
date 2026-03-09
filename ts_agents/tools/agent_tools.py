@@ -4,8 +4,8 @@ from typing import Optional
 
 import numpy as np
 
-from src.core.decomposition import stl_decompose
-from src.data_access import get_series as _get_series
+from ts_agents.core.decomposition import stl_decompose
+from ts_agents.data_access import get_series as _get_series
 
 
 _PLOT_LIB = None
@@ -90,7 +90,7 @@ def stl_decompose_with_data(
         return f"Error in stl_decompose: {str(e)}"
 
 def mstl_decompose_with_data(variable_name: str, unique_id: str, periods: list = None) -> str:
-    from src.core.decomposition import mstl_decompose
+    from ts_agents.core.decomposition import mstl_decompose
     try:
         series = _get_series_data(variable_name, unique_id)
         result = mstl_decompose(series, periods=periods)
@@ -120,7 +120,7 @@ def mstl_decompose_with_data(variable_name: str, unique_id: str, periods: list =
         return f"Error in MSTL: {str(e)}"
 
 def hp_filter_with_data(variable_name: str, unique_id: str, lamb: float = 1600) -> str:
-    from src.core.decomposition import hp_filter
+    from ts_agents.core.decomposition import hp_filter
     try:
         series = _get_series_data(variable_name, unique_id)
         result = hp_filter(series, lamb=lamb)
@@ -146,7 +146,7 @@ def hp_filter_with_data(variable_name: str, unique_id: str, lamb: float = 1600) 
         return f"Error in HP Filter: {str(e)}"
         
 def holt_winters_decompose_with_data(variable_name: str, unique_id: str, period: Optional[int] = None, trend: str = 'add', seasonal: str = 'add') -> str:
-    from src.core.decomposition import holt_winters_decompose
+    from ts_agents.core.decomposition import holt_winters_decompose
     try:
         series = _get_series_data(variable_name, unique_id)
         result = holt_winters_decompose(series, period=period, trend=trend, seasonal=seasonal)
@@ -182,7 +182,7 @@ def forecast_arima_with_data(
     confidence_level: float = 0.95,
     season_length: Optional[int] = None,
 ) -> str:
-    from src.core.forecasting import forecast_arima
+    from ts_agents.core.forecasting import forecast_arima
     try:
         series = _get_series_data(variable_name, unique_id)
         # Convert confidence_level 0.95 to level [95]
@@ -228,7 +228,7 @@ def forecast_ets_with_data(
     horizon: int = 10,
     season_length: Optional[int] = None,
 ) -> str:
-    from src.core.forecasting import forecast_ets
+    from ts_agents.core.forecasting import forecast_ets
     try:
         series = _get_series_data(variable_name, unique_id)
         forecast_kwargs = {"horizon": horizon}
@@ -262,7 +262,7 @@ def forecast_theta_with_data(
     horizon: int = 10,
     season_length: Optional[int] = None,
 ) -> str:
-    from src.core.forecasting import forecast_theta
+    from ts_agents.core.forecasting import forecast_theta
     try:
         series = _get_series_data(variable_name, unique_id)
         forecast_kwargs = {"horizon": horizon}
@@ -297,7 +297,7 @@ def forecast_seasonal_naive_with_data(
     horizon: int = 10,
     season_length: Optional[int] = None,
 ) -> str:
-    from src.core.forecasting import forecast_seasonal_naive
+    from ts_agents.core.forecasting import forecast_seasonal_naive
     try:
         series = _get_series_data(variable_name, unique_id)
         forecast_kwargs = {"horizon": horizon}
@@ -330,7 +330,7 @@ def forecast_seasonal_naive_with_data(
 # Pattern Wrappers
 
 def detect_peaks_with_data(variable_name: str, unique_id: str, distance: int = None, prominence: float = None) -> str:
-    from src.core.patterns import detect_peaks
+    from ts_agents.core.patterns import detect_peaks
     try:
         series = _get_series_data(variable_name, unique_id)
         result = detect_peaks(series, distance=distance, prominence=prominence)
@@ -356,7 +356,7 @@ def detect_peaks_with_data(variable_name: str, unique_id: str, distance: int = N
         return f"Error in detect_peaks: {str(e)}"
 
 def analyze_recurrence_with_data(variable_name: str, unique_id: str, threshold: float = None) -> str:
-    from src.core.patterns import analyze_recurrence
+    from ts_agents.core.patterns import analyze_recurrence
     try:
         series = _get_series_data(variable_name, unique_id)
         result = analyze_recurrence(series, threshold=threshold)
@@ -381,7 +381,7 @@ def analyze_recurrence_with_data(variable_name: str, unique_id: str, threshold: 
         return f"Error in recurrence: {str(e)}"
 
 def analyze_matrix_profile_with_data(variable_name: str, unique_id: str, window_size: int = 50) -> str:
-    from src.core.patterns import analyze_matrix_profile
+    from ts_agents.core.patterns import analyze_matrix_profile
     try:
         series = _get_series_data(variable_name, unique_id)
         result = analyze_matrix_profile(series, m=window_size)
@@ -421,7 +421,7 @@ def knn_classify_with_data(variable_name: str, unique_id: str, k: int = 1) -> st
 # Spectral/Analysis Wrappers
 
 def compute_psd_with_data(variable_name: str, unique_id: str, sampling_rate: float = 1.0) -> str:
-    from src.core.spectral import compute_psd
+    from ts_agents.core.spectral import compute_psd
     try:
         series = _get_series_data(variable_name, unique_id)
         result = compute_psd(series, sample_rate=sampling_rate)
@@ -471,7 +471,7 @@ def forecast_ensemble_with_data(
     models: list = None,
     season_length: Optional[int] = None,
 ) -> str:
-    from src.core.forecasting import forecast_ensemble
+    from ts_agents.core.forecasting import forecast_ensemble
     try:
         series = _get_series_data(variable_name, unique_id)
         forecast_kwargs = {
@@ -515,7 +515,7 @@ def compare_forecasts_with_data(
     methods: list = None,
     season_length: Optional[int] = None,
     ) -> str:
-    from src.core.forecasting import compare_forecasts
+    from ts_agents.core.forecasting import compare_forecasts
     series = _get_series_data(variable_name, unique_id)
     selected_models = models if models is not None else methods
     compare_kwargs = {
@@ -533,7 +533,7 @@ def compare_forecasts_with_data(
 # Patterns
 
 def count_peaks_with_data(variable_name: str, unique_id: str, distance: int = None, prominence: float = None) -> int:
-    from src.core.patterns import count_peaks
+    from ts_agents.core.patterns import count_peaks
     try:
         series = _get_series_data(variable_name, unique_id)
         return count_peaks(series, distance=distance, prominence=prominence)
@@ -543,7 +543,7 @@ def count_peaks_with_data(variable_name: str, unique_id: str, distance: int = No
         return f"Error counting peaks: {str(e)}"
 
 def find_motifs_with_data(variable_name: str, unique_id: str, window_size: int = 50, n_motifs: int = 3) -> str:
-    from src.core.patterns import find_motifs
+    from ts_agents.core.patterns import find_motifs
     try:
         series = _get_series_data(variable_name, unique_id)
         # Map parameters: window_size -> m, n_motifs -> max_motifs
@@ -575,7 +575,7 @@ def find_motifs_with_data(variable_name: str, unique_id: str, window_size: int =
         return f"Error in Motifs: {str(e)}"
 
 def find_discords_with_data(variable_name: str, unique_id: str, window_size: int = 50, n_discords: int = 3) -> str:
-    from src.core.patterns import find_discords
+    from ts_agents.core.patterns import find_discords
     try:
         series = _get_series_data(variable_name, unique_id)
         # Map parameters: window_size -> m, n_discords -> max_discords
@@ -614,7 +614,7 @@ def segment_changepoint_with_data(
     penalty: float = None,
     min_size: int = 5,
 ) -> str:
-    from src.core.patterns import segment_changepoint
+    from ts_agents.core.patterns import segment_changepoint
     try:
         series = _get_series_data(variable_name, unique_id)
 
@@ -651,7 +651,7 @@ def segment_changepoint_with_data(
         return f"Error in Changepoint: {str(e)}"
 
 def segment_fluss_with_data(variable_name: str, unique_id: str, window_size: int = 50, n_segments: int = 3) -> str:
-    from src.core.patterns import segment_fluss
+    from ts_agents.core.patterns import segment_fluss
     try:
         series = _get_series_data(variable_name, unique_id)
         result = segment_fluss(series, m=window_size, n_segments=n_segments)
@@ -691,7 +691,7 @@ def segment_fluss_with_data(variable_name: str, unique_id: str, window_size: int
 # Spectral (Additional)
 
 def detect_periodicity_with_data(variable_name: str, unique_id: str, n_top: int = 5) -> str:
-    from src.core.spectral import detect_periodicity
+    from ts_agents.core.spectral import detect_periodicity
     try:
         series = _get_series_data(variable_name, unique_id)
         # Map parameters: n_top -> top_n
@@ -714,7 +714,7 @@ def compute_coherence_with_data(
     sampling_rate: float = None,
     fs: float = None,
 ) -> str:
-    from src.core.spectral import compute_coherence
+    from ts_agents.core.spectral import compute_coherence
     try:
         series1 = _get_series_data(variable1, unique_id1)
         series2 = _get_series_data(variable2, unique_id2)
@@ -754,7 +754,7 @@ def compute_coherence_with_data(
 # Complexity
 
 def sample_entropy_with_data(variable_name: str, unique_id: str, m: int = 2, r: float = None) -> str:
-    from src.core.complexity import sample_entropy
+    from ts_agents.core.complexity import sample_entropy
     try:
         series = _get_series_data(variable_name, unique_id)
         val = sample_entropy(series, m=m, r=r)
@@ -763,7 +763,7 @@ def sample_entropy_with_data(variable_name: str, unique_id: str, m: int = 2, r: 
         return f"Error in Sample Entropy: {str(e)}"
 
 def permutation_entropy_with_data(variable_name: str, unique_id: str, order: int = 3, delay: int = 1, normalize: bool = True) -> str:
-    from src.core.complexity import permutation_entropy
+    from ts_agents.core.complexity import permutation_entropy
     try:
         series = _get_series_data(variable_name, unique_id)
         val = permutation_entropy(series, order=order, delay=delay, normalize=normalize)
@@ -777,7 +777,7 @@ def hurst_exponent_with_data(
     min_window: int = 10,
     max_window: int = None,
 ) -> str:
-    from src.core.complexity import hurst_exponent
+    from ts_agents.core.complexity import hurst_exponent
     try:
         series = _get_series_data(variable_name, unique_id)
         val = hurst_exponent(series, min_window=min_window, max_window=max_window)
@@ -788,7 +788,7 @@ def hurst_exponent_with_data(
 # Statistics
 
 def describe_series_with_data(variable_name: str, unique_id: str) -> str:
-    from src.core.statistics import describe_series
+    from ts_agents.core.statistics import describe_series
     try:
         series = _get_series_data(variable_name, unique_id)
         result = describe_series(series)
@@ -797,7 +797,7 @@ def describe_series_with_data(variable_name: str, unique_id: str) -> str:
         return f"Error in Stats: {str(e)}"
 
 def compute_autocorrelation_with_data(variable_name: str, unique_id: str, max_lag: int = None) -> str:
-    from src.core.statistics import compute_autocorrelation
+    from ts_agents.core.statistics import compute_autocorrelation
     try:
         series = _get_series_data(variable_name, unique_id)
         acf = compute_autocorrelation(series, max_lag=max_lag)
@@ -821,7 +821,7 @@ def compute_autocorrelation_with_data(variable_name: str, unique_id: str, max_la
         return f"Error in ACF: {str(e)}"
 
 def compare_series_stats_with_data(variables: list, run_ids: list) -> str:
-    from src.core.statistics import compare_series_stats
+    from ts_agents.core.statistics import compare_series_stats
     try:
         # Check inputs
         if len(variables) != len(run_ids):

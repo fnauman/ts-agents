@@ -9,7 +9,7 @@ class TestComparisonResult:
 
     def test_comparison_result_creation(self):
         """Test creating a ComparisonResult."""
-        from src.core.comparison import ComparisonResult
+        from ts_agents.core.comparison import ComparisonResult
 
         result = ComparisonResult(
             category="test",
@@ -27,7 +27,7 @@ class TestComparisonResult:
 
     def test_get_best_method(self):
         """Test getting best method for a metric."""
-        from src.core.comparison import ComparisonResult
+        from ts_agents.core.comparison import ComparisonResult
 
         result = ComparisonResult(
             category="test",
@@ -44,7 +44,7 @@ class TestComparisonResult:
 
     def test_get_overall_best(self):
         """Test getting overall best method."""
-        from src.core.comparison import ComparisonResult
+        from ts_agents.core.comparison import ComparisonResult
 
         result = ComparisonResult(
             category="test",
@@ -63,7 +63,7 @@ class TestComparisonResult:
 
     def test_to_table(self):
         """Test converting comparison to markdown table."""
-        from src.core.comparison import ComparisonResult
+        from ts_agents.core.comparison import ComparisonResult
 
         result = ComparisonResult(
             category="test",
@@ -84,7 +84,7 @@ class TestComparisonResult:
 
     def test_to_dict(self):
         """Test converting comparison to dictionary."""
-        from src.core.comparison import ComparisonResult
+        from ts_agents.core.comparison import ComparisonResult
 
         result = ComparisonResult(
             category="test",
@@ -106,7 +106,7 @@ class TestDecompositionComparison:
 
     def test_compare_decomposition_methods(self):
         """Test comparing decomposition methods."""
-        from src.core.comparison import compare_decomposition_methods
+        from ts_agents.core.comparison import compare_decomposition_methods
 
         # Create test data with trend and seasonality
         t = np.linspace(0, 10, 1000)
@@ -125,7 +125,7 @@ class TestDecompositionComparison:
 
     def test_compare_decomposition_with_all_methods(self):
         """Test comparing all decomposition methods."""
-        from src.core.comparison import compare_decomposition_methods
+        from ts_agents.core.comparison import compare_decomposition_methods
 
         t = np.linspace(0, 10, 1000)
         x = 0.5 * t + np.sin(2 * np.pi * t) + 0.1 * np.random.randn(1000)
@@ -141,7 +141,7 @@ class TestDecompositionComparison:
 
     def test_decomposition_metrics(self):
         """Test that decomposition comparison includes expected metrics."""
-        from src.core.comparison import compare_decomposition_methods
+        from ts_agents.core.comparison import compare_decomposition_methods
 
         t = np.linspace(0, 10, 1000)
         x = 0.5 * t + np.sin(2 * np.pi * t) + 0.1 * np.random.randn(1000)
@@ -164,7 +164,7 @@ class TestForecastingComparison:
 
     def test_compare_forecasting_methods(self):
         """Test comparing forecasting methods."""
-        from src.core.comparison import compare_forecasting_methods
+        from ts_agents.core.comparison import compare_forecasting_methods
 
         # Create test data
         x = np.sin(np.linspace(0, 20 * np.pi, 500)) + 0.1 * np.random.randn(500)
@@ -182,7 +182,7 @@ class TestForecastingComparison:
 
     def test_forecasting_metrics(self):
         """Test that forecasting comparison includes error metrics."""
-        from src.core.comparison import compare_forecasting_methods
+        from ts_agents.core.comparison import compare_forecasting_methods
 
         x = np.sin(np.linspace(0, 20 * np.pi, 500)) + 0.1 * np.random.randn(500)
 
@@ -204,7 +204,7 @@ class TestGenericCompare:
 
     def test_compare_methods_decomposition(self):
         """Test compare_methods with decomposition category."""
-        from src.core.comparison import compare_methods
+        from ts_agents.core.comparison import compare_methods
 
         t = np.linspace(0, 10, 1000)
         x = 0.5 * t + np.sin(2 * np.pi * t) + 0.1 * np.random.randn(1000)
@@ -220,7 +220,7 @@ class TestGenericCompare:
 
     def test_compare_methods_invalid_category(self):
         """Test compare_methods with invalid category."""
-        from src.core.comparison import compare_methods
+        from ts_agents.core.comparison import compare_methods
 
         x = np.random.randn(100)
 
@@ -233,7 +233,7 @@ class TestRankingComputation:
 
     def test_rankings_lower_is_better(self):
         """Test that rankings correctly handle lower-is-better metrics."""
-        from src.core.comparison import _compute_rankings
+        from ts_agents.core.comparison import _compute_rankings
 
         metrics = {
             "a": {"rmse": 0.1, "mae": 0.05},
@@ -249,7 +249,7 @@ class TestRankingComputation:
 
     def test_rankings_higher_is_better(self):
         """Test that rankings correctly handle higher-is-better metrics."""
-        from src.core.comparison import _compute_rankings
+        from ts_agents.core.comparison import _compute_rankings
 
         metrics = {
             "a": {"accuracy": 0.9},

@@ -11,7 +11,7 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
-from src.core.forecasting import (
+from ts_agents.core.forecasting import (
     forecast_arima,
     forecast_ets,
     forecast_theta,

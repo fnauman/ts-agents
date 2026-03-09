@@ -141,6 +141,6 @@ uv run ts-agents run stl_decompose_with_data --run Re200Rm200 --var bx001_real \
 | `subprocess` | Separate process | None |
 | `docker` | Container | Docker + `./build_docker_sandbox.sh` |
 | `daytona` | Cloud sandbox | `pip install daytona` + `DAYTONA_API_KEY` (optional overrides: `TS_AGENTS_DAYTONA_SNAPSHOT`, `TS_AGENTS_DAYTONA_STREAM`, `TS_AGENTS_DAYTONA_LOG_FILE`) |
-| `modal` | Serverless cloud | `pip install modal` + `modal token new` (opens browser) or `MODAL_TOKEN_ID`/`MODAL_TOKEN_SECRET`; deploy with `modal deploy -m src.sandbox.modal_app --env main --name ts-agents-sandbox`; optional stream/file flags: `TS_AGENTS_MODAL_STREAM`, `TS_AGENTS_MODAL_LOG_FILE` |
+| `modal` | Serverless cloud | `pip install modal` + `modal token new` (opens browser) or `MODAL_TOKEN_ID`/`MODAL_TOKEN_SECRET`; deploy with `modal deploy -m ts_agents.sandbox.modal_app --env main --name ts-agents-sandbox`; optional stream/file flags: `TS_AGENTS_MODAL_STREAM`, `TS_AGENTS_MODAL_LOG_FILE` |
 
 You can also set the default via the `TS_AGENTS_SANDBOX_MODE` environment variable.

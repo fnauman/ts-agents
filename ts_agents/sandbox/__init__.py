@@ -8,5 +8,5 @@ The goal is to keep the "runner" interface as simple as possible:
 - input: JSON file describing a tool invocation
 - output: JSON file containing the serialized ExecutionResult
 
-See :mod:`src.sandbox.runner`.
+See :mod:`ts_agents.sandbox.runner`.
 """

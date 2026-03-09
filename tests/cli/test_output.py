@@ -1,13 +1,13 @@
 import numpy as np
 import pytest
 
-from src.cli.output import (
+from ts_agents.cli.output import (
     extract_images_from_jsonable,
     extract_images_to_files,
     format_human,
     to_jsonable,
 )
-from src.core.base import DecompositionResult
+from ts_agents.core.base import DecompositionResult
 
 
 def test_to_jsonable_numpy_array():

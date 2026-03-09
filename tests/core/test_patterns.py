@@ -9,7 +9,7 @@ class TestPeaks:
 
     def test_detect_peaks_basic(self):
         """Test basic peak detection on a sine wave."""
-        from src.core.patterns import detect_peaks
+        from ts_agents.core.patterns import detect_peaks
 
         # Create a sine wave with clear peaks
         x = np.sin(np.linspace(0, 10 * np.pi, 1000))
@@ -22,7 +22,7 @@ class TestPeaks:
 
     def test_detect_peaks_with_prominence(self):
         """Test peak detection with prominence threshold."""
-        from src.core.patterns import detect_peaks
+        from ts_agents.core.patterns import detect_peaks
 
         # Sine wave with noise
         x = np.sin(np.linspace(0, 4 * np.pi, 400)) + 0.1 * np.random.randn(400)
@@ -34,7 +34,7 @@ class TestPeaks:
 
     def test_count_peaks(self):
         """Test simple peak count function."""
-        from src.core.patterns import count_peaks
+        from ts_agents.core.patterns import count_peaks
 
         x = np.array([0, 1, 0, 2, 0, 1.5, 0])
         count = count_peaks(x)
@@ -43,7 +43,7 @@ class TestPeaks:
 
     def test_peak_spacing_statistics(self):
         """Test that peak spacing statistics are computed."""
-        from src.core.patterns import detect_peaks
+        from ts_agents.core.patterns import detect_peaks
 
         # Regular sine wave should have low spacing CV
         x = np.sin(np.linspace(0, 20 * np.pi, 2000))
@@ -58,7 +58,7 @@ class TestRecurrence:
 
     def test_compute_recurrence_matrix(self):
         """Test recurrence matrix computation."""
-        from src.core.patterns import compute_recurrence_matrix
+        from ts_agents.core.patterns import compute_recurrence_matrix
 
         x = np.sin(np.linspace(0, 4 * np.pi, 200))
         R, threshold = compute_recurrence_matrix(x)
@@ -71,7 +71,7 @@ class TestRecurrence:
 
     def test_analyze_recurrence(self):
         """Test full recurrence analysis."""
-        from src.core.patterns import analyze_recurrence
+        from ts_agents.core.patterns import analyze_recurrence
 
         x = np.sin(np.linspace(0, 4 * np.pi, 200))
         result = analyze_recurrence(x)
@@ -86,7 +86,7 @@ class TestMatrixProfile:
 
     def test_compute_matrix_profile(self):
         """Test basic matrix profile computation."""
-        from src.core.patterns import compute_matrix_profile
+        from ts_agents.core.patterns import compute_matrix_profile
 
         x = np.random.randn(500)
         mp = compute_matrix_profile(x, m=50)
@@ -96,7 +96,7 @@ class TestMatrixProfile:
 
     def test_find_motifs(self):
         """Test motif discovery."""
-        from src.core.patterns import find_motifs
+        from ts_agents.core.patterns import find_motifs
 
         # Create a series with a repeating pattern
         pattern = np.sin(np.linspace(0, 2 * np.pi, 50))
@@ -111,7 +111,7 @@ class TestMatrixProfile:
 
     def test_find_discords(self):
         """Test discord (anomaly) detection."""
-        from src.core.patterns import find_discords
+        from ts_agents.core.patterns import find_discords
 
         # Create normal series with an anomaly
         x = np.sin(np.linspace(0, 20 * np.pi, 1000))
@@ -126,7 +126,7 @@ class TestMatrixProfile:
 
     def test_analyze_matrix_profile(self):
         """Test comprehensive matrix profile analysis."""
-        from src.core.patterns import analyze_matrix_profile
+        from ts_agents.core.patterns import analyze_matrix_profile
 
         x = np.random.randn(500) + np.sin(np.linspace(0, 10 * np.pi, 500))
         result = analyze_matrix_profile(x, m=50, max_motifs=3, max_discords=3)
@@ -141,7 +141,7 @@ class TestSegmentation:
 
     def test_segment_changepoint(self):
         """Test changepoint detection."""
-        from src.core.patterns import segment_changepoint
+        from ts_agents.core.patterns import segment_changepoint
 
         # Create series with clear regime change
         x = np.concatenate([
@@ -158,7 +158,7 @@ class TestSegmentation:
 
     def test_segment_fluss(self):
         """Test FLUSS segmentation."""
-        from src.core.patterns import segment_fluss
+        from ts_agents.core.patterns import segment_fluss
 
         np.random.seed(0)
         x = np.concatenate([
@@ -178,7 +178,7 @@ class TestSegmentation:
 
     def test_segment_fluss_accepts_n_regimes_alias(self):
         """FLUSS should support the backward-compatible n_regimes alias."""
-        from src.core.patterns import segment_fluss
+        from ts_agents.core.patterns import segment_fluss
 
         x = np.sin(np.linspace(0, 40 * np.pi, 1000))
         result = segment_fluss(x, m=50, n_regimes=3)
@@ -188,7 +188,7 @@ class TestSegmentation:
 
     def test_segment_changepoint_accepts_n_bkps_alias(self):
         """Changepoint segmentation should support the n_bkps alias."""
-        from src.core.patterns import segment_changepoint
+        from ts_agents.core.patterns import segment_changepoint
 
         x = np.concatenate([np.random.randn(200), np.random.randn(200) + 2])
         result = segment_changepoint(x, n_bkps=1)
@@ -198,7 +198,7 @@ class TestSegmentation:
 
     def test_matrix_profile_accepts_legacy_parameter_names(self):
         """Matrix profile analysis should accept old UI argument names."""
-        from src.core.patterns import analyze_matrix_profile
+        from ts_agents.core.patterns import analyze_matrix_profile
 
         x = np.random.randn(400)
         result = analyze_matrix_profile(
@@ -214,7 +214,7 @@ class TestSegmentation:
 
     def test_recurrence_accepts_embedding_aliases(self):
         """Recurrence analysis should accept embedding/time-delay aliases."""
-        from src.core.patterns import analyze_recurrence
+        from ts_agents.core.patterns import analyze_recurrence
 
         x = np.sin(np.linspace(0, 4 * np.pi, 300))
         result = analyze_recurrence(x, embedding_dimension=3, time_delay=2, threshold=0.1)

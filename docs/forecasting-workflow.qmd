@@ -15,7 +15,7 @@ The reference workflow uses a **vendored mini-panel from the M4 Monthly
 dataset**:
 
 - repo copy: `data/m4_monthly_mini.csv`
-- packaged copy: `src/resources/data/m4_monthly_mini.csv`
+- packaged copy: `ts_agents/resources/data/m4_monthly_mini.csv`
 - frequency: monthly
 - seasonality: `12`
 - official M4 horizon: `18`
