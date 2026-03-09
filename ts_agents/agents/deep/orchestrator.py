@@ -26,7 +26,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
-from ...config import OPENAI_MODEL, RESULTS_CACHE_DIR
+from ...config import get_openai_model, get_results_cache_dir
 from ...tools.registry import ToolRegistry, ComputationalCost, _COST_ORDER
 from ...tools.bundles import get_bundle, get_subagent_bundle
 from ...tools.wrappers import wrap_tools_for_deepagent
@@ -246,8 +246,8 @@ def create_deep_agent(
     >>> # Without approval workflow (for testing)
     >>> agent = create_deep_agent(enable_approval=False)
     """
-    model_name = model_name or OPENAI_MODEL
-    workspace_dir = workspace_dir or str(RESULTS_CACHE_DIR)
+    model_name = model_name or get_openai_model()
+    workspace_dir = workspace_dir or str(get_results_cache_dir())
 
     # Get orchestrator tools
     orchestrator_bundle = get_bundle("orchestrator")

@@ -1,40 +1,17 @@
-name: CI
+name: Publish TestPyPI Package
 
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
 
 jobs:
-  tests:
+  build:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11", "3.12", "3.13"]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          enable-cache: true
-
-      - name: Install dependencies
-        run: uv sync --frozen
-
-      - name: Run tests
-        run: uv run python -m pytest -q
-
-      - name: Build package artifacts
-        run: uv build
-
-  package-build:
-    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -49,7 +26,18 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Build package artifacts
+      - name: Read package metadata
+        id: metadata
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import tomllib
+          from pathlib import Path
+
+          pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+          print(f"version={pyproject['project']['version']}")
+          PY
+
+      - name: Build distributions
         run: uv build
 
       - name: Check package metadata
@@ -61,8 +49,8 @@ jobs:
           name: python-package-distributions
           path: dist/
 
-  package-smoke:
-    needs: package-build
+  smoke-install:
+    needs: build
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -90,3 +78,22 @@ jobs:
       - name: Smoke test installed wheel
         shell: bash
         run: bash scripts/smoke_install_wheel.sh "${{ matrix.python-version }}" "$GITHUB_WORKSPACE/dist"
+
+  publish:
+    needs: [build, smoke-install]
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/ts-agents/
+    steps:
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
