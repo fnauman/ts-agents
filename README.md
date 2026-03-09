@@ -1,24 +1,26 @@
 # ts-agents
 
 [![Docs](https://img.shields.io/badge/docs-online-blue)](https://fnauman.github.io/ts-agents/)
-[![Python](https://img.shields.io/badge/python-3.11%2B-3776AB)](#installation)
-[![License](https://img.shields.io/badge/license-MIT-2EA44F)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11--3.13-3776AB)](#installation)
+[![License](https://img.shields.io/badge/license-MIT-2EA44F)](https://github.com/fnauman/ts-agents/blob/main/LICENSE)
 
 `ts-agents` is a CLI-first toolkit for time-series analysis and agent-driven
 automation. It combines:
 - a stable CLI contract for reproducible runs (`ts-agents`)
 - inspectable artifacts instead of chat-only outputs (plots, JSON, reports)
 - optional sandboxes for safer execution (`local`, `subprocess`, `docker`, `daytona`, `modal`)
-- both a Gradio UI (`python main.py`) and tool-driven agents (simple + deep)
+- both a Gradio UI (`ts-agents-ui`) and tool-driven agents (simple + deep)
 
-It ships with three out-of-the-box demos:
+It ships with two out-of-the-box demos:
 - `window-classification` (synthetic labeled-stream window-size selection + evaluation)
-- `window-classification --csv-path data/wisdm_subset.csv` (WISDM real accelerometer data)
 - `forecasting` (baseline comparison and report artifacts)
 
-**Start here:** [Quickstart](#quickstart) | [Choose your path](#choose-your-path) | [Docs site](https://fnauman.github.io/ts-agents/) | [Distribution guide](docs/distribution.qmd) | [Demo walkthroughs](docs/walkthroughs.qmd) | [Hosted demo guide](docs/huggingface-spaces.qmd)
+Source-checkout-only datasets such as `data/wisdm_subset.csv` are documented
+separately and are not part of the published wheel.
 
-![ts-agents demo](demo/assets/demo.gif)
+**Start here:** [Quickstart](#quickstart) | [Choose your path](#choose-your-path) | [Docs site](https://fnauman.github.io/ts-agents/) | [Distribution guide](https://fnauman.github.io/ts-agents/distribution.html) | [Demo walkthroughs](https://fnauman.github.io/ts-agents/walkthroughs.html) | [Hosted demo guide](https://fnauman.github.io/ts-agents/huggingface-spaces.html)
+
+![ts-agents demo](https://raw.githubusercontent.com/fnauman/ts-agents/main/demo/assets/demo.gif)
 
 ## Table of Contents
 
@@ -52,9 +54,9 @@ Use the CLI when you want reproducible commands, saved artifacts, and easy
 automation.
 
 ```bash
-uv run ts-agents tool list --bundle demo
-uv run ts-agents run stl_decompose_with_data --run Re200Rm200 --var bx001_real
-uv run ts-agents demo window-classification --csv-path data/wisdm_subset.csv --no-llm
+ts-agents tool list --bundle demo
+ts-agents run stl_decompose_with_data --run Re200Rm200 --var bx001_real
+ts-agents demo window-classification --no-llm
 ```
 
 ### 3. Launch the UI or prepare a hosted demo
@@ -63,11 +65,11 @@ Use the Gradio app for interactive exploration, or the hosted entrypoint for a
 public manual-mode deployment.
 
 ```bash
-uv run python main.py
-python app.py
+ts-agents-ui
+ts-agents-hosted
 ```
 
-For hosted deployment details, see [docs/huggingface-spaces.qmd](docs/huggingface-spaces.qmd).
+For hosted deployment details, see [Hosted demo guide](https://fnauman.github.io/ts-agents/huggingface-spaces.html).
 
 ## Why ts-agents Instead of Using statsforecast/sktime/aeon Directly?
 
@@ -126,10 +128,26 @@ The demo writes plots to `outputs/demo/` (e.g. `window_scores.png`).
 ## Installation
 
 Prerequisites:
-- Python 3.11+
+- Python 3.11, 3.12, or 3.13
 - [uv](https://github.com/astral-sh/uv)
 
-Setup:
+Install from PyPI:
+
+```bash
+python -m pip install ts-agents
+```
+
+Run the packaged entrypoints:
+
+```bash
+ts-agents --help
+ts-agents-ui --help
+```
+
+If you are running from a source checkout with `uv sync`, prefix the CLI
+commands below with `uv run`.
+
+Source checkout setup:
 
 ```bash
 git clone https://github.com/fnauman/ts-agents.git
@@ -143,18 +161,18 @@ Local editable install from a source checkout:
 python -m pip install -e .
 ```
 
-Source install is the supported path today.
-
 Publishing setup in this repo targets:
 - PyPI package name: `ts-agents`
 - sandbox image: `ghcr.io/fnauman/ts-agents-sandbox`
 
-See [docs/distribution.qmd](docs/distribution.qmd) for the release, PyPI, and
+See [Distribution guide](https://fnauman.github.io/ts-agents/distribution.html) for the release, PyPI, and
 GHCR publishing flow.
 
 CLI entrypoints:
 - Preferred: `ts-agents ...`
 - Also supported: `python -m ts_agents ...`
+- Gradio UI: `ts-agents-ui`
+- Hosted profile: `ts-agents-hosted`
 
 ### Environment variables
 
@@ -174,13 +192,14 @@ streaming, and log files) are documented in `SANDBOX.md`.
 
 ### Hosted Demo Deployment
 
-The repo now includes a hosted Gradio entrypoint at `app.py` intended for
-public demos such as Hugging Face Spaces. It defaults to:
+The installed package includes a hosted Gradio profile at `ts-agents-hosted`
+intended for public demos such as Hugging Face Spaces. Source-checkout
+deployments can still use the root `app.py` wrapper. It defaults to:
 - manual analysis mode (`agent` disabled)
 - no session persistence
 - a public-safe configuration that does not require `OPENAI_API_KEY`
 
-See [docs/huggingface-spaces.qmd](docs/huggingface-spaces.qmd) for deployment instructions and optional agent-mode configuration.
+See [Hosted demo guide](https://fnauman.github.io/ts-agents/huggingface-spaces.html) for deployment instructions and optional agent-mode configuration.
 
 ## Distribution
 
@@ -188,30 +207,30 @@ See [docs/huggingface-spaces.qmd](docs/huggingface-spaces.qmd) for deployment in
 - GitHub Actions includes a PyPI publish workflow for tagged releases.
 - GitHub Actions includes a GHCR workflow for publishing the sandbox image built
   from `Dockerfile.sandbox`.
-- GitHub release/tag/docs flow is summarized in [docs/distribution.qmd](docs/distribution.qmd).
+- GitHub release/tag/docs flow is summarized in [Distribution guide](https://fnauman.github.io/ts-agents/distribution.html).
 
 ## CLI Usage
 
 ### Discover data and tools
 
 ```bash
-uv run ts-agents data list
-uv run ts-agents data vars
-uv run ts-agents tool list
-uv run ts-agents tool list --bundle demo
+ts-agents data list
+ts-agents data vars
+ts-agents tool list
+ts-agents tool list --bundle demo
 ```
 
 ### Run tools directly
 
 ```bash
-uv run ts-agents run stl_decompose_with_data --run Re200Rm200 --var bx001_real
-uv run ts-agents run forecast_theta_with_data --run Re200Rm200 --var bx001_real --param horizon=30
+ts-agents run stl_decompose_with_data --run Re200Rm200 --var bx001_real
+ts-agents run forecast_theta_with_data --run Re200Rm200 --var bx001_real --param horizon=30
 ```
 
 ### Save output and extract embedded images
 
 ```bash
-uv run ts-agents run forecast_theta_with_data \
+ts-agents run forecast_theta_with_data \
   --run Re200Rm200 \
   --var bx001_real \
   --param horizon=30 \
@@ -222,36 +241,39 @@ uv run ts-agents run forecast_theta_with_data \
 ### Agent mode
 
 ```bash
-uv run ts-agents agent run "Find peaks in bx001_real for Re200Rm200"
-uv run ts-agents agent run --type deep "Compare forecasting methods for bx001_real"
+ts-agents agent run "Find peaks in bx001_real for Re200Rm200"
+ts-agents agent run --type deep "Compare forecasting methods for bx001_real"
 ```
 
 ### Demos
 
 ```bash
 # Scripted (no API key required)
-uv run ts-agents demo window-classification --no-llm
-uv run ts-agents demo forecasting --no-llm
+ts-agents demo window-classification --no-llm
+ts-agents demo forecasting --no-llm
 
 # LLM-backed report mode
-uv run ts-agents demo window-classification
-uv run ts-agents demo forecasting
+ts-agents demo window-classification
+ts-agents demo forecasting
 ```
 
 Skill mapping for end-to-end demo runs:
 - `demo window-classification` -> `activity-recognition` skill
 - `demo forecasting` -> `forecasting` skill
 
+Note: the WISDM example under `data/wisdm_subset.csv` is a source-checkout
+workflow and is not bundled into the published wheel.
+
 Example prompt for Claude Code:
 
 ```text
-Use the `time-series-activity-recognition` skill. Run `uv run ts-agents demo window-classification --no-llm`, save outputs under `outputs/demo/`, and produce `outputs/reports/REPORT.qmd` plus `outputs/reports/REPORT.pdf`.
+Use the `time-series-activity-recognition` skill. Run `ts-agents demo window-classification --no-llm`, save outputs under `outputs/demo/`, and produce `outputs/reports/REPORT.qmd` plus `outputs/reports/REPORT.pdf`.
 ```
 
 Example prompt for Codex:
 
 ```text
-Use the `forecasting` skill. Run `uv run ts-agents demo forecasting --no-llm`, summarize the outputs, and generate `outputs/reports/REPORT.qmd` plus `outputs/reports/REPORT.pdf`.
+Use the `forecasting` skill. Run `ts-agents demo forecasting --no-llm`, summarize the outputs, and generate `outputs/reports/REPORT.qmd` plus `outputs/reports/REPORT.pdf`.
 ```
 
 For polished deliverables, generate a Quarto report and render to PDF:
@@ -263,10 +285,10 @@ quarto render outputs/reports/REPORT.qmd --to pdf
 ### Skills
 
 ```bash
-uv run ts-agents skills list
-uv run ts-agents skills validate
-uv run ts-agents skills export --all-agents
-uv run ts-agents skills export --all-agents --symlink
+ts-agents skills list
+ts-agents skills validate
+ts-agents skills export --all-agents
+ts-agents skills export --all-agents --symlink
 ```
 
 Canonical skills are intentionally limited to a focused set in `skills/`.
@@ -282,16 +304,16 @@ Copy vs symlink guidance:
 Run the app:
 
 ```bash
-uv run python main.py
+ts-agents-ui
 ```
 
 Useful options:
 
 ```bash
-uv run python main.py --agent-type deep
-uv run python main.py --no-agent
-uv run python main.py --share
-uv run python main.py --port 8080
+ts-agents-ui --agent-type deep
+ts-agents-ui --no-agent
+ts-agents-ui --share
+ts-agents-ui --port 8080
 ```
 
 ## Sandbox Backends
@@ -366,4 +388,4 @@ quarto preview docs
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://github.com/fnauman/ts-agents/blob/main/LICENSE)

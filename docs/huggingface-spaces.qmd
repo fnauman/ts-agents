@@ -2,8 +2,9 @@
 title: "Hugging Face Spaces"
 ---
 
-`ts-agents` now includes a root `app.py` entrypoint for hosted Gradio
-deployments such as Hugging Face Spaces.
+`ts-agents` includes a hosted Gradio profile for public deployments such as
+Hugging Face Spaces. For installed-package use, run `ts-agents-hosted`. For
+source-checkout deployments, the repo still provides the root `app.py` wrapper.
 
 ## Default Hosted Behavior
 
@@ -23,7 +24,6 @@ This keeps the default public demo focused on safe, zero-secret manual analysis.
    - `app.py`
    - `requirements.txt`
    - `ts_agents/`
-   - `data/`
 3. Let Spaces install dependencies from `requirements.txt`.
 4. Launch the app. The default entrypoint is `app.py`.
 
@@ -55,11 +55,11 @@ Once that flow is stable, you can optionally add agent mode by setting
 Before deploying, verify the hosted entrypoint locally:
 
 ```bash
-python app.py
+ts-agents-hosted
 ```
 
 Or with agent mode enabled:
 
 ```bash
-TS_AGENTS_ENABLE_AGENT=true OPENAI_API_KEY=your-key python app.py
+TS_AGENTS_ENABLE_AGENT=true OPENAI_API_KEY=your-key ts-agents-hosted
 ```

@@ -1,13 +1,16 @@
 # Demos
 
-Three self-contained terminal demos, each with a shell script (runnable
-directly) and a VHS tape file (for recording GIFs).
+CLI demo workflows plus source-checkout helper assets.
+
+In the published wheel, use the `ts-agents demo ...` commands below. The
+repo-root shell scripts mentioned here are only available from a source
+checkout.
 
 | Demo | Script | Tape | Output dir |
 |------|--------|------|------------|
-| Activity recognition (synthetic) | `run_demo.sh` | `demo.tape` | `outputs/demo/` |
-| Activity recognition (WISDM) | `run_demo_wisdm.sh` | `demo_wisdm.tape` | `outputs/demo_wisdm/` |
-| Forecasting comparison | `run_demo_forecasting.sh` | `demo_forecasting.tape` | `outputs/demo_forecasting/` |
+| Activity recognition (synthetic) | `run_demo.sh` (source checkout only) | `demo.tape` | `outputs/demo/` |
+| Activity recognition (WISDM) | `run_demo_wisdm.sh` (source checkout only) | `demo_wisdm.tape` | `outputs/demo_wisdm/` |
+| Forecasting comparison | `run_demo_forecasting.sh` (source checkout only) | `demo_forecasting.tape` | `outputs/demo_forecasting/` |
 
 ---
 
@@ -57,8 +60,9 @@ bash demo/run_demo.sh
 
 ## Activity recognition — WISDM (real data)
 
-Same window-size selection + evaluation workflow, but using the checked-in
-WISDM accelerometer subset (2 subjects, 6 activities, ~33 k rows).
+Same window-size selection + evaluation workflow, but using the source-checkout
+WISDM accelerometer subset (2 subjects, 6 activities, ~33 k rows). This dataset
+is not bundled into the published wheel.
 
 ```bash
 bash demo/run_demo_wisdm.sh
