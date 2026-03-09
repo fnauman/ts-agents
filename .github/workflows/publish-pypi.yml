@@ -30,6 +30,33 @@ jobs:
       - name: Build distributions
         run: uv build
 
+      - name: Check package metadata
+        run: uv tool run twine check dist/*
+
+      - name: Smoke test installed wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          WHEEL=$(echo "$GITHUB_WORKSPACE"/dist/ts_agents-*.whl)
+          VENV=/tmp/ts-agents-release-smoke
+          rm -rf "$VENV"
+          uv venv "$VENV" --python 3.12
+          uv pip install --python "$VENV/bin/python" "$WHEEL"
+          "$VENV/bin/ts-agents" --help
+          "$VENV/bin/ts-agents-ui" --help
+          "$VENV/bin/python" - <<'PY'
+          import ts_agents.hosted_app as hosted
+          from ts_agents.runtime_paths import (
+              resolve_default_data_dir,
+              resolve_default_skills_dir,
+          )
+
+          assert hosted.app is not None
+          assert resolve_default_data_dir().exists()
+          assert resolve_default_skills_dir().exists()
+          print("hosted app smoke ok")
+          PY
+
       - name: Upload dist artifacts
         uses: actions/upload-artifact@v4
         with:

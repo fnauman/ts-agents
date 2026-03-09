@@ -6,10 +6,18 @@ Get `ts-agents` running in under a minute.
 
 ## Prerequisites
 
-- **Python 3.11+**
+- **Python 3.11, 3.12, or 3.13**
 - **[uv](https://docs.astral.sh/uv/)** package manager
 
 ## Install
+
+Install from PyPI:
+
+```bash
+python -m pip install ts-agents
+```
+
+Or from a source checkout:
 
 ```bash
 git clone https://github.com/fnauman/ts-agents.git

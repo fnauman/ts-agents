@@ -68,7 +68,8 @@ uv run ts-agents demo window-classification
 
 ## Activity Recognition (WISDM data) {#wisdm}
 
-The WISDM demo uses real accelerometer data (2 subjects, 6 activities, ~33 k rows) checked in at `data/wisdm_subset.csv`.
+This WISDM walkthrough is a **source-checkout workflow**. It uses the repo-root
+dataset `data/wisdm_subset.csv`, which is not bundled into the published wheel.
 
 ### Quick start
 

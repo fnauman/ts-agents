@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Time series analysis toolkit with CLI, agents, and Gradio UI"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 authors = [
     { name = "Farrukh Nauman" },
 ]
@@ -33,7 +33,9 @@ dependencies = [
     "numpy>=1.22,<1.27; python_version < '3.12' and sys_platform == 'win32'",
     "numpy>=1.22; python_version < '3.12' and sys_platform != 'win32'",
     "pandas>=2.3.3",
+    "pydantic>=2.7.4",
     "scikit-learn>=1.7.2",
+    "scipy>=1.13.0",
     "sktime>=0.40.1",
     "statsforecast>=2.0.3",
     "statsmodels>=0.14.2",
@@ -51,6 +53,8 @@ Changelog = "https://github.com/fnauman/ts-agents/blob/main/CHANGELOG.md"
 
 [project.scripts]
 ts-agents = "ts_agents.__main__:main"
+ts-agents-hosted = "ts_agents.hosted_app:main"
+ts-agents-ui = "ts_agents.ui.gradio_app:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
