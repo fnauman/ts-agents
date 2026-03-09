@@ -30,30 +30,44 @@ PYPROJECT = REPO_ROOT / "pyproject.toml"
 PACKAGE_ROOT = REPO_ROOT / "ts_agents"
 RESOURCES_ROOT = PACKAGE_ROOT / "resources"
 
-if not PYPROJECT.is_file():
-    raise RuntimeError(
-        "ts_agents.sandbox.modal_app must be deployed from a source checkout "
-        "that contains pyproject.toml and the ts_agents package tree."
-    )
-
 
 app = modal.App("ts-agents-sandbox")
+
+
+def _has_source_checkout() -> bool:
+    return PYPROJECT.is_file() and PACKAGE_ROOT.is_dir() and RESOURCES_ROOT.is_dir()
+
+
+def _require_source_checkout() -> None:
+    if not _has_source_checkout():
+        raise RuntimeError(
+            "ts_agents.sandbox.modal_app must be executed from a source checkout "
+            "that contains pyproject.toml and the ts_agents package tree."
+        )
+
+
+def _build_image() -> modal.Image:
+    image = modal.Image.debian_slim(python_version="3.11")
+    if not _has_source_checkout():
+        return image
+    return (
+        image
+        .pip_install_from_pyproject(str(PYPROJECT))
+        .add_local_python_source("ts_agents")
+        .add_local_dir(str(RESOURCES_ROOT), remote_path="/root/ts_agents/resources")
+    )
 
 # Build an image that:
 #  - installs dependencies from pyproject.toml
 #  - ships the canonical `ts_agents/` package
 #  - includes non-python runtime resources under ts_agents/resources
-image = (
-    modal.Image.debian_slim(python_version="3.11")
-    .pip_install_from_pyproject(str(PYPROJECT))
-    .add_local_python_source("ts_agents")
-    .add_local_dir(str(RESOURCES_ROOT), remote_path="/root/ts_agents/resources")
-)
+image = _build_image()
 
 
 @app.function(image=image, timeout=600)
 def run_tool(request: Dict[str, Any]) -> Dict[str, Any]:
     """Execute a tool request and return an ExecutionResult dict."""
+    _require_source_checkout()
 
     # Import inside the function to ensure the packaged code is available.
     from ts_agents.tools.executor import ExecutionContext, SandboxMode, execute_tool
@@ -90,5 +104,6 @@ def main(tool_name: str = "describe_series", **kwargs: Any):
     Example:
         modal run ts_agents/sandbox/modal_app.py --tool-name describe_series --series "[1,2,3]"
     """
+    _require_source_checkout()
     payload = {"tool_name": tool_name, "kwargs": kwargs}
     print(run_tool.remote(payload))
