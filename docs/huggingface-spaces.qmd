@@ -24,7 +24,9 @@ This keeps the default public demo focused on safe, zero-secret manual analysis.
    - `app.py`
    - `requirements.txt`
    - `ts_agents/`
-3. Let Spaces install dependencies from `requirements.txt`.
+3. Let Spaces install dependencies from `requirements.txt`. This file is the
+   source-checkout deployment manifest for Spaces and should stay aligned with
+   the package's runtime dependencies, without dev-only tools such as `pytest`.
 4. Launch the app. The default entrypoint is `app.py`.
 
 ## Optional Environment Variables

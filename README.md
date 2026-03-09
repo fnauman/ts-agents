@@ -137,6 +137,11 @@ Install from PyPI:
 python -m pip install ts-agents
 ```
 
+The default install is intentionally all-in-one and pulls a fairly heavy
+forecasting/ML stack, including neural backends used by the shipped tool
+surface. There is not yet a slim extras-based install profile, so plan for a
+full scientific Python environment.
+
 Run the packaged entrypoints:
 
 ```bash
@@ -327,7 +332,7 @@ Tools run inside a sandbox. Pick one with `--sandbox <mode>` or set
 | **subprocess** | Separate Python process | — |
 | **docker** | Container | Docker running; build image first: `./build_docker_sandbox.sh` |
 | **daytona** | Cloud sandbox | `pip install daytona` + `DAYTONA_API_KEY` ([Daytona docs](https://www.daytona.io/docs)); default bootstrap clones this repo + runs `pip install -e` |
-| **modal** | Serverless cloud | `pip install modal`, run `modal token new` (opens browser auth) or set `MODAL_TOKEN_ID`/`MODAL_TOKEN_SECRET`, then deploy with `modal deploy -m ts_agents.sandbox.modal_app --env main --name ts-agents-sandbox` |
+| **modal** | Serverless cloud | Source-checkout deployment path: `pip install modal`, run `modal token new` (opens browser auth) or set `MODAL_TOKEN_ID`/`MODAL_TOKEN_SECRET`, then from the repo root deploy with `modal deploy -m ts_agents.sandbox.modal_app --env main --name ts-agents-sandbox` |
 
 If the chosen backend is unavailable at runtime the executor falls back to
 **local** with a warning.
