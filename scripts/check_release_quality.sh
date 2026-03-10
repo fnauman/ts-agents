@@ -19,8 +19,8 @@ TARGETS=(
   tests/cli/test_entrypoints.py
 )
 
-uv run --with ruff ruff check "${TARGETS[@]}"
-uv run --with mypy mypy \
+uv run ruff check "${TARGETS[@]}"
+uv run mypy \
   --ignore-missing-imports \
   --follow-imports skip \
   "${TARGETS[@]}"
