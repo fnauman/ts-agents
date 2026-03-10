@@ -1,4 +1,6 @@
 import importlib
+import logging
+import os
 
 import numpy as np
 import pandas as pd
@@ -67,3 +69,51 @@ def test_config_default_data_dir_is_runtime_resolved(monkeypatch, tmp_path):
 
     assert config.DATA_DIR == resolve_default_data_dir()
     assert config.DATA_DIR != tmp_path / "data"
+
+
+def test_config_import_does_not_load_user_env(monkeypatch, tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".env").write_text("OPENAI_MODEL=dotenv-model\n", encoding="utf-8")
+
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("OPENAI_MODEL", "__sentinel__")
+    monkeypatch.delenv("OPENAI_MODEL")
+
+    import ts_agents.config as config
+
+    importlib.reload(config)
+
+    assert os.environ.get("OPENAI_MODEL") is None
+    assert config.get_openai_model() == "dotenv-model"
+    assert os.environ["OPENAI_MODEL"] == "dotenv-model"
+
+
+def test_config_import_does_not_warn_on_missing_data_dir(monkeypatch, tmp_path, caplog):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("TS_AGENTS_DATA_DIR", raising=False)
+
+    import ts_agents.config as config
+
+    caplog.set_level(logging.WARNING)
+    importlib.reload(config)
+
+    assert not caplog.records
+
+
+def test_config_persistence_dir_is_resolved_on_access(monkeypatch, tmp_path):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+
+    monkeypatch.delenv("TS_AGENTS_PERSISTENCE_DIR", raising=False)
+    monkeypatch.chdir(first)
+
+    import ts_agents.config as config
+
+    importlib.reload(config)
+    monkeypatch.chdir(second)
+
+    assert config.PERSISTENCE_DIR == second
+    assert config.RESULTS_CACHE_DIR == second / "results"

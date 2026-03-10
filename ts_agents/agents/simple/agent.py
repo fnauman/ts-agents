@@ -26,7 +26,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
 
-from ...config import OPENAI_MODEL
+from ...config import get_openai_model
 from ...tools.bundles import (
     get_bundle,
     get_bundle_names,
@@ -100,7 +100,7 @@ def create_simple_agent(
     from langchain.agents import create_agent
     from langchain_core.prompts import ChatPromptTemplate
 
-    model_name = model_name or OPENAI_MODEL
+    model_name = model_name or get_openai_model()
 
     # Get tools
     if custom_tools:

@@ -33,7 +33,7 @@ jobs:
       - name: Build package artifacts
         run: uv build
 
-  package:
+  package-build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -55,32 +55,38 @@ jobs:
       - name: Check package metadata
         run: uv tool run twine check dist/*
 
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+
+  package-smoke:
+    needs: package-build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+
       - name: Smoke test installed wheel
         shell: bash
-        run: |
-          set -euo pipefail
-          mapfile -t wheels < <(find "$GITHUB_WORKSPACE/dist" -maxdepth 1 -type f -name 'ts_agents-*.whl' | sort)
-          if [ "${#wheels[@]}" -ne 1 ]; then
-            echo "Expected exactly 1 wheel, found ${#wheels[@]}" >&2
-            printf '%s\n' "${wheels[@]}" >&2
-            exit 1
-          fi
-          WHEEL="${wheels[0]}"
-          VENV=/tmp/ts-agents-release-smoke
-          rm -rf "$VENV"
-          uv venv "$VENV" --python 3.12
-          uv pip install --python "$VENV/bin/python" "$WHEEL"
-          "$VENV/bin/ts-agents" --help
-          "$VENV/bin/ts-agents-ui" --help
-          "$VENV/bin/python" - <<'PY'
-          import ts_agents.hosted_app as hosted
-          from ts_agents.runtime_paths import (
-              resolve_default_data_dir,
-              resolve_default_skills_dir,
-          )
-
-          assert hosted.app is not None
-          assert resolve_default_data_dir().exists()
-          assert resolve_default_skills_dir().exists()
-          print("hosted app smoke ok")
-          PY
+        run: bash scripts/smoke_install_wheel.sh "${{ matrix.python-version }}" "$GITHUB_WORKSPACE/dist"

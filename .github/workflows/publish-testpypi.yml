@@ -1,9 +1,6 @@
-name: Publish PyPI Package
+name: Publish TestPyPI Package
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -13,8 +10,6 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.metadata.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,17 +23,6 @@ jobs:
         uses: astral-sh/setup-uv@v4
         with:
           enable-cache: true
-
-      - name: Read package metadata
-        id: metadata
-        run: |
-          python - <<'PY' >> "$GITHUB_OUTPUT"
-          import tomllib
-          from pathlib import Path
-
-          pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
-          print(f"version={pyproject['project']['version']}")
-          PY
 
       - name: Build distributions
         run: uv build
@@ -86,25 +70,16 @@ jobs:
     needs: [build, smoke-install]
     runs-on: ubuntu-latest
     environment:
-      name: pypi
-      url: https://pypi.org/project/ts-agents/
+      name: testpypi
+      url: https://test.pypi.org/project/ts-agents/
     steps:
-      - name: Verify tag matches package version
-        if: github.event_name == 'push'
-        env:
-          ACTUAL_TAG: ${{ github.ref_name }}
-          EXPECTED_TAG: v${{ needs.build.outputs.version }}
-        run: |
-          if [ "$ACTUAL_TAG" != "$EXPECTED_TAG" ]; then
-            echo "Git tag $ACTUAL_TAG does not match package version $EXPECTED_TAG" >&2
-            exit 1
-          fi
-
       - name: Download dist artifacts
         uses: actions/download-artifact@v4
         with:
           name: python-package-distributions
           path: dist/
 
-      - name: Publish to PyPI
+      - name: Publish to TestPyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/

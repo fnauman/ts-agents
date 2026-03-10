@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
+from ts_agents.config import load_user_env
 from ts_agents.ui import create_app, launch_app
 
 if TYPE_CHECKING:
@@ -23,6 +24,7 @@ def _env_flag(name: str, default: bool) -> bool:
 def get_app() -> "gr.Blocks":
     global _app
     if _app is None:
+        load_user_env()
         _app = create_app(
             enable_agent=_env_flag("TS_AGENTS_ENABLE_AGENT", False),
             agent_type=os.environ.get("TS_AGENTS_AGENT_TYPE", "simple"),
@@ -33,6 +35,7 @@ def get_app() -> "gr.Blocks":
 
 
 def main() -> None:
+    load_user_env()
     launch_app(
         get_app(),
         share=_env_flag("GRADIO_SHARE", False),

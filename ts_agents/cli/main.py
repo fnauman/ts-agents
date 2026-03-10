@@ -1194,9 +1194,9 @@ def _render_forecasting_report_with_llm(
     comparison_payload: Dict[str, Any],
 ) -> str:
     from langchain_openai import ChatOpenAI
-    from ts_agents.config import OPENAI_MODEL
+    from ts_agents.config import get_openai_model
 
-    llm = ChatOpenAI(model=model_name or OPENAI_MODEL, temperature=0)
+    llm = ChatOpenAI(model=model_name or get_openai_model(), temperature=0)
     prompt = (
         "Write a concise markdown report for a forecasting demo.\n"
         "Use <= 14 lines and include: run_id, variable, horizon, compared methods, "
@@ -1581,6 +1581,9 @@ def _handle_demo_command(args: argparse.Namespace) -> Tuple[Any, str]:
 
 
 def run(argv: Optional[List[str]] = None) -> int:
+    from ts_agents.config import load_user_env
+
+    load_user_env()
     parser = build_parser()
     args = parser.parse_args(argv)
 
