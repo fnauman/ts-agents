@@ -69,7 +69,7 @@ of requiring a local Docker build before first use.
   surface.
 - The publish workflow also gates real PyPI publishing on the same artifact
   smoke matrix.
-- The current dependency minimums intentionally track the validated `0.1.0`
+- The current dependency minimums intentionally track the validated `0.1.1`
   release stack; broader lower-bound compatibility can be widened later.
-- For the first public release, run the TestPyPI workflow and inspect the
-  rendered page before creating the `v0.1.0` tag.
+- Before creating the real release tag, run the TestPyPI workflow and inspect
+  the rendered page for the exact artifact you plan to publish.
