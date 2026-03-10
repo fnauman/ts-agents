@@ -13,9 +13,6 @@ wheels/
 !data/short_real.csv
 !data/wisdm_subset.csv
 !data/m4_monthly_mini.csv
-!src/resources/data/short_real.csv
-!src/resources/data/demo_labeled_stream.csv
-!src/resources/data/m4_monthly_mini.csv
 
 /outputs/*
 !/outputs/reports/
