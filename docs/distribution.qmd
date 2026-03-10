@@ -29,15 +29,17 @@ Release tags use the form `vX.Y.Z`.
 Recommended release steps:
 
 1. update `CHANGELOG.md`
-2. run `uv run python -m pytest -q`
-3. run `uv build`
-4. run `uv tool run twine check dist/*`
-5. run `bash scripts/smoke_install_wheel.sh 3.12 dist`
-6. manually dispatch `publish-testpypi.yml`
-7. inspect the rendered TestPyPI project page and verify the install path there
-8. create/push the git tag
-9. create the GitHub release
-10. let `.github/workflows/publish-pypi.yml` publish the already-validated artifact
+2. run `bash scripts/clean_release_artifacts.sh`
+3. run `bash scripts/check_release_quality.sh`
+4. run `uv run python -m pytest -q`
+5. run `uv build`
+6. run `uv tool run twine check dist/*`
+7. run `bash scripts/smoke_install_wheel.sh 3.12 dist`
+8. manually dispatch `publish-testpypi.yml`
+9. inspect the rendered TestPyPI project page and verify the install path there
+10. create/push the git tag
+11. create the GitHub release
+12. let `.github/workflows/publish-pypi.yml` publish the already-validated artifact
 
 ## Sandbox Container Image
 
@@ -63,7 +65,11 @@ of requiring a local Docker build before first use.
 ## Notes
 
 - CI now builds once and smoke-tests the wheel on Python 3.11, 3.12, and 3.13.
+- CI also runs a narrow `ruff` + `mypy` quality gate over the release/package
+  surface.
 - The publish workflow also gates real PyPI publishing on the same artifact
   smoke matrix.
+- The current dependency minimums intentionally track the validated `0.1.0`
+  release stack; broader lower-bound compatibility can be widened later.
 - For the first public release, run the TestPyPI workflow and inspect the
   rendered page before creating the `v0.1.0` tag.
