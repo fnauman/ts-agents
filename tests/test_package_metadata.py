@@ -15,7 +15,8 @@ def test_package_exposes_distribution_version():
 
 
 def test_project_metadata_includes_release_hygiene_fields():
-    pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    pyproject_path = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    pyproject = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
     project = pyproject["project"]
     classifiers = set(project["classifiers"])
 

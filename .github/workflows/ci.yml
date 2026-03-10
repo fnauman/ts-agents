@@ -21,6 +21,9 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Install dependencies
+        run: uv sync --frozen
+
       - name: Run release-surface quality checks
         shell: bash
         run: bash scripts/check_release_quality.sh
