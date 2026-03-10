@@ -142,7 +142,7 @@ forecasting/ML stack, including neural backends used by the shipped tool
 surface. There is not yet a slim extras-based install profile, so plan for a
 full scientific Python environment.
 The dependency minimums also intentionally track the currently validated
-`0.1.0` stack for this first alpha release; widening lower-bound compatibility
+`0.1.1` stack for this alpha release; widening lower-bound compatibility
 is a follow-up task rather than part of the initial publish gate.
 
 Run the packaged entrypoints:
