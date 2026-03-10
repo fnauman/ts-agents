@@ -10,8 +10,6 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.metadata.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,17 +23,6 @@ jobs:
         uses: astral-sh/setup-uv@v4
         with:
           enable-cache: true
-
-      - name: Read package metadata
-        id: metadata
-        run: |
-          python - <<'PY' >> "$GITHUB_OUTPUT"
-          import tomllib
-          from pathlib import Path
-
-          pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
-          print(f"version={pyproject['project']['version']}")
-          PY
 
       - name: Build distributions
         run: uv build
@@ -96,4 +83,3 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
-

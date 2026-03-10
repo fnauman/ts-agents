@@ -12,12 +12,17 @@ TARGET="${2:-dist}"
 
 resolve_wheel() {
   local target="$1"
+  local whl
+  local wheels=()
   if [ -f "$target" ]; then
     printf '%s\n' "$target"
     return 0
   fi
 
-  mapfile -t wheels < <(find "$target" -maxdepth 1 -type f -name 'ts_agents-*.whl' | sort)
+  while IFS= read -r whl; do
+    wheels+=("$whl")
+  done < <(find "$target" -maxdepth 1 -type f -name 'ts_agents-*.whl' | sort)
+
   if [ "${#wheels[@]}" -ne 1 ]; then
     echo "Expected exactly 1 wheel in $target, found ${#wheels[@]}" >&2
     printf '%s\n' "${wheels[@]}" >&2

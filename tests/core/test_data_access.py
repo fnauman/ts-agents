@@ -77,7 +77,8 @@ def test_config_import_does_not_load_user_env(monkeypatch, tmp_path):
     (home / ".env").write_text("OPENAI_MODEL=dotenv-model\n", encoding="utf-8")
 
     monkeypatch.setenv("HOME", str(home))
-    monkeypatch.delenv("OPENAI_MODEL", raising=False)
+    monkeypatch.setenv("OPENAI_MODEL", "__sentinel__")
+    monkeypatch.delenv("OPENAI_MODEL")
 
     import ts_agents.config as config
 
