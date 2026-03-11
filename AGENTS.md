@@ -53,7 +53,6 @@ uv run python -m pytest -q
 - `OPENAI_MODEL` (optional): defaults to `gpt-5-mini` (see `ts_agents/config.py`)
 - `OPENAI_API_KEY` (required for agent chat in many setups)
 - Hosted profile settings are env-var driven: `HOST`, `PORT`, `GRADIO_SHARE`, `TS_AGENTS_ENABLE_AGENT`, `TS_AGENTS_AGENT_TYPE`, `TS_AGENTS_PERSIST_SESSIONS`, `TS_AGENTS_UI_TITLE`
-- Dependency metadata lives in `pyproject.toml` + `uv.lock`
 
 ## Repo map (where to look first)
 - `ts_agents/cli/main.py` — argparse CLI for `data`, `tool`, `run`, `agent`, `skills`, and `demo`
@@ -70,6 +69,8 @@ uv run python -m pytest -q
 - `demo/` — source-checkout helper scripts, plots, and VHS tapes
 - `docs/` — Quarto docs site source
 - `tests/` — unit tests
+
+Dependency metadata and locked versions live in `pyproject.toml` + `uv.lock`.
 
 ## Working agreement (always follow)
 
