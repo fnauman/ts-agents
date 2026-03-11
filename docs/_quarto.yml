@@ -22,8 +22,6 @@ website:
         menu:
           - href: architecture.qmd
             text: Architecture
-          - href: huggingface-spaces.qmd
-            text: HF Spaces
           - href: distribution.qmd
             text: Distribution
       - href: philosophy.qmd

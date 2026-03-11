@@ -18,7 +18,7 @@ It ships with two out-of-the-box demos:
 Source-checkout-only datasets such as `data/wisdm_subset.csv` are documented
 separately and are not part of the published wheel.
 
-**Start here:** [Quickstart](#quickstart) | [Choose your path](#choose-your-path) | [Docs site](https://fnauman.github.io/ts-agents/) | [Distribution guide](https://fnauman.github.io/ts-agents/distribution.html) | [Demo walkthroughs](https://fnauman.github.io/ts-agents/walkthroughs.html) | [Hosted demo guide](https://fnauman.github.io/ts-agents/huggingface-spaces.html)
+**Start here:** [Quickstart](#quickstart) | [Choose your path](#choose-your-path) | [Docs site](https://fnauman.github.io/ts-agents/) | [Distribution guide](https://fnauman.github.io/ts-agents/distribution.html) | [Demo walkthroughs](https://fnauman.github.io/ts-agents/walkthroughs.html)
 
 ![ts-agents demo](https://raw.githubusercontent.com/fnauman/ts-agents/main/demo/assets/demo.gif)
 
@@ -69,7 +69,7 @@ ts-agents-ui
 ts-agents-hosted
 ```
 
-For hosted deployment details, see [Hosted demo guide](https://fnauman.github.io/ts-agents/huggingface-spaces.html).
+For hosted deployment details, see the `ts-agents-hosted --help` output.
 
 ## Why ts-agents Instead of Using statsforecast/sktime/aeon Directly?
 
@@ -207,7 +207,7 @@ deployments can still use the root `app.py` wrapper. It defaults to:
 - no session persistence
 - a public-safe configuration that does not require `OPENAI_API_KEY`
 
-See [Hosted demo guide](https://fnauman.github.io/ts-agents/huggingface-spaces.html) for deployment instructions and optional agent-mode configuration.
+Run `ts-agents-hosted --help` for deployment options and optional agent-mode configuration.
 
 ## Distribution
 
