@@ -2,12 +2,21 @@
 title: "Professional Forecasting Workflow"
 ---
 
-This document defines the first "professional" forecasting workflow for
-`ts-agents`. It is a contract for future implementation work, not a claim that
-the full workflow already exists today.
+`ts-agents` ships a professional forecasting workflow built on a vendored
+mini-panel from the M4 Monthly dataset. The workflow covers model fitting,
+rolling-origin backtesting, holdout evaluation, and artifact generation — all
+runnable from a single example script.
 
-The goal is to make the next forecasting skill concrete and testable instead of
-leaving it as a vague "better forecasting" task.
+## Running the Workflow
+
+The quickest way to execute the full workflow:
+
+```bash
+python examples/forecasting_m4_monthly_mini.py
+```
+
+The corresponding skill file at `skills/forecasting/SKILL-pro.md` documents the
+same workflow for LLM-driven agents.
 
 ## Reference Dataset
 
@@ -41,7 +50,7 @@ What this dataset is **not**:
 - it is not meant to replace the existing built-in forecasting demo
 
 It is a stable reference panel for workflow design, example generation, and
-future automated validation.
+automated validation.
 
 ## Dataset Contract
 
@@ -69,8 +78,8 @@ Expected properties:
 
 ### 1. Inputs
 
-The first professional workflow should operate on the vendored M4 mini-panel,
-with these fixed assumptions:
+The workflow operates on the vendored M4 mini-panel with these fixed
+assumptions:
 
 - horizon: `18`
 - frequency: monthly
@@ -79,7 +88,7 @@ with these fixed assumptions:
 
 ### 2. Evaluation Protocol
 
-The workflow should use two evaluation layers:
+The workflow uses two evaluation layers:
 
 1. **Model selection on train split**
    - expanding-window rolling-origin backtesting
@@ -93,55 +102,43 @@ The workflow should use two evaluation layers:
 This is intentionally more rigorous than the current single holdout comparison
 used by the existing demo.
 
-### 3. Required Methods
+### 3. Methods
 
-The first implementation should support:
+The workflow supports four methods, all implemented in
+`ts_agents/core/forecasting/statistical.py`:
 
 - `seasonal_naive`
 - `theta`
 - `ets`
 - `arima`
 
-Notes:
+`seasonal_naive` serves as the minimum serious baseline for monthly M4 data.
 
-- `seasonal_naive` is required as the minimum serious baseline for monthly M4.
-- The existing repo already covers `theta`, `ets`, and `arima`.
-- More expensive methods should remain optional until the basic workflow and its
-  tests are stable.
+### 4. Metrics
 
-### 4. Required Metrics
-
-The first implementation should report:
+The workflow reports:
 
 - `sMAPE` as the primary ranking metric
 - `MAE`
 - `RMSE`
 
-Follow-up metrics such as `MASE` or `OWA` can be added later, but they are not
-required for the first contract-complete implementation.
+### 5. Artifacts
 
-### 5. Required Artifacts
+The workflow produces:
 
-The workflow should produce all of the following:
+- `metrics_by_series.csv` — metrics table by method and series
+- `summary.csv` — aggregate summary across the five-series panel
+- `holdout_forecasts.csv` — forecast outputs for the official holdout window
+- plots showing train, holdout, and forecast
+- `run_summary.json` — machine-readable run metadata
+- `REPORT.md` — short report covering dataset, protocol, method ranking,
+  selected recommendation, and known limitations
 
-- a machine-readable metrics table by method and series
-- an aggregate summary across the five-series panel
-- forecast outputs for the official holdout window
-- at least one plot artifact showing train, holdout, and forecast
-- a short Markdown or Quarto report that explains:
-  - dataset
-  - protocol
-  - method ranking
-  - selected recommendation
-  - known limitations
-
-## Validation Contract
-
-Future implementation work should ship with at least two levels of validation.
+## Validation
 
 ### Dataset Contract Test
 
-A fast unit test should assert:
+`tests/core/test_m4_monthly_mini_dataset.py` asserts:
 
 - the vendored CSV schema is unchanged
 - the expected five IDs are present
@@ -150,30 +147,20 @@ A fast unit test should assert:
 
 ### Workflow Smoke Test
 
-A deterministic smoke test should run a reduced profile:
+`tests/test_examples_forecasting_m4_monthly_mini.py` runs a reduced profile:
 
 - series subset: `M4`, `M100`
 - methods: `seasonal_naive`, `theta`
-- outputs:
-  - metrics summary file
-  - forecast output file
-  - at least one plot
-  - short report
+- outputs: metrics summary, forecast file, at least one plot, short report
 
-The purpose of this smoke test is contract coverage, not leaderboard quality.
+The smoke test covers contract correctness, not leaderboard quality.
 
-## Non-Goals for the First Implementation
+## Possible Extensions
 
-The first workflow implementation does **not** need to:
+The current workflow is complete for its stated contract. Possible future
+additions include:
 
-- run the full M4 benchmark
-- add neural or GPU-heavy models
-- depend on an LLM for validation
-- replace the current built-in demo
-
-## Recommended Next Steps
-
-1. Add the first implementation of `seasonal_naive`.
-2. Create `skills/forecasting/SKILL-pro.md` around this contract.
-3. Add the reduced smoke test profile.
-4. Add one end-to-end example that writes the required artifacts.
+- `MASE` and `OWA` metrics for closer alignment with the official M4 scoring
+- additional models (e.g., CatBoost, LightGBM, neural methods)
+- automated hyperparameter tuning per series
+- expanded panel coverage beyond the five reference series

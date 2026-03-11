@@ -10,24 +10,24 @@ website:
         text: Home
       - href: quickstart.qmd
         text: Quickstart
-      - href: cli-examples.qmd
-        text: CLI Examples
-      - href: distribution.qmd
-        text: Distribution
-      - href: forecasting-workflow.qmd
-        text: Forecasting Workflow
-      - href: walkthroughs.qmd
-        text: Walkthroughs
-      - href: huggingface-spaces.qmd
-        text: HF Spaces
-      - href: skills-guide.qmd
-        text: Skills Guide
+      - text: Guides
+        menu:
+          - href: cli-examples.qmd
+            text: CLI Examples
+          - href: walkthroughs.qmd
+            text: Walkthroughs
+          - href: skills-guide.qmd
+            text: Skills Guide
+      - text: Reference
+        menu:
+          - href: architecture.qmd
+            text: Architecture
+          - href: huggingface-spaces.qmd
+            text: HF Spaces
+          - href: distribution.qmd
+            text: Distribution
       - href: philosophy.qmd
-        text: Philosophy
-      - href: architecture.qmd
-        text: Architecture
-      - href: talks/ts_agents_talk.qmd
-        text: Talk
+        text: Design
     right:
       - icon: github
         href: https://github.com/fnauman/ts-agents
