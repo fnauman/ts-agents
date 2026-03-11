@@ -17,7 +17,7 @@ Type "clear"
 Enter
 Show
 
-Type "bash demo/run_demo_forecasting.sh"
+Type "uv run ts-agents demo forecasting --no-llm --output-dir outputs/demo_forecasting --report-path outputs/demo_forecasting/forecasting_report.md"
 Enter
 
 # Forecasting demo is quick; 15s should be plenty

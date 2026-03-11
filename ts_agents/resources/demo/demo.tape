@@ -17,7 +17,7 @@ Type "clear"
 Enter
 Show
 
-Type "bash demo/run_demo.sh"
+Type "uv run ts-agents demo window-classification --no-llm"
 Enter
 
 # Demo takes ~10s; wait long enough for it to finish plus margin

@@ -20,8 +20,6 @@ website:
             text: Skills Guide
       - text: Reference
         menu:
-          - href: architecture.qmd
-            text: Architecture
           - href: distribution.qmd
             text: Distribution
       - href: philosophy.qmd

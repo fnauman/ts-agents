@@ -1,6 +1,7 @@
 # Activity Recognition Demo Report
 
-> This is a lightweight template you can fill in after running `demo/run_demo.sh`.
+> This is a lightweight template you can fill in after running
+> `ts-agents demo window-classification --no-llm`.
 > Keep it short. Add screenshots/plots if sharing externally.
 
 ## TL;DR
@@ -46,7 +47,7 @@
 ### Commands
 
 ```bash
-bash demo/run_demo.sh
+ts-agents demo window-classification --no-llm
 ```
 
 ---
