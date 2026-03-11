@@ -44,14 +44,17 @@ Outputs will be written under:
 uv run ts-agents demo window-classification --no-llm
 ```
 
-The scripted path writes the same core artifacts (including `report.md`) without
-calling an LLM.
+The scripted CLI path writes the same core artifacts (including `report.md`)
+without calling an LLM.
 
 Or run the legacy script:
 
 ```bash
 bash demo/run_demo.sh
 ```
+
+The legacy shell script only writes the dataset, JSON outputs, and PNG plots.
+If you also want `report.md`, use the CLI command above.
 
 ---
 

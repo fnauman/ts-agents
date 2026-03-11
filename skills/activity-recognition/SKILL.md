@@ -34,7 +34,7 @@ produce:
 - `outputs/demo/eval.json`
 - `outputs/demo/window_scores.png`
 - `outputs/demo/confusion_matrix.png`
-- `demo/report_template.md` filled in (or a short README section)
+- `outputs/demo/report.md`
 
 ## Workflow
 1) Prepare a labeled-stream CSV (synthetic default or real data).
@@ -63,7 +63,10 @@ If you’re running inside a coding agent or CLI without an API key:
 uv run ts-agents demo window-classification --no-llm
 ```
 
-Or run the legacy script:
+This writes the same artifact set without calling an LLM.
+
+In a source checkout, you can also run the legacy script if you only need the
+dataset, JSON outputs, and PNG plots:
 
 ```bash
 bash demo/run_demo.sh
@@ -73,7 +76,7 @@ bash demo/run_demo.sh
 If you want a real-world dataset:
 
 ```bash
-python scripts/make_demo_labeled_stream_wisdm.py \
+python data/make_demo_labeled_stream_wisdm.py \
   --subject 1600 --device watch --sensor accel \
   --activities walking,jogging,sitting,standing \
   --trim-policy per_class_seconds \
@@ -84,7 +87,7 @@ python scripts/make_demo_labeled_stream_wisdm.py \
 Then rerun:
 
 ```bash
-bash demo/run_demo.sh
+uv run ts-agents demo window-classification --no-llm --no-generate --csv-path data/demo_labeled_stream.csv
 ```
 
 ## What to say in the demo (15–30 seconds)
@@ -102,12 +105,12 @@ bash demo/run_demo.sh
 - 1 plot: `window_scores.png`
 - 1 plot: `confusion_matrix.png`
 - 1 short table: best window + balanced accuracy
-- 1 command block: `bash demo/run_demo.sh`
+- 1 command block: `uv run ts-agents demo window-classification --no-llm`
 
 ## Report generation standard (Quarto PDF)
 For polished deliverables, convert demo outputs into a Quarto report:
 
-1. Create/update a `.qmd` report with:
+1. Create/update `outputs/reports/activity-recognition.qmd` with:
    - dataset summary
    - window-size sweep figure
    - confusion matrix figure
@@ -115,7 +118,7 @@ For polished deliverables, convert demo outputs into a Quarto report:
 2. Render to PDF:
 
 ```bash
-quarto render reports/REPORT.qmd --to pdf
+quarto render outputs/reports/activity-recognition.qmd --to pdf
 ```
 
 Use clear sectioning, professional figure captions, and reproducible command snippets.

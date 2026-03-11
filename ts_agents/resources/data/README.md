@@ -30,7 +30,7 @@ also be generated locally if needed.
 Both files cover the same 6 activities (walking, jogging, stairs, sitting,
 standing, clapping) and are generated in the source checkout.
 
-### Generating the data
+### Generating the data (source checkout only)
 
 ```bash
 # Checked-in subset: 2 subjects, 140s per activity → ~2 MB
@@ -44,10 +44,11 @@ uv run python data/make_wisdm_labeled_stream.py
 The `--seconds-per-activity` flag trims each activity to a contiguous block of
 that many seconds per subject. Without it, full segments (~3 min each) are kept.
 
-The script reuses helpers from
-[`make_demo_labeled_stream_wisdm.py`](./make_demo_labeled_stream_wisdm.py).
-The raw WISDM data must already be extracted at `data/raw/wisdm/` (see the demo
-script's `--dataset-zip` / `--dataset-dir` flags to download it).
+These helper scripts are not bundled into the published wheel. In a source
+checkout, `data/make_wisdm_labeled_stream.py` reuses
+`data/make_demo_labeled_stream_wisdm.py`. The raw WISDM data must already be
+extracted at `data/raw/wisdm/` (see the demo script's `--dataset-zip` /
+`--dataset-dir` flags to download it).
 
 ### License
 
@@ -105,5 +106,5 @@ benchmark.
 ## `demo_labeled_stream.csv`
 
 A small single-subject demo stream (4 activities, ~10 min) used for quick demos
-and window-size selection tutorials. See
-[`make_demo_labeled_stream_wisdm.py`](./make_demo_labeled_stream_wisdm.py).
+and window-size selection tutorials. In a source checkout, generate or refresh
+it with `data/make_demo_labeled_stream_wisdm.py`.

@@ -69,7 +69,10 @@ ts-agents-ui
 ts-agents-hosted
 ```
 
-For hosted deployment details, see the `ts-agents-hosted --help` output.
+`ts-agents-hosted` is environment-variable driven rather than flag-driven.
+Configure `HOST`, `PORT`, `GRADIO_SHARE`, `TS_AGENTS_ENABLE_AGENT`,
+`TS_AGENTS_AGENT_TYPE`, `TS_AGENTS_PERSIST_SESSIONS`, and
+`TS_AGENTS_UI_TITLE` before launch if you need non-default behavior.
 
 ## Why ts-agents Instead of Using statsforecast/sktime/aeon Directly?
 
@@ -95,9 +98,8 @@ Use `ts-agents` when you want:
 - **Swappable front-ends**: CLI agents, custom agents, and Gradio are interfaces around the same core tools.
 - **Sandboxed execution**: backends can isolate dependencies and scale heavier workloads.
 
-Canonical design docs:
+Canonical design doc:
 - `docs/philosophy.qmd`
-- `docs/architecture.qmd`
 
 ## Quickstart
 
@@ -151,6 +153,9 @@ Run the packaged entrypoints:
 ts-agents --help
 ts-agents-ui --help
 ```
+
+The hosted/manual profile is launched with `ts-agents-hosted` and configured
+through environment variables rather than CLI flags.
 
 If you are running from a source checkout with `uv sync`, prefix the CLI
 commands below with `uv run`.
@@ -207,7 +212,19 @@ deployments can still use the root `app.py` wrapper. It defaults to:
 - no session persistence
 - a public-safe configuration that does not require `OPENAI_API_KEY`
 
-Run `ts-agents-hosted --help` for deployment options and optional agent-mode configuration.
+Launch it with:
+
+```bash
+ts-agents-hosted
+```
+
+Useful environment variables:
+- `HOST` / `PORT` for bind address and port
+- `GRADIO_SHARE` for Gradio sharing
+- `TS_AGENTS_ENABLE_AGENT` to enable agent chat
+- `TS_AGENTS_AGENT_TYPE` for `simple` vs `deep`
+- `TS_AGENTS_PERSIST_SESSIONS` to enable persistence
+- `TS_AGENTS_UI_TITLE` to override the page title
 
 ## Distribution
 
@@ -275,19 +292,19 @@ workflow and is not bundled into the published wheel.
 Example prompt for Claude Code:
 
 ```text
-Use the `time-series-activity-recognition` skill. Run `ts-agents demo window-classification --no-llm`, save outputs under `outputs/demo/`, and produce `outputs/reports/REPORT.qmd` plus `outputs/reports/REPORT.pdf`.
+Use the `time-series-activity-recognition` skill. Run `ts-agents demo window-classification --no-llm`, save outputs under `outputs/demo/`, and produce `outputs/reports/activity-recognition.qmd` plus `outputs/reports/activity-recognition.pdf`.
 ```
 
 Example prompt for Codex:
 
 ```text
-Use the `forecasting` skill. Run `ts-agents demo forecasting --no-llm`, summarize the outputs, and generate `outputs/reports/REPORT.qmd` plus `outputs/reports/REPORT.pdf`.
+Use the `forecasting` skill. Run `ts-agents demo forecasting --no-llm`, summarize the outputs, and generate `outputs/reports/forecasting-summary.qmd` plus `outputs/reports/forecasting-summary.pdf`.
 ```
 
 For polished deliverables, generate a Quarto report and render to PDF:
 
 ```bash
-quarto render outputs/reports/REPORT.qmd --to pdf
+quarto render outputs/reports/<report-name>.qmd --to pdf
 ```
 
 ### Skills
@@ -350,7 +367,7 @@ For full details (env vars, resource limits, networking), see `SANDBOX.md`.
 - Data generation and licensing notes: `data/README.md`
 - Docs home: `docs/index.qmd`
 - Project philosophy: `docs/philosophy.qmd`
-- Architecture: `docs/architecture.qmd`
+- Distribution and release notes: `docs/distribution.qmd`
 - Project roadmap and priorities: `ROADMAP.md`
 - Design philosophy slides (Quarto source): `docs/talks/ts_agents_talk.qmd`
 

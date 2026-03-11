@@ -1,8 +1,9 @@
 # AGENTS.md
 
-This repo is a time-series analysis toolkit + Gradio app with both:
-- **Manual analysis tabs** (decomposition / forecasting / patterns / classification)
-- **Agent chat** (simple + deep multi-agent)
+This repo is a CLI-first time-series analysis toolkit with:
+- **Stable CLI entrypoints** (`ts-agents`, demos, skills, sandboxes)
+- **Optional Gradio front ends** (`ts-agents-ui`, `ts-agents-hosted`, plus the root wrappers)
+- **Canonical skills + packaged resources** for agent workflows and installed wheels
 
 The goal of this file is to make coding agents effective and safe in this codebase.
 
@@ -13,17 +14,32 @@ The goal of this file is to make coding agents effective and safe in this codeba
 uv sync
 ```
 
-### Run the app
+### Inspect the CLI
+```bash
+uv run ts-agents --help
+```
+
+### Run the interactive UI
+```bash
+uv run ts-agents-ui
+```
+
+Source-checkout wrapper (same UI entrypoint):
 ```bash
 uv run python main.py
 ```
 
-Common options (see `main.py --help`):
+Common UI options (see `ts-agents-ui --help`):
 ```bash
-uv run python main.py --agent-type deep
-uv run python main.py --no-agent
-uv run python main.py --share
-uv run python main.py --port 8080
+uv run ts-agents-ui --agent-type deep
+uv run ts-agents-ui --no-agent
+uv run ts-agents-ui --share
+uv run ts-agents-ui --port 8080
+```
+
+### Run the hosted/manual profile
+```bash
+HOST=0.0.0.0 PORT=7860 uv run ts-agents-hosted
 ```
 
 ### Run tests
@@ -33,25 +49,36 @@ uv run python -m pytest -q
 
 ### Environment variables
 - `TS_AGENTS_DATA_DIR` (optional): path to the dataset directory (see `ts_agents/config.py`)
+- `TS_AGENTS_SANDBOX_MODE` (optional): default sandbox backend
 - `OPENAI_MODEL` (optional): defaults to `gpt-5-mini` (see `ts_agents/config.py`)
 - `OPENAI_API_KEY` (required for agent chat in many setups)
+- Hosted profile settings are env-var driven: `HOST`, `PORT`, `GRADIO_SHARE`, `TS_AGENTS_ENABLE_AGENT`, `TS_AGENTS_AGENT_TYPE`, `TS_AGENTS_PERSIST_SESSIONS`, `TS_AGENTS_UI_TITLE`
 
 ## Repo map (where to look first)
-- `main.py` — app entrypoint (arg parsing + launch)
+- `ts_agents/cli/main.py` — argparse CLI for `data`, `tool`, `run`, `agent`, `skills`, and `demo`
+- `main.py` — source-checkout wrapper for `ts-agents-ui`
+- `app.py` — source-checkout wrapper for `ts-agents-hosted`
+- `ts_agents/hosted_app.py` — hosted/manual Gradio profile configured through environment variables
 - `ts_agents/ui/` — Gradio UI (tabs + chat)
 - `ts_agents/agents/` — agent implementations (simple + deep)
 - `ts_agents/tools/` — tool registry + wrappers (LangChain + deep agent tools)
 - `ts_agents/core/` — pure analysis implementations (decomposition, forecasting, patterns, classification, complexity, spectral)
 - `ts_agents/persistence/` — session persistence + caching
+- `ts_agents/resources/` — packaged data, demo assets, and skill mirrors used by installed wheels
+- `skills/` — canonical skill definitions
+- `demo/` — source-checkout helper scripts, plots, and VHS tapes
+- `docs/` — Quarto docs site source
 - `tests/` — unit tests
+
+Dependency metadata and locked versions live in `pyproject.toml` + `uv.lock`.
 
 ## Working agreement (always follow)
 
 ### GitHub workflow & issue tracking
-- Use the `gh` CLI.
+- Use the `gh` CLI when auth is available.
 - Create an issue + branch per task before coding.
 - Update the issue with each incremental step.
-- If blocked: document why + next action.
+- If `gh` auth/network is blocked, document why + next action and continue on a local branch.
 - Large changes: break into smaller issues/PRs.
 - PRs must explain: behavior changes, new tests, manifest/profile impacts, risks.
 

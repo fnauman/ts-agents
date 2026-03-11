@@ -1,16 +1,16 @@
 # Demos
 
-CLI demo workflows plus source-checkout helper assets.
+CLI demo workflows plus packaged helper assets.
 
 In the published wheel, use the `ts-agents demo ...` commands below. The
-repo-root shell scripts mentioned here are only available from a source
-checkout.
+repo-root shell scripts from `demo/` are source-checkout-only and are not
+bundled here.
 
-| Demo | Script | Tape | Output dir |
-|------|--------|------|------------|
-| Activity recognition (synthetic) | `run_demo.sh` (source checkout only) | `demo.tape` | `outputs/demo/` |
-| Activity recognition (WISDM) | `run_demo_wisdm.sh` (source checkout only) | `demo_wisdm.tape` | `outputs/demo_wisdm/` |
-| Forecasting comparison | `run_demo_forecasting.sh` (source checkout only) | `demo_forecasting.tape` | `outputs/demo_forecasting/` |
+| Demo | Primary command | Tape | Output dir |
+|------|-----------------|------|------------|
+| Activity recognition (synthetic) | `ts-agents demo window-classification --no-llm` | `demo.tape` | `outputs/demo/` |
+| Activity recognition (WISDM) | source checkout only | `demo_wisdm.tape` | `outputs/demo_wisdm/` |
+| Forecasting comparison | `ts-agents demo forecasting --no-llm` | `demo_forecasting.tape` | `outputs/demo/` |
 
 ---
 
@@ -25,16 +25,16 @@ A *30–60 second terminal walkthrough* showing:
 
 ## Quick demo (synthetic, no downloads)
 
-From the repo root:
+From an installed package or source checkout:
 
 ```bash
 export OPENAI_API_KEY=your-key
-uv run ts-agents demo window-classification
+ts-agents demo window-classification
 ```
 
 Outputs will be written under:
 
-- `data/demo_labeled_stream.csv`
+- `data/demo_labeled_stream.csv` (repo/source checkout) or bundled demo data
 - `outputs/demo/window_selection.json`
 - `outputs/demo/window_scores.png`
 - `outputs/demo/eval.json`
@@ -44,17 +44,11 @@ Outputs will be written under:
 ### Scripted fallback (no API key)
 
 ```bash
-uv run ts-agents demo window-classification --no-llm
+ts-agents demo window-classification --no-llm
 ```
 
-The scripted path writes the same core artifacts (including `report.md`) without
-calling an LLM.
-
-Or run the legacy script:
-
-```bash
-bash demo/run_demo.sh
-```
+This scripted CLI path writes the same core artifacts (including `report.md`)
+without calling an LLM.
 
 ---
 
@@ -64,8 +58,14 @@ Same window-size selection + evaluation workflow, but using the source-checkout
 WISDM accelerometer subset (2 subjects, 6 activities, ~33 k rows). This dataset
 is not bundled into the published wheel.
 
+From the repo root:
+
 ```bash
-bash demo/run_demo_wisdm.sh
+uv run ts-agents demo window-classification --no-llm \
+  --no-generate \
+  --csv-path data/wisdm_subset.csv \
+  --output-dir outputs/demo_wisdm \
+  --report-path outputs/demo_wisdm/report.md
 ```
 
 Outputs (under `outputs/demo_wisdm/`):
@@ -82,13 +82,7 @@ Outputs (under `outputs/demo_wisdm/`):
 Compares forecasting methods on the MHD shearing-box dataset (`data/short_real.csv`).
 
 ```bash
-bash demo/run_demo_forecasting.sh
-```
-
-Or via the CLI directly:
-
-```bash
-uv run ts-agents demo forecasting --no-llm
+ts-agents demo forecasting --no-llm
 ```
 
 The CLI default method set is `arima,theta` for stable behavior on the tiny
@@ -98,7 +92,7 @@ built-in test data. To include ETS, prefer a larger setup:
 uv run ts-agents demo forecasting --full-data --horizon 12 --methods arima,ets,theta --no-llm
 ```
 
-Outputs (under `outputs/demo_forecasting/`):
+Outputs (under `outputs/demo/` by default):
 
 - `forecast_comparison.json`
 - `forecast_comparison.png`
@@ -116,7 +110,9 @@ Use these with `ts-agents agent run --tool-bundle ...`:
 
 ## Building a custom WISDM stream
 
-WISDM is available on the UCI ML Repository under **CC BY 4.0**.
+WISDM is available on the UCI ML Repository under **CC BY 4.0**. This is a
+source-checkout workflow because the repo-root dataset is not bundled into the
+published wheel.
 
 Make a small stream from one subject (downloads a ~295 MB zip once):
 
@@ -131,7 +127,8 @@ python data/make_demo_labeled_stream_wisdm.py \
 
 ## Recording terminal GIFs
 
-All demos can be recorded with [VHS](https://github.com/charmbracelet/vhs):
+From a source checkout, the bundled VHS tapes can be recorded with
+[VHS](https://github.com/charmbracelet/vhs):
 
 ```bash
 vhs demo/demo.tape              # synthetic activity recognition
