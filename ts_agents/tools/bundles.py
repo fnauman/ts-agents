@@ -85,8 +85,6 @@ STANDARD_BUNDLE = [
     "detect_periodicity_with_data",
     "compute_coherence_with_data",
 
-    # Complexity
-    "hurst_exponent_with_data",
 ]
 
 # Full bundle: Comprehensive set for in-depth analysis
@@ -99,7 +97,6 @@ FULL_BUNDLE = [
     # Decomposition - all methods
     "stl_decompose_with_data",
     "mstl_decompose_with_data",
-    "hp_filter_with_data",
     "holt_winters_decompose_with_data",
 
     # Patterns - all methods
@@ -130,10 +127,6 @@ FULL_BUNDLE = [
     "detect_periodicity_with_data",
     "compute_coherence_with_data",
 
-    # Complexity - all methods
-    "sample_entropy_with_data",
-    "permutation_entropy_with_data",
-    "hurst_exponent_with_data",
 ]
 
 # Orchestrator bundle: Tools for the orchestrator agent (high-level)
@@ -162,7 +155,6 @@ CATEGORY_BUNDLES: Dict[str, List[str]] = {
     "decomposition": [
         "stl_decompose_with_data",
         "mstl_decompose_with_data",
-        "hp_filter_with_data",
         "holt_winters_decompose_with_data",
     ],
     "forecasting": [
@@ -193,11 +185,6 @@ CATEGORY_BUNDLES: Dict[str, List[str]] = {
         "compute_psd_with_data",
         "detect_periodicity_with_data",
         "compute_coherence_with_data",
-    ],
-    "complexity": [
-        "sample_entropy_with_data",
-        "permutation_entropy_with_data",
-        "hurst_exponent_with_data",
     ],
     "statistics": [
         "describe_series_with_data",
@@ -493,7 +480,6 @@ def get_subagent_bundle(subagent_name: str) -> List[ToolMetadata]:
         "decomposition": [
             "stl_decompose_with_data",
             "mstl_decompose_with_data",
-            "hp_filter_with_data",
             "holt_winters_decompose_with_data",
             "detect_periodicity_with_data",
             "describe_series_with_data",
@@ -528,8 +514,6 @@ def get_subagent_bundle(subagent_name: str) -> List[ToolMetadata]:
             "compute_coherence_with_data",
             "detect_periodicity_with_data",
             "describe_series_with_data",
-            "hurst_exponent_with_data",
-            "sample_entropy_with_data",
         ],
     }
 

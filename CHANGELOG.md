@@ -35,7 +35,7 @@ Initial public release of `ts-agents`.
 - CLI-first time-series toolkit with `ts-agents` entrypoint.
 - Gradio app for manual analysis and agent-driven workflows.
 - Tool registry covering decomposition, forecasting, patterns, spectral,
-  classification, complexity, and statistics.
+  classification, and statistics.
 - Skill-based workflow system with export/validation commands.
 - Sandbox backends: local, subprocess, docker, daytona, and modal.
 - Deterministic demo workflows with `--no-llm`.

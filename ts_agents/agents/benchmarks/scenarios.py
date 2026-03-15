@@ -6,7 +6,7 @@ how agents perform with different tool configurations.
 Each scenario includes:
 - query: The user's question
 - expected: What the response should contain
-- difficulty: Estimated complexity
+- difficulty: Estimated difficulty
 - required_tools: Tools that should be used (for scoring)
 """
 
@@ -152,7 +152,7 @@ register_scenario(BenchmarkScenario(
     description="Decompose a series and explain the components",
     query="Decompose by001_real for Re200Rm200 and tell me about the trend",
     expected=ExpectedOutcome(
-        required_tools=["stl_decompose", "mstl_decompose", "hp_filter", "holt_winters_decompose"],
+        required_tools=["stl_decompose", "mstl_decompose", "holt_winters_decompose"],
         must_contain=["trend"],
         should_contain=["seasonal", "residual"],
         min_tool_calls=1,
@@ -269,7 +269,7 @@ register_scenario(BenchmarkScenario(
     expected=ExpectedOutcome(
         optional_tools=[
             "describe_series", "detect_periodicity", "detect_peaks",
-            "stl_decompose", "compute_psd", "hurst_exponent",
+            "stl_decompose", "compute_psd",
         ],
         must_contain=["period", "trend"],
         min_tool_calls=2,
@@ -284,7 +284,7 @@ register_scenario(BenchmarkScenario(
     description="Choose appropriate method based on data characteristics",
     query="What's the best decomposition method for by001_real in Re200Rm200? Explain why.",
     expected=ExpectedOutcome(
-        required_tools=["stl_decompose", "mstl_decompose", "hp_filter", "holt_winters_decompose"],
+        required_tools=["stl_decompose", "mstl_decompose", "holt_winters_decompose"],
         must_contain=["stl", "trend"],
         expects_recommendation=True,
         min_tool_calls=1,

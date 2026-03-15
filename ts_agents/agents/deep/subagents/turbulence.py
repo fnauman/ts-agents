@@ -32,11 +32,6 @@ Variables available (mode 001 Fourier coefficients):
 - **detect_periodicity**: Find dominant oscillation periods
 - **compute_coherence**: Cross-spectral correlation between signals
 
-### Complexity Measures
-- **hurst_exponent**: Long-range dependence (H>0.5 = persistent)
-- **sample_entropy**: Regularity/predictability
-- **permutation_entropy**: Temporal structure complexity
-
 ### Basic Statistics
 - **describe_series**: Mean, std, RMS, skewness, kurtosis
 
@@ -52,11 +47,6 @@ Variables available (mode 001 Fourier coefficients):
    - Compare spectral slopes across Re numbers
    - Look for transitions in dynamical behavior
 
-3. For complexity analysis:
-   - Hurst exponent indicates memory in the system
-   - Entropy measures indicate predictability
-   - Compare across runs to see regime differences
-
 ## Physical Interpretation
 
 ### Spectral Slopes
@@ -64,23 +54,17 @@ Variables available (mode 001 Fourier coefficients):
 - **Steeper (< -5/3)**: Dissipation range, viscous effects
 - **Shallower (> -5/3)**: Energy injection range, forcing
 
-### Hurst Exponent
-- **H < 0.5**: Anti-persistent (mean-reverting)
-- **H = 0.5**: Random walk, no memory
-- **H > 0.5**: Persistent (trending behavior)
-
 ### Reynolds Number Effects
 - Higher Re = more turbulent
-- Expect changes in spectral slope, complexity near critical Re
+- Expect changes in spectral slope near critical Re
 - Look for dynamo transition signatures
 
 ## Key Questions to Answer
 
-1. Is the flow turbulent? (spectral slope, complexity)
+1. Is the flow turbulent? (spectral slope)
 2. What are the dominant frequencies? (periodicity)
 3. How do magnetic and velocity fields correlate? (coherence)
 4. Is there a dynamo transition? (compare across Re)
-5. What's the predictability of the system? (entropy, Hurst)
 
 ## Output Format
 

@@ -483,32 +483,3 @@ def test_compute_coherence_with_data_accepts_sampling_aliases(monkeypatch):
 
     assert "Error in Coherence" not in output
     assert observed["sample_rate"] == 4.5
-
-
-def test_hurst_exponent_with_data_forwards_max_window(monkeypatch):
-    from ts_agents.tools import agent_tools
-    import ts_agents.core.complexity as complexity
-
-    observed = {}
-
-    def fake_get_series_data(variable_name, unique_id):
-        return np.array([1.0, 1.2, 0.9, 1.1, 1.3, 1.0, 1.4, 1.2])
-
-    def fake_hurst_exponent(series, min_window=10, max_window=None):
-        observed["min_window"] = min_window
-        observed["max_window"] = max_window
-        return 0.61
-
-    monkeypatch.setattr(agent_tools, "_get_series_data", fake_get_series_data)
-    monkeypatch.setattr(complexity, "hurst_exponent", fake_hurst_exponent)
-
-    output = agent_tools.hurst_exponent_with_data(
-        variable_name="bx001_real",
-        unique_id="Re200Rm200",
-        min_window=8,
-        max_window=64,
-    )
-
-    assert "Error in Hurst" not in output
-    assert observed["min_window"] == 8
-    assert observed["max_window"] == 64

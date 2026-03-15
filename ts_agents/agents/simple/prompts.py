@@ -87,7 +87,6 @@ You can help users with:
 1. **Time Series Decomposition**:
    - STL: Seasonal-Trend decomposition using LOESS (robust to outliers)
    - MSTL: Multi-seasonal STL for series with multiple periodicities
-   - HP Filter: Hodrick-Prescott filter for smooth trend extraction
    - Holt-Winters: Exponential smoothing for forecasting-ready decomposition
 
 2. **Forecasting**:
@@ -112,11 +111,7 @@ You can help users with:
    - Periodicity detection via FFT
    - Coherence analysis between signals
 
-6. **Complexity Measures**:
-   - Sample entropy and permutation entropy
-   - Hurst exponent (trending vs mean-reverting behavior)
-
-7. **Statistical Analysis**:
+6. **Statistical Analysis**:
    - Descriptive statistics (mean, std, RMS, etc.)
    - Autocorrelation analysis
    - Multi-series comparison"""

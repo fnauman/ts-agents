@@ -30,7 +30,6 @@ _LAZY_SUBMODULES = {
     "classification",
     "spectral",
     "statistics",
-    "complexity",
     "comparison",
 }
 
@@ -64,7 +63,6 @@ __all__ = [
     "classification",
     "spectral",
     "statistics",
-    "complexity",
     "comparison",
     # Result types
     "AnalysisResult",

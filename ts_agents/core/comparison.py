@@ -137,7 +137,7 @@ def compare_decomposition_methods(
     series : np.ndarray
         Time series to decompose
     methods : List[str], optional
-        Methods to compare. Default: ["stl", "mstl", "hp_filter", "holt_winters"]
+        Methods to compare. Default: ["stl", "mstl", "holt_winters"]
     period : int, optional
         Seasonal period for methods that need it
 
@@ -156,17 +156,15 @@ def compare_decomposition_methods(
     from .decomposition import (
         stl_decompose,
         mstl_decompose,
-        hp_filter,
         holt_winters_decompose,
     )
 
     if methods is None:
-        methods = ["stl", "mstl", "hp_filter", "holt_winters"]
+        methods = ["stl", "mstl", "holt_winters"]
 
     method_funcs = {
         "stl": stl_decompose,
         "mstl": mstl_decompose,
-        "hp_filter": hp_filter,
         "holt_winters": holt_winters_decompose,
     }
 
@@ -182,13 +180,11 @@ def compare_decomposition_methods(
             start_time = time.time()
 
             # Call the method
-            if method in ["stl", "holt_winters"]:
+            if method in {"stl", "holt_winters"}:
                 result = method_funcs[method](series, period=period, **kwargs)
-            elif method == "mstl":
+            else:
                 periods = [period] if period else None
                 result = method_funcs[method](series, periods=periods, **kwargs)
-            else:
-                result = method_funcs[method](series, **kwargs)
 
             computation_times[method] = time.time() - start_time
             results[method] = result
@@ -457,7 +453,6 @@ def _generate_decomposition_recommendation(
     parts.append("\n### Method Notes:")
     parts.append("- **STL**: Good general choice, robust to outliers")
     parts.append("- **MSTL**: Use when multiple seasonal periods exist")
-    parts.append("- **HP Filter**: Best for smooth trend extraction without seasonal modeling")
     parts.append("- **Holt-Winters**: Best when forecasting is the end goal")
 
     return "\n".join(parts)

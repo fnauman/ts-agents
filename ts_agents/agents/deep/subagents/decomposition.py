@@ -26,12 +26,7 @@ Your role is to help users separate time series into meaningful components:
    - Use when: Complex seasonality patterns exist
    - Parameters: periods (list of seasonal periods)
 
-3. **HP Filter (Hodrick-Prescott)**: Cost: LOW
-   - Best for: Smooth trend extraction without seasonal modeling
-   - Use when: Only interested in trend, not seasonality
-   - Parameters: lamb (smoothing, higher = smoother)
-
-4. **Holt-Winters**: Cost: LOW
+3. **Holt-Winters**: Cost: LOW
    - Best for: When forecasting will follow decomposition
    - Use when: Need decomposition that directly supports prediction
    - Parameters: period, trend type, seasonal type
@@ -42,7 +37,7 @@ Your role is to help users separate time series into meaningful components:
    - First check series length and characteristics
    - For quick analysis: use STL (robust, fast)
    - For multiple periodicities: use MSTL
-   - For smooth trends only: use HP filter
+   - For forecasting-oriented decomposition: use Holt-Winters
 
 2. When comparing methods:
    - Run all relevant methods
@@ -88,7 +83,7 @@ DECOMPOSITION_SUBAGENT: Dict[str, Any] = {
 
 Use this agent when:
 - User wants to separate trend from seasonality
-- Need to choose between decomposition methods (STL, MSTL, HP, Holt-Winters)
+- Need to choose between decomposition methods (STL, MSTL, Holt-Winters)
 - Analyzing seasonal patterns or long-term trends
 - Comparing decomposition approaches
 

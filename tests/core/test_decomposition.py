@@ -50,35 +50,6 @@ class TestSTL:
         assert result.seasonal_strength <= 1
 
 
-class TestHPFilter:
-    """Tests for HP filter."""
-
-    def test_hp_filter_basic(self):
-        """Test basic HP filter."""
-        from ts_agents.core.decomposition import hp_filter
-
-        # Create series with trend and cycle
-        t = np.linspace(0, 10, 1000)
-        trend = t ** 2 / 100
-        cycle = np.sin(2 * np.pi * t)
-        x = trend + cycle
-
-        result = hp_filter(x, lamb=1600)
-
-        assert result.method == "hp_filter"
-        assert len(result.trend) == 1000
-        assert len(result.seasonal) == 1000  # "cycle" in HP terminology
-
-    def test_hp_filter_auto_lambda(self):
-        """Test HP filter with auto lambda."""
-        from ts_agents.core.decomposition import hp_filter
-
-        x = np.random.randn(500) + np.linspace(0, 5, 500)
-        result = hp_filter(x, lamb=None)
-
-        assert len(result.trend) == 500
-
-
 class TestMSTL:
     """Tests for MSTL decomposition."""
 

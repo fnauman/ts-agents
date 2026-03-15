@@ -114,7 +114,7 @@ class TestDecompositionComparison:
 
         result = compare_decomposition_methods(
             x,
-            methods=["stl", "hp_filter"],
+            methods=["stl", "holt_winters"],
             period=100,
         )
 
@@ -212,7 +212,7 @@ class TestGenericCompare:
         result = compare_methods(
             x,
             category="decomposition",
-            methods=["stl", "hp_filter"],
+            methods=["stl", "holt_winters"],
             period=100,
         )
 

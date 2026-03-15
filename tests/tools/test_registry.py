@@ -131,7 +131,7 @@ class TestToolRegistry:
         from ts_agents.tools.registry import ToolRegistry, ToolCategory
 
         decomp_tools = ToolRegistry.list_by_category(ToolCategory.DECOMPOSITION)
-        assert len(decomp_tools) >= 4  # STL, MSTL, HP, Holt-Winters
+        assert len(decomp_tools) >= 3  # STL, MSTL, Holt-Winters
 
         for tool in decomp_tools:
             assert tool.category == ToolCategory.DECOMPOSITION

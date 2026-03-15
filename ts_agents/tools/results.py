@@ -165,14 +165,14 @@ class Visualization:
 
 @dataclass
 class DecompositionResult(ToolResult):
-    """Result from decomposition tools (STL, MSTL, HP, Holt-Winters).
+    """Result from decomposition tools (STL, MSTL, Holt-Winters).
 
     Attributes
     ----------
     trend : List[float]
         Trend component
     seasonal : List[float]
-        Seasonal component (may be empty for HP filter)
+        Seasonal component
     residual : List[float]
         Residual component
     period : int, optional
@@ -498,7 +498,7 @@ class StatisticsResult(ToolResult):
 
 @dataclass
 class ScalarResult(ToolResult):
-    """Result for scalar values (entropy, Hurst, count, etc.).
+    """Result for scalar values (score, count, estimated period, etc.).
 
     Attributes
     ----------
