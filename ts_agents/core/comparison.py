@@ -180,13 +180,11 @@ def compare_decomposition_methods(
             start_time = time.time()
 
             # Call the method
-            if method in ["stl", "holt_winters"]:
+            if method in {"stl", "holt_winters"}:
                 result = method_funcs[method](series, period=period, **kwargs)
-            elif method == "mstl":
+            else:
                 periods = [period] if period else None
                 result = method_funcs[method](series, periods=periods, **kwargs)
-            else:
-                result = method_funcs[method](series, **kwargs)
 
             computation_times[method] = time.time() - start_time
             results[method] = result
