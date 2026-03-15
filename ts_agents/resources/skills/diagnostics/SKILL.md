@@ -1,15 +1,15 @@
 ---
 name: time-series-diagnostics
 description: >
-  Quick EDA and diagnostics for a time series: descriptive stats, autocorrelation, periodicity, and basic complexity.
-  Use when the user asks "what does this series look like?", "is there seasonality?", "what's the period?", "is it persistent?",
+  Quick EDA and diagnostics for a time series: descriptive stats, autocorrelation, and periodicity.
+  Use when the user asks "what does this series look like?", "is there seasonality?", "what's the period?",
   or before choosing decomposition/forecasting parameters.
 compatibility: "Best with the ts-agents repo + CLI (`ts-agents`)."
 metadata:
   domain: time-series
-  tasks: [eda, diagnostics, statistics, periodicity, autocorrelation, complexity]
+  tasks: [eda, diagnostics, statistics, periodicity, autocorrelation]
   ts_agents:
-    tool_categories: [statistics, spectral, complexity]
+    tool_categories: [statistics, spectral]
     prefers_with_data_tools: true
 ---
 
@@ -69,24 +69,11 @@ Use PSD when:
 - user asks about “frequencies”, “spectral slope”, “dominant oscillations”
 - you want to confirm periodicity beyond the single “top period”
 
-### 6) Complexity metrics (optional, interpret cautiously)
-Run one or more:
-```bash
-uv run ts-agents run sample_entropy_with_data --run <RUN_ID> --var <VARIABLE>
-uv run ts-agents run permutation_entropy_with_data --run <RUN_ID> --var <VARIABLE>
-uv run ts-agents run hurst_exponent_with_data --run <RUN_ID> --var <VARIABLE>
-```
-
-Interpretation (very rough):
-- higher entropy → less predictable / more complex
-- Hurst > 0.5 → persistence; < 0.5 → mean-reversion-ish; ~0.5 → random-walk-ish
-
 ## Tool discovery (future-proofing)
 If tools change or new diagnostics are added, list what’s available:
 ```bash
 uv run ts-agents tool list --category statistics --json
 uv run ts-agents tool list --category spectral --json
-uv run ts-agents tool list --category complexity --json
 ```
 
 ## Output expectations

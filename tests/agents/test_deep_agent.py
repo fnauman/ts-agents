@@ -363,7 +363,6 @@ class TestSystemPrompts:
         # Should mention methods
         assert "STL" in prompt
         assert "MSTL" in prompt
-        assert "HP" in prompt or "Hodrick" in prompt
         assert "Holt-Winters" in prompt
 
     def test_forecasting_system_prompt(self):

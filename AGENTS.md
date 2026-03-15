@@ -62,7 +62,7 @@ uv run python -m pytest -q
 - `ts_agents/ui/` — Gradio UI (tabs + chat)
 - `ts_agents/agents/` — agent implementations (simple + deep)
 - `ts_agents/tools/` — tool registry + wrappers (LangChain + deep agent tools)
-- `ts_agents/core/` — pure analysis implementations (decomposition, forecasting, patterns, classification, complexity, spectral)
+- `ts_agents/core/` — pure analysis implementations (decomposition, forecasting, patterns, classification, spectral)
 - `ts_agents/persistence/` — session persistence + caching
 - `ts_agents/resources/` — packaged data, demo assets, and skill mirrors used by installed wheels
 - `skills/` — canonical skill definitions

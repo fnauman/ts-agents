@@ -12,8 +12,8 @@ Each skill is a Markdown file (`SKILL.md`) with YAML frontmatter describing the 
 | **activity-recognition** | End-to-end labeled-stream activity recognition: generate data, select window size, evaluate classifier, produce plots and report |
 | **forecasting** | Forecast future values, choose baselines, compare methods (ARIMA, ETS, Theta) |
 | **classification** | Supervised time-series classification with KNN/DTW, ROCKET, or HIVE-COTE |
-| **diagnostics** | Quick EDA: descriptive stats, autocorrelation, periodicity, spectral density, complexity |
-| **decomposition** | Trend/seasonal/residual decomposition via STL, MSTL, HP filter, or Holt-Winters |
+| **diagnostics** | Quick EDA: descriptive stats, autocorrelation, periodicity, and spectral density |
+| **decomposition** | Trend/seasonal/residual decomposition via STL, MSTL, or Holt-Winters |
 
 All skills live in `skills/<name>/SKILL.md` and are synced to agent-specific directories on export.
 
@@ -58,7 +58,6 @@ The table below lists every tool that produces a plot, organized by analysis pha
 | **Spectral** | `compute_coherence_with_data` | Coherence vs frequency |
 | **Decomposition** | `stl_decompose_with_data` | 4-panel: original, trend, seasonal, residual |
 | **Decomposition** | `mstl_decompose_with_data` | 4-panel: original, trend, seasonal, residual |
-| **Decomposition** | `hp_filter_with_data` | 3-panel: original, HP trend, cyclic residual |
 | **Decomposition** | `holt_winters_decompose_with_data` | 4-panel: original, trend, seasonal, residual |
 | **Patterns** | `detect_peaks_with_data` | Series with peak markers |
 | **Patterns** | `segment_changepoint_with_data` | Series with changepoint lines |
@@ -86,7 +85,6 @@ tools:
   - compute_autocorrelation_with_data
   - compute_psd_with_data
   - stl_decompose_with_data
-  - hp_filter_with_data
   - detect_peaks_with_data
   - segment_changepoint_with_data
   - analyze_matrix_profile_with_data
@@ -130,11 +128,6 @@ uv run ts-agents run stl_decompose_with_data \
   --save outputs/$RUN/stl.txt \
   --extract-images outputs/$RUN/assets
 
-# Optional: HP filter for a smoother trend estimate
-uv run ts-agents run hp_filter_with_data \
-  --run $RUN --var $VAR \
-  --save outputs/$RUN/hp.txt \
-  --extract-images outputs/$RUN/assets
 ```
 
 ### 3. Pattern detection
@@ -193,7 +186,6 @@ format: pdf
 
 ## Decomposition
 ![STL](assets/stl_image_1.png)
-![HP Filter](assets/hp_image_1.png)
 
 ## Patterns
 ![Peaks](assets/peaks_image_1.png)
@@ -248,7 +240,7 @@ This produces diagnostics artifacts, decomposition plots, and a forecast compari
 
 Edit `skills/<name>/SKILL.md` directly:
 
-- **Add a step** — append to the `## Workflow` section (e.g., "7. Run complexity analysis on the residuals")
+- **Add a step** — append to the `## Workflow` section (e.g., "7. Compare STL and Holt-Winters residuals")
 - **Change defaults** — edit parameter values in the workflow steps
 - **Add guardrails** — insert validation steps (e.g., "If the series has fewer than 100 points, warn the user and stop")
 

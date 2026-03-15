@@ -17,7 +17,6 @@ class AnalysisCategory(Enum):
     PATTERNS = "patterns"
     CLASSIFICATION = "classification"
     SPECTRAL = "spectral"
-    COMPLEXITY = "complexity"
     STATISTICS = "statistics"
 
 

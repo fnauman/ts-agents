@@ -1,7 +1,7 @@
 ---
 name: time-series-decomposition
 description: >
-  Decompose a time series into trend/seasonal/residual components (STL, MSTL, HP filter, Holt-Winters).
+  Decompose a time series into trend/seasonal/residual components (STL, MSTL, Holt-Winters).
   Use when the user asks about trend, seasonality, detrending, or wants residuals for anomaly detection/forecasting.
 compatibility: "Best with the ts-agents repo + CLI (`ts-agents`)."
 metadata:
@@ -27,8 +27,7 @@ Use decomposition when you need to:
 ## Pick a method (simple rubric)
 1. **STL** (`stl_decompose_with_data`): best default for a single dominant seasonality.
 2. **MSTL** (`mstl_decompose_with_data`): when there are multiple seasonalities (e.g., daily + weekly).
-3. **HP filter** (`hp_filter_with_data`): when you mainly want a smooth trend and don’t trust a seasonal model.
-4. **Holt-Winters decomposition** (`holt_winters_decompose_with_data`): forecasting-oriented decomposition; supports additive/multiplicative components.
+3. **Holt-Winters decomposition** (`holt_winters_decompose_with_data`): forecasting-oriented decomposition; supports additive/multiplicative components.
 
 ## Step-by-step workflow
 ### 0) Decide (or estimate) the seasonal period
@@ -46,7 +45,6 @@ uv run ts-agents run stl_decompose_with_data --run <RUN_ID> --var <VARIABLE> --p
 
 Notes:
 - `robust=true` is usually safer with outliers.
-- If STL looks unstable, try a different period or use HP filter as a fallback.
 
 ### 2) Run MSTL (multiple seasonalities)
 If you have multiple periods (e.g., `[24, 168]`):
@@ -54,14 +52,7 @@ If you have multiple periods (e.g., `[24, 168]`):
 uv run ts-agents run mstl_decompose_with_data --run <RUN_ID> --var <VARIABLE> --param periods=[24,168]
 ```
 
-### 3) Run HP filter (trend extraction)
-```bash
-uv run ts-agents run hp_filter_with_data --run <RUN_ID> --var <VARIABLE> --param lamb=1600
-```
-
-Heuristic: larger `lamb` → smoother trend.
-
-### 4) Run Holt-Winters decomposition (additive/multiplicative)
+### 3) Run Holt-Winters decomposition (additive/multiplicative)
 ```bash
 uv run ts-agents run holt_winters_decompose_with_data --run <RUN_ID> --var <VARIABLE> --param period=<PERIOD> --param trend=add --param seasonal=add
 ```

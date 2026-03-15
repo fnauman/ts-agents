@@ -61,7 +61,7 @@ Sandboxed backends isolate environments and provide resource controls.
 Tradeoff:
 
 - better reliability and safety
-- higher complexity and potential latency/cost overhead
+- more moving parts and potential latency/cost overhead
 
 ## Practical Rule
 

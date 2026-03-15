@@ -1,7 +1,7 @@
 """Decomposition analysis tab component.
 
 This component provides manual decomposition analysis with:
-- Method selection (STL, MSTL, HP Filter, Holt-Winters)
+- Method selection (STL, MSTL, Holt-Winters)
 - Parameter configuration
 - Visualization of trend, seasonal, and residual components
 - Method comparison
@@ -48,7 +48,7 @@ def create_decomposition_tab(state: gr.State):
 
             gr.Markdown("### Decomposition Methods")
             methods = gr.CheckboxGroup(
-                choices=["STL", "MSTL", "HP Filter", "Holt-Winters"],
+                choices=["STL", "MSTL", "Holt-Winters"],
                 value=["STL"],
                 label="Select methods to run"
             )
@@ -64,11 +64,6 @@ def create_decomposition_tab(state: gr.State):
             robust = gr.Checkbox(value=True, label="Robust fitting (STL)")
 
             with gr.Accordion("Advanced Options", open=False):
-                hp_lambda = gr.Number(
-                    value=1600,
-                    label="HP Filter Lambda",
-                    info="Larger values = smoother trend"
-                )
                 mstl_periods = gr.Textbox(
                     value="",
                     label="MSTL Periods (comma-separated)",
@@ -103,7 +98,6 @@ def create_decomposition_tab(state: gr.State):
         methods: list,
         period: int,
         robust: bool,
-        hp_lambda: float,
         mstl_periods: str,
         ui_state: UIState
     ) -> Tuple[Any, pd.DataFrame, str, str, UIState]:
@@ -124,7 +118,6 @@ def create_decomposition_tab(state: gr.State):
         from ...core.decomposition import (
             stl_decompose,
             mstl_decompose,
-            hp_filter,
             holt_winters_decompose,
         )
 
@@ -134,7 +127,6 @@ def create_decomposition_tab(state: gr.State):
                 series,
                 periods=[int(p.strip()) for p in mstl_periods.split(",") if p.strip()] if mstl_periods.strip() else None
             )),
-            "HP Filter": ("hp_filter", lambda: hp_filter(series, lamb=hp_lambda)),
             "Holt-Winters": ("holt_winters", lambda: holt_winters_decompose(series, period=period_val)),
         }
 
@@ -271,7 +263,7 @@ def create_decomposition_tab(state: gr.State):
     # Connect events
     run_btn.click(
         run_decomposition,
-        inputs=[run_id, variable, methods, period, robust, hp_lambda, mstl_periods, state],
+        inputs=[run_id, variable, methods, period, robust, mstl_periods, state],
         outputs=[plot_output, metrics_output, recommendation, status_text, state]
     )
 

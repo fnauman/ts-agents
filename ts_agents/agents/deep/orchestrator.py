@@ -64,7 +64,7 @@ You can delegate to these specialists using the task tool:
 
 1. **decomposition-agent**: For trend/seasonal decomposition
    - Use when: Separating trend, seasonality, residuals
-   - Methods: STL, MSTL, HP filter, Holt-Winters
+   - Methods: STL, MSTL, Holt-Winters
 
 2. **forecasting-agent**: For time series prediction
    - Use when: Predicting future values

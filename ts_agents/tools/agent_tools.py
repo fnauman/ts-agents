@@ -119,32 +119,6 @@ def mstl_decompose_with_data(variable_name: str, unique_id: str, periods: list =
     except Exception as e:
         return f"Error in MSTL: {str(e)}"
 
-def hp_filter_with_data(variable_name: str, unique_id: str, lamb: float = 1600) -> str:
-    from ts_agents.core.decomposition import hp_filter
-    try:
-        series = _get_series_data(variable_name, unique_id)
-        result = hp_filter(series, lamb=lamb)
-        
-        output = f"HP Filter for {variable_name} (run {unique_id}):\n"
-        
-        plt = _get_plt()
-        fig, axes = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
-        axes[0].plot(series, label='Original')
-        axes[0].legend()
-        axes[1].plot(result.trend, label='Trend (HP)', color='orange')
-        axes[1].legend()
-        axes[2].plot(result.residual, label='Cyclic/Residual', color='green')
-        axes[2].legend()
-        plt.tight_layout()
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png')
-        plt.close(fig)
-        buf.seek(0)
-        output += _create_plot_response(buf)
-        return output
-    except Exception as e:
-        return f"Error in HP Filter: {str(e)}"
-        
 def holt_winters_decompose_with_data(variable_name: str, unique_id: str, period: Optional[int] = None, trend: str = 'add', seasonal: str = 'add') -> str:
     from ts_agents.core.decomposition import holt_winters_decompose
     try:
@@ -750,40 +724,6 @@ def compute_coherence_with_data(
         return output
     except Exception as e:
         return f"Error in Coherence: {str(e)}"
-
-# Complexity
-
-def sample_entropy_with_data(variable_name: str, unique_id: str, m: int = 2, r: float = None) -> str:
-    from ts_agents.core.complexity import sample_entropy
-    try:
-        series = _get_series_data(variable_name, unique_id)
-        val = sample_entropy(series, m=m, r=r)
-        return f"Sample Entropy for {variable_name}: {val:.4f}"
-    except Exception as e:
-        return f"Error in Sample Entropy: {str(e)}"
-
-def permutation_entropy_with_data(variable_name: str, unique_id: str, order: int = 3, delay: int = 1, normalize: bool = True) -> str:
-    from ts_agents.core.complexity import permutation_entropy
-    try:
-        series = _get_series_data(variable_name, unique_id)
-        val = permutation_entropy(series, order=order, delay=delay, normalize=normalize)
-        return f"Permutation Entropy for {variable_name}: {val:.4f}"
-    except Exception as e:
-        return f"Error in Permutation Entropy: {str(e)}"
-
-def hurst_exponent_with_data(
-    variable_name: str,
-    unique_id: str,
-    min_window: int = 10,
-    max_window: int = None,
-) -> str:
-    from ts_agents.core.complexity import hurst_exponent
-    try:
-        series = _get_series_data(variable_name, unique_id)
-        val = hurst_exponent(series, min_window=min_window, max_window=max_window)
-        return f"Hurst Exponent for {variable_name}: {val:.4f}"
-    except Exception as e:
-        return f"Error in Hurst: {str(e)}"
 
 # Statistics
 

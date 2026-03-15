@@ -22,7 +22,6 @@ class ToolCategory(Enum):
     PATTERNS = "patterns"
     CLASSIFICATION = "classification"
     SPECTRAL = "spectral"
-    COMPLEXITY = "complexity"
     STATISTICS = "statistics"
     COMPARISON = "comparison"
     DATA = "data"
@@ -402,7 +401,6 @@ def _register_default_tools() -> None:
     from ..core.decomposition import (
         stl_decompose,
         mstl_decompose,
-        hp_filter,
         holt_winters_decompose,
     )
     from ..core.forecasting import (
@@ -428,11 +426,6 @@ def _register_default_tools() -> None:
         detect_periodicity,
         compute_coherence,
     )
-    from ..core.complexity import (
-        sample_entropy,
-        permutation_entropy,
-        hurst_exponent,
-    )
     from ..core.statistics import (
         describe_series,
         compute_autocorrelation,
@@ -456,7 +449,6 @@ def _register_default_tools() -> None:
     from .agent_tools import (
         stl_decompose_with_data,
         mstl_decompose_with_data,
-        hp_filter_with_data,
         holt_winters_decompose_with_data,
         forecast_arima_with_data,
         forecast_ets_with_data,
@@ -475,9 +467,6 @@ def _register_default_tools() -> None:
         compute_psd_with_data,
         detect_periodicity_with_data,
         compute_coherence_with_data,
-        sample_entropy_with_data,
-        permutation_entropy_with_data,
-        hurst_exponent_with_data,
         describe_series_with_data,
         compute_autocorrelation_with_data,
         compare_series_stats_with_data,
@@ -619,36 +608,6 @@ def _register_default_tools() -> None:
             ToolParameter("periods", "list", "List of seasonal periods", optional=True),
         ],
         examples=["Decompose series with multiple seasonalities"],
-        returns="DecompositionResult with plot",
-    )
-
-    _register_tool(
-        name="hp_filter",
-        description="Hodrick-Prescott filter for smooth trend extraction.",
-        category=ToolCategory.DECOMPOSITION,
-        cost=ComputationalCost.LOW,
-        core_function=hp_filter,
-        dependencies=["statsmodels"],
-        parameters=[
-            ToolParameter("series", "np.ndarray", "Time series data"),
-            ToolParameter("lamb", "float", "Smoothing parameter", optional=True, default=1600),
-        ],
-        examples=["Extract smooth trend from noisy data"],
-        returns="DecompositionResult with trend and residual components",
-    )
-    _register_with_data(
-        base_name="hp_filter",
-        description="Hodrick-Prescott filter for smooth trend extraction.",
-        category=ToolCategory.DECOMPOSITION,
-        cost=ComputationalCost.LOW,
-        core_function=hp_filter_with_data,
-        dependencies=["statsmodels", "matplotlib"],
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to analyze"),
-            ToolParameter("unique_id", "str", "Run ID"),
-            ToolParameter("lamb", "float", "Smoothing parameter", optional=True, default=1600),
-        ],
-        examples=["Extract smooth trend from noisy data"],
         returns="DecompositionResult with plot",
     )
 
@@ -1547,107 +1506,6 @@ def _register_default_tools() -> None:
         ],
         examples=["Analyze coupling between two signals"],
         returns="CoherenceResult with plot",
-    )
-
-    # ---------------------------------------------------------------------
-    # Complexity Tools (series-based)
-    # ---------------------------------------------------------------------
-    _register_tool(
-        name="sample_entropy",
-        description="Compute sample entropy - measures regularity/complexity.",
-        category=ToolCategory.COMPLEXITY,
-        cost=ComputationalCost.MEDIUM,
-        core_function=sample_entropy,
-        dependencies=["antropy"],
-        parameters=[
-            ToolParameter("series", "np.ndarray", "Time series data"),
-            ToolParameter("m", "int", "Embedding dimension", optional=True, default=2),
-            ToolParameter("r", "float", "Tolerance", optional=True),
-        ],
-        examples=["How regular is this time series?"],
-        returns="Float sample entropy value",
-    )
-    _register_with_data(
-        base_name="sample_entropy",
-        description="Compute sample entropy - measures regularity/complexity.",
-        category=ToolCategory.COMPLEXITY,
-        cost=ComputationalCost.MEDIUM,
-        core_function=sample_entropy_with_data,
-        dependencies=["antropy"],
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to analyze"),
-            ToolParameter("unique_id", "str", "Run ID"),
-            ToolParameter("m", "int", "Embedding dimension", optional=True, default=2),
-            ToolParameter("r", "float", "Tolerance", optional=True),
-        ],
-        examples=["How regular is this time series?"],
-        returns="Float sample entropy value",
-    )
-
-    _register_tool(
-        name="permutation_entropy",
-        description="Compute permutation entropy - ordinal pattern complexity.",
-        category=ToolCategory.COMPLEXITY,
-        cost=ComputationalCost.LOW,
-        core_function=permutation_entropy,
-        dependencies=["antropy"],
-        parameters=[
-            ToolParameter("series", "np.ndarray", "Time series data"),
-            ToolParameter("order", "int", "Order of permutation patterns", optional=True, default=3),
-            ToolParameter("delay", "int", "Time delay", optional=True, default=1),
-            ToolParameter("normalize", "bool", "Normalize by max entropy", optional=True, default=True),
-        ],
-        examples=["Measure complexity using permutation entropy"],
-        returns="Float permutation entropy value",
-    )
-    _register_with_data(
-        base_name="permutation_entropy",
-        description="Compute permutation entropy - ordinal pattern complexity.",
-        category=ToolCategory.COMPLEXITY,
-        cost=ComputationalCost.LOW,
-        core_function=permutation_entropy_with_data,
-        dependencies=["antropy"],
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to analyze"),
-            ToolParameter("unique_id", "str", "Run ID"),
-            ToolParameter("order", "int", "Order of permutation patterns", optional=True, default=3),
-            ToolParameter("delay", "int", "Time delay", optional=True, default=1),
-            ToolParameter("normalize", "bool", "Normalize by max entropy", optional=True, default=True),
-        ],
-        examples=["Measure complexity using permutation entropy"],
-        returns="Float permutation entropy value",
-    )
-
-    _register_tool(
-        name="hurst_exponent",
-        description="Estimate Hurst exponent using R/S analysis.",
-        category=ToolCategory.COMPLEXITY,
-        cost=ComputationalCost.LOW,
-        core_function=hurst_exponent,
-        dependencies=["numpy"],
-        parameters=[
-            ToolParameter("series", "np.ndarray", "Time series data"),
-            ToolParameter("min_window", "int", "Minimum window", optional=True, default=10),
-            ToolParameter("max_window", "int", "Maximum window", optional=True),
-        ],
-        examples=["Compute Hurst exponent"],
-        returns="Float Hurst exponent (0-1)",
-    )
-    _register_with_data(
-        base_name="hurst_exponent",
-        description="Estimate Hurst exponent using R/S analysis.",
-        category=ToolCategory.COMPLEXITY,
-        cost=ComputationalCost.LOW,
-        core_function=hurst_exponent_with_data,
-        dependencies=["numpy"],
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to analyze"),
-            ToolParameter("unique_id", "str", "Run ID"),
-            ToolParameter("min_window", "int", "Minimum window", optional=True, default=10),
-            ToolParameter("max_window", "int", "Maximum window", optional=True),
-        ],
-        examples=["Compute Hurst exponent"],
-        returns="Float Hurst exponent (0-1)",
     )
 
     # ---------------------------------------------------------------------
