@@ -68,6 +68,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         ui_runtime = _load_ui_runtime()
     except ImportError as exc:
         parser.exit(1, f"{exc}\n")
+        return
 
     app = ui_runtime.create_app(
         enable_agent=not args.no_agent,

@@ -71,7 +71,11 @@ def mstl_decompose(
             period=periods[0],  # Primary period
         )
 
-    except (ImportError, AttributeError):
+    except ImportError as exc:
+        raise ImportError(
+            'MSTL decomposition requires optional dependencies. Install with: pip install "ts-agents[decomposition]"'
+        ) from exc
+    except AttributeError:
         # Fallback to regular STL with first period
         from .stl import stl_decompose
         return stl_decompose(series, period=periods[0])

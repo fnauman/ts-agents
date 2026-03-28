@@ -164,7 +164,6 @@ def create_simple_agent(
         )
 
     # Create agent using the new function-calling API
-    from langchain.agents import create_agent
     agent = create_agent(
         model=llm,
         tools=langchain_tools,
