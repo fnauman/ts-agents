@@ -43,13 +43,6 @@ def mstl_decompose(
     >>> x = 0.1 * t + daily + weekly + 0.1 * np.random.randn(10000)
     >>> result = mstl_decompose(x, periods=[100, 700])
     """
-    try:
-        from statsforecast.models import MSTL as StatsMSTL
-    except ImportError:
-        # Fallback to regular STL
-        from .stl import stl_decompose
-        return stl_decompose(series, period=periods[0] if periods else None)
-
     series = np.asarray(series, dtype=np.float64).flatten()
 
     # Auto-detect periods if not provided
@@ -58,13 +51,6 @@ def mstl_decompose(
 
     # Ensure periods are valid
     periods = [max(2, p) for p in periods]
-
-    # Create DataFrame for statsforecast
-    df = pd.DataFrame({
-        'unique_id': 'series',
-        'ds': np.arange(len(series)),
-        'y': series,
-    })
 
     # Use statsmodels MSTL if available
     try:

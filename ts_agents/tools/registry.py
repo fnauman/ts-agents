@@ -586,7 +586,7 @@ def _register_default_tools() -> None:
         category=ToolCategory.DECOMPOSITION,
         cost=ComputationalCost.MEDIUM,
         core_function=mstl_decompose,
-        dependencies=["statsforecast"],
+        dependencies=["statsmodels"],
         parameters=[
             ToolParameter("series", "np.ndarray", "Time series data"),
             ToolParameter("periods", "list", "List of seasonal periods", optional=True),
@@ -601,7 +601,7 @@ def _register_default_tools() -> None:
         category=ToolCategory.DECOMPOSITION,
         cost=ComputationalCost.MEDIUM,
         core_function=mstl_decompose_with_data,
-        dependencies=["statsforecast", "matplotlib"],
+        dependencies=["statsmodels", "matplotlib"],
         parameters=[
             ToolParameter("variable_name", "str", "Variable name to analyze"),
             ToolParameter("unique_id", "str", "Run ID"),

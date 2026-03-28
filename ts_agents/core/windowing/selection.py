@@ -28,12 +28,21 @@ from typing import Any, Dict, Iterable, List, Literal, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
-from sklearn.model_selection import GroupShuffleSplit
 
 from ..base import AnalysisResult
 from ..classification.convolution import rocket_classify
 from ..classification.distance_based import knn_classify
+
+
+def _get_sklearn_windowing_tools():
+    try:
+        from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
+        from sklearn.model_selection import GroupShuffleSplit
+    except ModuleNotFoundError as exc:
+        raise ImportError(
+            'Windowed classification requires optional dependencies. Install with: pip install "ts-agents[classification]"'
+        ) from exc
+    return accuracy_score, f1_score, confusion_matrix, GroupShuffleSplit
 
 
 @dataclass
@@ -298,6 +307,7 @@ def _iter_valid_group_splits(
     min_classes_per_split: int = 2,
 ) -> List[Tuple[np.ndarray, np.ndarray]]:
     """Return up to ``n_splits`` group splits with class coverage in train/test."""
+    _, _, _, GroupShuffleSplit = _get_sklearn_windowing_tools()
     attempts = max(n_splits, n_splits * 4)
     splitter = GroupShuffleSplit(
         n_splits=attempts,
@@ -326,6 +336,7 @@ def _iter_valid_group_splits(
 
 
 def _score_metric(metric: MetricName, y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    accuracy_score, f1_score, _, _ = _get_sklearn_windowing_tools()
     if metric == "accuracy":
         return float(accuracy_score(y_true, y_pred))
     if metric == "balanced_accuracy":
@@ -687,6 +698,7 @@ def evaluate_windowed_classifier(
     score = _score_metric(metric, y_test, y_pred)
 
     labels_order = np.unique(np.concatenate([y_train, y_test, y_pred]))
+    accuracy_score, f1_score, confusion_matrix, _ = _get_sklearn_windowing_tools()
     clf_res.accuracy = float(accuracy_score(y_test, y_pred))
     clf_res.f1_score = float(f1_score(y_test, y_pred, average="macro", zero_division=0))
     clf_res.confusion_matrix = confusion_matrix(y_test, y_pred, labels=labels_order)

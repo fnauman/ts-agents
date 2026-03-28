@@ -7,10 +7,50 @@ models from the statsforecast library.
 from typing import Optional, Dict, List, Any
 import numpy as np
 import pandas as pd
-from statsforecast import StatsForecast
-from statsforecast.models import AutoARIMA, AutoETS, AutoTheta, SeasonalNaive
 
 from ..base import ForecastResult, MultiForecastResult
+
+StatsForecast = None
+AutoARIMA = None
+AutoETS = None
+AutoTheta = None
+SeasonalNaive = None
+
+
+def _get_statsforecast_components():
+    global StatsForecast, AutoARIMA, AutoETS, AutoTheta, SeasonalNaive
+
+    if all(
+        component is not None
+        for component in (StatsForecast, AutoARIMA, AutoETS, AutoTheta, SeasonalNaive)
+    ):
+        return StatsForecast, AutoARIMA, AutoETS, AutoTheta, SeasonalNaive
+
+    try:
+        from statsforecast import StatsForecast as imported_statsforecast
+        from statsforecast.models import (
+            AutoARIMA as imported_auto_arima,
+            AutoETS as imported_auto_ets,
+            AutoTheta as imported_auto_theta,
+            SeasonalNaive as imported_seasonal_naive,
+        )
+    except ModuleNotFoundError as exc:
+        raise ImportError(
+            'Statistical forecasting requires optional dependencies. Install with: pip install "ts-agents[forecasting]"'
+        ) from exc
+
+    if StatsForecast is None:
+        StatsForecast = imported_statsforecast
+    if AutoARIMA is None:
+        AutoARIMA = imported_auto_arima
+    if AutoETS is None:
+        AutoETS = imported_auto_ets
+    if AutoTheta is None:
+        AutoTheta = imported_auto_theta
+    if SeasonalNaive is None:
+        SeasonalNaive = imported_seasonal_naive
+
+    return StatsForecast, AutoARIMA, AutoETS, AutoTheta, SeasonalNaive
 
 
 def _normalize_season_length(season_length: Optional[int]) -> Optional[int]:
@@ -58,6 +98,7 @@ def forecast_arima(
     >>> result = forecast_arima(x, horizon=20)
     >>> print(f"Forecast shape: {result.forecast.shape}")
     """
+    StatsForecast, AutoARIMA, _, _, _ = _get_statsforecast_components()
     series = np.asarray(series, dtype=np.float64).flatten()
 
     df = pd.DataFrame({
@@ -123,6 +164,7 @@ def forecast_ets(
     ForecastResult
         Forecast values and optional prediction intervals
     """
+    StatsForecast, _, AutoETS, _, _ = _get_statsforecast_components()
     series = np.asarray(series, dtype=np.float64).flatten()
 
     df = pd.DataFrame({
@@ -185,6 +227,7 @@ def forecast_theta(
     ForecastResult
         Forecast values and optional prediction intervals
     """
+    StatsForecast, _, _, AutoTheta, _ = _get_statsforecast_components()
     series = np.asarray(series, dtype=np.float64).flatten()
 
     df = pd.DataFrame({
@@ -247,6 +290,7 @@ def forecast_seasonal_naive(
     ForecastResult
         Forecast values and optional prediction intervals
     """
+    StatsForecast, _, _, _, SeasonalNaive = _get_statsforecast_components()
     series = np.asarray(series, dtype=np.float64).flatten()
 
     df = pd.DataFrame({
@@ -315,6 +359,7 @@ def forecast_ensemble(
     >>> ensemble = result.get_ensemble()
     >>> print(f"Ensemble forecast: {ensemble[:5]}")
     """
+    StatsForecast, AutoARIMA, AutoETS, AutoTheta, SeasonalNaive = _get_statsforecast_components()
     if models is None:
         models = ['arima', 'ets']
 

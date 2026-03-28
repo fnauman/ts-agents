@@ -1,30 +1,23 @@
-"""Benchmarking infrastructure for agent performance analysis.
+"""Benchmarking infrastructure for agent performance analysis."""
 
-This module provides:
-- BenchmarkScenario: Test scenarios with queries and expected outcomes
-- AgentBenchmark: Runner for executing benchmarks
-- BenchmarkResult: Structured results with metrics
+from __future__ import annotations
 
-Example usage:
-    >>> from ts_agents.agents.benchmarks import AgentBenchmark
-    >>>
-    >>> benchmark = AgentBenchmark()
-    >>> results = benchmark.run_benchmark(
-    ...     agent_configs=[
-    ...         {"tool_bundle": "minimal"},
-    ...         {"tool_bundle": "standard"},
-    ...         {"tool_bundle": "full"},
-    ...     ],
-    ...     scenarios=["simple_peak_count", "decomposition_choice"],
-    ... )
-    >>>
-    >>> # Analyze results
-    >>> summary = benchmark.summarize_results(results)
-"""
+from ts_agents._lazy import load_export
 
-from .runner import AgentBenchmark, BenchmarkResult
-from .scenarios import BENCHMARK_SCENARIOS, BenchmarkScenario
-from .metrics import compute_agent_metrics, evaluate_response
+_LAZY_EXPORTS = {
+    "AgentBenchmark": ("runner", "AgentBenchmark"),
+    "BenchmarkResult": ("runner", "BenchmarkResult"),
+    "BENCHMARK_SCENARIOS": ("scenarios", "BENCHMARK_SCENARIOS"),
+    "BenchmarkScenario": ("scenarios", "BenchmarkScenario"),
+    "compute_agent_metrics": ("metrics", "compute_agent_metrics"),
+    "evaluate_response": ("metrics", "evaluate_response"),
+}
+
+
+def __getattr__(name: str):
+    value = load_export(__name__, _LAZY_EXPORTS, name)
+    globals()[name] = value
+    return value
 
 __all__ = [
     "AgentBenchmark",

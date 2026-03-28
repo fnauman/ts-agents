@@ -1,16 +1,20 @@
-"""Time series decomposition methods.
+"""Time series decomposition methods."""
 
-This module provides functions for decomposing time series into
-trend, seasonal, and residual components using various methods:
+from __future__ import annotations
 
-- STL (Seasonal-Trend LOESS): Robust decomposition for single seasonality
-- MSTL: Multi-Seasonal STL for multiple periodicities
-- Holt-Winters: Exponential smoothing decomposition
-"""
+from ts_agents._lazy import load_export
 
-from .stl import stl_decompose
-from .mstl import mstl_decompose
-from .holt_winters import holt_winters_decompose
+_LAZY_EXPORTS = {
+    "stl_decompose": ("stl", "stl_decompose"),
+    "mstl_decompose": ("mstl", "mstl_decompose"),
+    "holt_winters_decompose": ("holt_winters", "holt_winters_decompose"),
+}
+
+
+def __getattr__(name: str):
+    value = load_export(__name__, _LAZY_EXPORTS, name)
+    globals()[name] = value
+    return value
 
 __all__ = [
     "stl_decompose",

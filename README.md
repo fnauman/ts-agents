@@ -65,6 +65,7 @@ Use the Gradio app for interactive exploration, or the hosted entrypoint for a
 public manual-mode deployment.
 
 ```bash
+python -m pip install "ts-agents[ui]"
 ts-agents-ui
 ts-agents-hosted
 ```
@@ -139,23 +140,42 @@ Install from PyPI:
 python -m pip install ts-agents
 ```
 
-The default install is intentionally all-in-one and pulls a fairly heavy
-forecasting/ML stack, including neural backends used by the shipped tool
-surface. There is not yet a slim extras-based install profile, so plan for a
-full scientific Python environment.
-The dependency minimums also intentionally track the currently validated
-`0.1.1` stack for this alpha release; widening lower-bound compatibility
-is a follow-up task rather than part of the initial publish gate.
+The default install is now intentionally CLI-first and lighter weight. Heavier
+features are enabled with extras:
+
+```bash
+python -m pip install ts-agents
+python -m pip install "ts-agents[forecasting]"
+python -m pip install "ts-agents[decomposition,patterns]"
+python -m pip install "ts-agents[ui,agents]"
+python -m pip install "ts-agents[recommended]"
+python -m pip install "ts-agents[all]"
+```
+
+Feature extras:
+- `ui`: Gradio UI and hosted profile (`ts-agents-ui`, `ts-agents-hosted`)
+- `agents`: LangChain-backed simple agent support
+- `decomposition`: STL, MSTL, Holt-Winters
+- `forecasting`: statistical forecasting tools
+- `patterns`: matrix profile and changepoint tooling
+- `classification`: aeon/scikit-learn classification workflows
+- `viz`: plotting-only installs without Gradio
+- `recommended`: the demo-friendly install profile
+- `all`: the full optional stack
 
 Run the packaged entrypoints:
 
 ```bash
 ts-agents --help
-ts-agents-ui --help
+ts-agents tool list
 ```
 
-The hosted/manual profile is launched with `ts-agents-hosted` and configured
-through environment variables rather than CLI flags.
+UI entrypoints require the `ui` extra:
+
+```bash
+ts-agents-ui --help
+ts-agents-hosted
+```
 
 If you are running from a source checkout with `uv sync`, prefix the CLI
 commands below with `uv run`.

@@ -1,54 +1,31 @@
-"""Deep Agent - Multi-agent architecture with specialized sub-agents.
+"""Deep Agent - Multi-agent architecture with specialized sub-agents."""
 
-This module provides a hierarchical agent system where an orchestrator
-delegates to specialized sub-agents for complex analysis tasks:
+from __future__ import annotations
 
-- decomposition-agent: Trend/seasonal decomposition
-- forecasting-agent: Model selection and prediction
-- patterns-agent: Motif/anomaly detection
-- classification-agent: TSC algorithm selection
-- turbulence-agent: CFD/domain-specific analysis
+from ts_agents._lazy import load_export
 
-Example usage:
-    >>> from ts_agents.agents.deep import create_deep_agent, DeepAgentChat
-    >>>
-    >>> # Create the deep agent
-    >>> agent = create_deep_agent()
-    >>> result = agent.invoke({
-    ...     "messages": [{"role": "user", "content": "Analyze the spectral properties"}]
-    ... })
-    >>>
-    >>> # Or use the chat interface
-    >>> chat = DeepAgentChat()
-    >>> response = chat.chat("Decompose bx001_real and forecast the next 50 steps")
-    >>> print(response)
+_LAZY_EXPORTS = {
+    "create_deep_agent": ("orchestrator", "create_deep_agent"),
+    "DeepAgentChat": ("orchestrator", "DeepAgentChat"),
+    "DeepAgentTurn": ("orchestrator", "DeepAgentTurn"),
+    "SubagentCall": ("orchestrator", "SubagentCall"),
+    "list_subagents": ("orchestrator", "list_subagents"),
+    "get_expensive_tools": ("orchestrator", "get_expensive_tools"),
+    "run_with_approval": ("orchestrator", "run_with_approval"),
+    "get_all_subagents": ("orchestrator", "get_all_subagents"),
+    "create_interrupt_config": ("orchestrator", "create_interrupt_config"),
+    "DECOMPOSITION_SUBAGENT": ("subagents", "DECOMPOSITION_SUBAGENT"),
+    "FORECASTING_SUBAGENT": ("subagents", "FORECASTING_SUBAGENT"),
+    "PATTERNS_SUBAGENT": ("subagents", "PATTERNS_SUBAGENT"),
+    "CLASSIFICATION_SUBAGENT": ("subagents", "CLASSIFICATION_SUBAGENT"),
+    "TURBULENCE_SUBAGENT": ("subagents", "TURBULENCE_SUBAGENT"),
+}
 
-Features:
-- Automatic delegation to specialized sub-agents
-- Cost-based approval workflow for expensive operations
-- Filesystem backend for persistence
-- Fallback to LangChain if deepagents not available
-"""
 
-from .orchestrator import (
-    create_deep_agent,
-    DeepAgentChat,
-    DeepAgentTurn,
-    SubagentCall,
-    list_subagents,
-    get_expensive_tools,
-    run_with_approval,
-    get_all_subagents,
-    create_interrupt_config,
-)
-
-from .subagents import (
-    DECOMPOSITION_SUBAGENT,
-    FORECASTING_SUBAGENT,
-    PATTERNS_SUBAGENT,
-    CLASSIFICATION_SUBAGENT,
-    TURBULENCE_SUBAGENT,
-)
+def __getattr__(name: str):
+    value = load_export(__name__, _LAZY_EXPORTS, name)
+    globals()[name] = value
+    return value
 
 __all__ = [
     # Main API

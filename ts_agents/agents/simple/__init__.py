@@ -1,24 +1,19 @@
-"""Simple LangChain-based agent for testing tool scaling.
+"""Simple LangChain-based agent for testing tool scaling."""
 
-This module provides a configurable agent that can be tested with
-different tool bundles (minimal, standard, full, all) to understand
-how agents perform with varying numbers of tools.
+from __future__ import annotations
 
-Example usage:
-    >>> from ts_agents.agents.simple import create_simple_agent
-    >>>
-    >>> # Create agent with standard tool bundle (15 tools)
-    >>> agent = create_simple_agent(tool_bundle="standard")
-    >>>
-    >>> # Create agent with minimal tools for faster testing
-    >>> agent = create_simple_agent(tool_bundle="minimal")
-    >>>
-    >>> # Chat interface with history
-    >>> chat = SimpleAgentChat(tool_bundle="full")
-    >>> response = chat.chat("How many peaks in bx001_real?")
-"""
+from ts_agents._lazy import load_export
 
-from .agent import create_simple_agent, SimpleAgentChat
+_LAZY_EXPORTS = {
+    "create_simple_agent": ("agent", "create_simple_agent"),
+    "SimpleAgentChat": ("agent", "SimpleAgentChat"),
+}
+
+
+def __getattr__(name: str):
+    value = load_export(__name__, _LAZY_EXPORTS, name)
+    globals()[name] = value
+    return value
 
 __all__ = [
     "create_simple_agent",
