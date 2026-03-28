@@ -1,7 +1,7 @@
 import importlib
 import sys
 
-import gradio as gr
+import pytest
 
 
 def test_hosted_app_lazily_builds_blocks(monkeypatch):
@@ -18,14 +18,40 @@ def test_hosted_app_lazily_builds_blocks(monkeypatch):
 
     sys.modules.pop("ts_agents.hosted_app", None)
     module = importlib.import_module("ts_agents.hosted_app")
+    captured: dict[str, object] = {}
+
+    def fake_create_app(**kwargs):
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(module, "create_app", fake_create_app)
 
     assert module._app is None
 
     app = module.get_app()
 
-    assert isinstance(app, gr.Blocks)
+    assert app is module._app
     assert module._app is app
     assert module.app is app
+    assert captured == {
+        "enable_agent": False,
+        "agent_type": "simple",
+        "persist_sessions": False,
+        "title": "ts-agents Demo",
+    }
+
+
+def test_hosted_app_reports_missing_gradio(monkeypatch):
+    sys.modules.pop("ts_agents.hosted_app", None)
+    module = importlib.import_module("ts_agents.hosted_app")
+
+    def fail_create_app(**_kwargs):
+        raise ModuleNotFoundError("No module named 'gradio'", name="gradio")
+
+    monkeypatch.setattr(module, "create_app", fail_create_app)
+
+    with pytest.raises(ImportError, match=r'ts-agents\[ui\]'):
+        module.get_app()
 
 
 def test_hosted_app_env_flag_helper(monkeypatch):
