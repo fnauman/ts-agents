@@ -1,19 +1,23 @@
-"""Time series forecasting methods.
+"""Time series forecasting methods."""
 
-This module provides functions for:
-- Statistical forecasting (ARIMA, ETS, Theta, Seasonal Naive)
-- Ensemble forecasting
-- Forecast comparison and evaluation
-"""
+from __future__ import annotations
 
-from .statistical import (
-    forecast_arima,
-    forecast_ets,
-    forecast_theta,
-    forecast_seasonal_naive,
-    forecast_ensemble,
-    compare_forecasts,
-)
+from ts_agents._lazy import load_export
+
+_LAZY_EXPORTS = {
+    "forecast_arima": ("statistical", "forecast_arima"),
+    "forecast_ets": ("statistical", "forecast_ets"),
+    "forecast_theta": ("statistical", "forecast_theta"),
+    "forecast_seasonal_naive": ("statistical", "forecast_seasonal_naive"),
+    "forecast_ensemble": ("statistical", "forecast_ensemble"),
+    "compare_forecasts": ("statistical", "compare_forecasts"),
+}
+
+
+def __getattr__(name: str):
+    value = load_export(__name__, _LAZY_EXPORTS, name)
+    globals()[name] = value
+    return value
 
 __all__ = [
     "forecast_arima",

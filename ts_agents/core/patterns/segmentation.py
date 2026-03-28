@@ -66,7 +66,12 @@ def segment_fluss(
     >>> result = segment_fluss(x, m=50, n_segments=3)
     >>> print(f"Changepoints: {result.changepoints}")
     """
-    import stumpy
+    try:
+        import stumpy
+    except ModuleNotFoundError as exc:
+        raise ImportError(
+            'FLUSS segmentation requires optional dependencies. Install with: pip install "ts-agents[patterns]"'
+        ) from exc
 
     if n_regimes is not None:
         n_segments = int(n_regimes)
@@ -169,7 +174,12 @@ def segment_changepoint(
     >>> result = segment_changepoint(x, n_segments=2)
     >>> print(f"Changepoint at: {result.changepoints[0]}")
     """
-    import ruptures as rpt
+    try:
+        import ruptures as rpt
+    except ModuleNotFoundError as exc:
+        raise ImportError(
+            'Changepoint detection requires optional dependencies. Install with: pip install "ts-agents[patterns]"'
+        ) from exc
 
     # Backward-compatible alias used by older UI code.
     if n_segments is None and n_bkps is not None:

@@ -7,9 +7,18 @@ trend, seasonal, and residual.
 from typing import Optional
 import numpy as np
 import pandas as pd
-from statsmodels.tsa.seasonal import STL
 
 from ..base import DecompositionResult
+
+
+def _get_stl() -> type:
+    try:
+        from statsmodels.tsa.seasonal import STL
+    except ModuleNotFoundError as exc:
+        raise ImportError(
+            'STL decomposition requires optional dependencies. Install with: pip install "ts-agents[decomposition]"'
+        ) from exc
+    return STL
 
 
 def stl_decompose(
@@ -68,7 +77,7 @@ def stl_decompose(
     ts = pd.Series(series)
 
     # Run STL
-    stl = STL(
+    stl = _get_stl()(
         ts,
         period=period,
         robust=robust,

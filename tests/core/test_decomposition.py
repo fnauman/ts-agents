@@ -1,5 +1,8 @@
 """Tests for the decomposition module."""
 
+import builtins
+import sys
+
 import numpy as np
 import pytest
 
@@ -67,6 +70,31 @@ class TestMSTL:
 
         assert len(result.trend) == 10000
         assert len(result.seasonal) == 10000
+
+    def test_mstl_missing_statsmodels_reports_mstl_specific_error(self, monkeypatch):
+        """Test MSTL missing-dependency path keeps an MSTL-specific error message."""
+        from ts_agents.core.decomposition import mstl_decompose
+
+        real_import = builtins.__import__
+
+        def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name.split(".")[0] == "statsmodels":
+                raise ModuleNotFoundError(f"blocked optional import: {name}", name=name)
+            return real_import(name, globals, locals, fromlist, level)
+
+        for module_name in list(sys.modules):
+            if module_name.split(".")[0] == "statsmodels":
+                sys.modules.pop(module_name, None)
+
+        monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+        x = np.sin(np.linspace(0, 10 * np.pi, 1000))
+
+        with pytest.raises(
+            ImportError,
+            match=r'MSTL decomposition requires optional dependencies',
+        ):
+            mstl_decompose(x, periods=[100, 700])
 
 
 class TestHoltWinters:

@@ -4,7 +4,6 @@ from typing import Optional
 
 import numpy as np
 
-from ts_agents.core.decomposition import stl_decompose
 from ts_agents.data_access import get_series as _get_series
 
 
@@ -50,10 +49,12 @@ def stl_decompose_with_data(
     try:
         # Load data
         series = _get_series_data(variable_name, unique_id)
-        
+
         # Call core function
+        from ts_agents.core.decomposition import stl_decompose
+
         result = stl_decompose(series, period=period, robust=robust)
-        
+
         # Format text output
         output = f"STL Decomposition for {variable_name} (run {unique_id}):\n"
         output += f"- Period used: {result.period}\n"

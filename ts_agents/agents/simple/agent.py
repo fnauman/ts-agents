@@ -23,9 +23,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Union
 
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
-
 from ...config import get_openai_model
 from ...tools.bundles import (
     get_bundle,
@@ -39,6 +36,26 @@ from .prompts import get_system_prompt, get_bundle_prompt
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+def _get_chat_openai():
+    try:
+        from langchain_openai import ChatOpenAI
+    except ModuleNotFoundError as exc:
+        raise ImportError(
+            'Simple agent support requires optional dependencies. Install with: pip install "ts-agents[agents]"'
+        ) from exc
+    return ChatOpenAI
+
+
+def _get_message_types():
+    try:
+        from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
+    except ModuleNotFoundError as exc:
+        raise ImportError(
+            'Simple agent support requires optional dependencies. Install with: pip install "ts-agents[agents]"'
+        ) from exc
+    return HumanMessage, ToolMessage, AIMessage
 
 
 # =============================================================================
@@ -97,8 +114,12 @@ def create_simple_agent(
     >>> # Custom tool selection
     >>> agent = create_simple_agent(custom_tools=["stl_decompose", "detect_peaks"])
     """
-    from langchain.agents import create_agent
-    from langchain_core.prompts import ChatPromptTemplate
+    try:
+        from langchain.agents import create_agent
+    except ModuleNotFoundError as exc:
+        raise ImportError(
+            'Simple agent support requires optional dependencies. Install with: pip install "ts-agents[agents]"'
+        ) from exc
 
     model_name = model_name or get_openai_model()
 
@@ -132,7 +153,7 @@ def create_simple_agent(
     full_prompt = system_prompt + "\n" + bundle_prompt
 
     # Create LLM
-    llm = ChatOpenAI(model=model_name, temperature=temperature)
+    llm = _get_chat_openai()(model=model_name, temperature=temperature)
 
     # Wrap tools with logging if enabled
     if enable_logging:
@@ -143,7 +164,6 @@ def create_simple_agent(
         )
 
     # Create agent using the new function-calling API
-    from langchain.agents import create_agent
     agent = create_agent(
         model=llm,
         tools=langchain_tools,
@@ -331,6 +351,7 @@ class SimpleAgentChat:
         """
         start_time = time.time()
         tool_calls_before = len(self._tool_calls)
+        HumanMessage, _, _ = _get_message_types()
 
         self.messages.append(HumanMessage(content=user_message))
 
@@ -356,6 +377,7 @@ class SimpleAgentChat:
     def _extract_response(self) -> str:
         """Extract the final response from messages."""
         image_data = ""
+        _, ToolMessage, AIMessage = _get_message_types()
 
         for msg in self.messages:
             if isinstance(msg, ToolMessage) and hasattr(msg, 'content'):
@@ -506,6 +528,7 @@ def run_single_query(
         tool_bundle=tool_bundle,
         enable_logging=False,
     )
+    HumanMessage, _, AIMessage = _get_message_types()
 
     result = agent.invoke({
         "messages": [HumanMessage(content=query)]

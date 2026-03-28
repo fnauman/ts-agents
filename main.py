@@ -1,6 +1,6 @@
 """Source-checkout wrapper for the packaged Gradio UI entrypoint."""
 
-from ts_agents.ui.gradio_app import main
+from ts_agents.ui.entrypoint import main
 
 
 if __name__ == "__main__":

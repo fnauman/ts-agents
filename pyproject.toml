@@ -21,30 +21,65 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "aeon>=1.3.0",
-    "coreforecast>=0.0.16",
-    "datasetsforecast>=1.0.0",
-    "gradio>=6.0",
-    "langchain>=1.0",
-    "langchain-community>=0.4.1",
-    "langchain-openai>=1.1.0",
-    "langgraph>=1.0",
-    "matplotlib>=3.10.7",
-    "mlforecast>=1.0.2",
-    "neuralforecast>=3.1.2",
     "numpy>=2.2.6; python_version >= '3.12'",
     "numpy>=1.22,<1.27; python_version < '3.12' and sys_platform == 'win32'",
     "numpy>=1.22; python_version < '3.12' and sys_platform != 'win32'",
     "pandas>=2.3.3",
     "pydantic>=2.7.4",
-    "scikit-learn>=1.7.2",
     "scipy>=1.13.0",
-    "sktime>=0.40.1",
+    "pyyaml>=6.0.2",
+]
+
+[project.optional-dependencies]
+viz = [
+    "matplotlib>=3.10.7",
+]
+ui = [
+    "gradio>=6.0",
+    "matplotlib>=3.10.7",
+]
+agents = [
+    "langchain>=1.0",
+    "langchain-core>=1.0",
+    "langchain-openai>=1.1.0",
+]
+decomposition = [
+    "statsmodels>=0.14.2",
+]
+forecasting = [
+    "statsforecast>=2.0.3",
+]
+patterns = [
+    "ruptures>=1.1.9",
+    "stumpy>=1.13.0",
+]
+classification = [
+    "aeon>=1.3.0",
+    "scikit-learn>=1.7.2",
+]
+recommended = [
+    "aeon>=1.3.0",
+    "gradio>=6.0",
+    "langchain>=1.0",
+    "langchain-core>=1.0",
+    "langchain-openai>=1.1.0",
+    "matplotlib>=3.10.7",
+    "scikit-learn>=1.7.2",
+    "statsforecast>=2.0.3",
+    "statsmodels>=0.14.2",
+]
+all = [
+    "aeon>=1.3.0",
+    "gradio>=6.0",
+    "langchain>=1.0",
+    "langchain-core>=1.0",
+    "langchain-openai>=1.1.0",
+    "matplotlib>=3.10.7",
+    "ruptures>=1.1.9",
+    "scikit-learn>=1.7.2",
     "statsforecast>=2.0.3",
     "statsmodels>=0.14.2",
     "stumpy>=1.13.0",
-    "ruptures>=1.1.9",
-    "pyyaml>=6.0.2",
 ]
 
 [project.urls]
@@ -57,7 +92,7 @@ Changelog = "https://github.com/fnauman/ts-agents/blob/main/CHANGELOG.md"
 [project.scripts]
 ts-agents = "ts_agents.__main__:main"
 ts-agents-hosted = "ts_agents.hosted_app:main"
-ts-agents-ui = "ts_agents.ui.gradio_app:main"
+ts-agents-ui = "ts_agents.ui.entrypoint:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

@@ -47,7 +47,12 @@ def holt_winters_decompose(
     >>> x = 0.5 * t + np.sin(2 * np.pi * t) + 0.1 * np.random.randn(1000)
     >>> result = holt_winters_decompose(x, period=100)
     """
-    from statsmodels.tsa.holtwinters import ExponentialSmoothing
+    try:
+        from statsmodels.tsa.holtwinters import ExponentialSmoothing
+    except ModuleNotFoundError as exc:
+        raise ImportError(
+            'Holt-Winters decomposition requires optional dependencies. Install with: pip install "ts-agents[decomposition]"'
+        ) from exc
 
     series = np.asarray(series, dtype=np.float64).flatten()
 

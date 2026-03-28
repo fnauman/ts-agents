@@ -105,7 +105,7 @@ def wrap_for_langchain(
         from langchain_core.tools import StructuredTool
     except ImportError:
         raise ImportError(
-            "LangChain not installed. Install with: pip install langchain-core"
+            'LangChain support is optional. Install with: pip install "ts-agents[agents]"'
         )
 
     if isinstance(tool, str):
@@ -188,7 +188,7 @@ def create_langchain_tool(
         from langchain_core.tools import StructuredTool
     except ImportError:
         raise ImportError(
-            "LangChain not installed. Install with: pip install langchain-core"
+            'LangChain support is optional. Install with: pip install "ts-agents[agents]"'
         )
 
     return StructuredTool.from_function(

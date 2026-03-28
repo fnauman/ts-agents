@@ -1,6 +1,8 @@
 """Tests for the tool registry."""
 
+import builtins
 import inspect
+import sys
 import pytest
 import numpy as np
 
@@ -20,6 +22,41 @@ class TestToolRegistry:
         tools = ToolRegistry.list_all()
         assert len(tools) > 0
         assert ToolRegistry._initialized is True
+
+    def test_registry_initialization_does_not_import_optional_runtime_stacks(self, monkeypatch):
+        """Registry metadata should initialize without importing optional heavy deps."""
+        from ts_agents.tools.registry import ToolRegistry
+
+        blocked_roots = {"statsmodels", "statsforecast", "stumpy", "sklearn"}
+        real_import = builtins.__import__
+        attempted: list[str] = []
+
+        def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+            root = name.split(".")[0]
+            if root in blocked_roots:
+                attempted.append(name)
+                raise ModuleNotFoundError(f"blocked optional import: {name}", name=name)
+            return real_import(name, globals, locals, fromlist, level)
+
+        for module_name in [
+            "ts_agents.core.decomposition",
+            "ts_agents.core.forecasting",
+            "ts_agents.core.patterns",
+            "ts_agents.core.windowing",
+            "ts_agents.tools.agent_tools",
+        ]:
+            sys.modules.pop(module_name, None)
+        for module_name in list(sys.modules):
+            if module_name.split(".")[0] in blocked_roots:
+                sys.modules.pop(module_name, None)
+
+        monkeypatch.setattr(builtins, "__import__", guarded_import)
+        ToolRegistry.clear()
+
+        tools = ToolRegistry.list_all()
+
+        assert len(tools) > 0
+        assert attempted == []
 
     def test_get_tool_by_name(self):
         """Test getting a tool by name."""

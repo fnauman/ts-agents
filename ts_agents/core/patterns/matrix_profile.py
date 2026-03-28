@@ -6,9 +6,18 @@ discord detection (anomalies) using the STUMPY library.
 
 from typing import List, Optional
 import numpy as np
-import stumpy
 
 from ..base import MatrixProfileResult, MotifResult, DiscordResult
+
+
+def _get_stumpy():
+    try:
+        import stumpy
+    except ModuleNotFoundError as exc:
+        raise ImportError(
+            'Matrix profile analysis requires optional dependencies. Install with: pip install "ts-agents[patterns]"'
+        ) from exc
+    return stumpy
 
 
 def compute_matrix_profile(
@@ -43,7 +52,7 @@ def compute_matrix_profile(
     >>> print(f"Matrix profile shape: {mp.shape}")
     """
     series = np.asarray(series, dtype=np.float64).flatten()
-    return stumpy.stump(series, m)
+    return _get_stumpy().stump(series, m)
 
 
 def find_motifs(
@@ -91,7 +100,7 @@ def find_motifs(
     if exclusion_zone is None:
         exclusion_zone = m // 2
 
-    mp = stumpy.stump(series, m)
+    mp = _get_stumpy().stump(series, m)
     mp_values = mp[:, 0].copy()
     mp_indices = mp[:, 1].astype(int)
 
@@ -167,7 +176,7 @@ def find_discords(
     if exclusion_zone is None:
         exclusion_zone = m // 2
 
-    mp = stumpy.stump(series, m)
+    mp = _get_stumpy().stump(series, m)
     mp_values = mp[:, 0].copy()
 
     discords = []
@@ -246,6 +255,7 @@ def analyze_matrix_profile(
 
     series = np.asarray(series, dtype=np.float64).flatten()
 
+    stumpy = _get_stumpy()
     mp = stumpy.stump(series, m)
     mp_values = mp[:, 0]
     mp_indices = mp[:, 1].astype(int)
@@ -301,4 +311,4 @@ def compute_distance_profile(
     query = np.asarray(query, dtype=np.float64).flatten()
     series = np.asarray(series, dtype=np.float64).flatten()
 
-    return stumpy.mass(query, series)
+    return _get_stumpy().mass(query, series)

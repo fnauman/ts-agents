@@ -814,6 +814,7 @@ def _handle_tool_command(args: argparse.Namespace) -> Tuple[Any, str]:
                 "category": tool.category.value,
                 "cost": tool.cost.value,
                 "description": tool.description,
+                "dependencies": tool.dependencies,
                 "parameters": [
                     {
                         "name": p.name,
@@ -834,7 +835,10 @@ def _handle_tool_command(args: argparse.Namespace) -> Tuple[Any, str]:
 
     lines.append("Tools:")
     for tool in tools:
-        lines.append(f"- {tool.name} ({tool.category.value}, {tool.cost.value})")
+        dependency_hint = ""
+        if tool.dependencies:
+            dependency_hint = f" deps={','.join(tool.dependencies)}"
+        lines.append(f"- {tool.name} ({tool.category.value}, {tool.cost.value}){dependency_hint}")
 
     return result, "\n".join(lines)
 

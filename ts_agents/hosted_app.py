@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     import gradio as gr
 
 _app: "gr.Blocks | None" = None
+_UI_INSTALL_HINT = 'Hosted UI requires optional dependencies. Install with: pip install "ts-agents[ui]"'
 
 
 def _env_flag(name: str, default: bool) -> bool:
@@ -25,23 +26,31 @@ def get_app() -> "gr.Blocks":
     global _app
     if _app is None:
         load_user_env()
-        _app = create_app(
-            enable_agent=_env_flag("TS_AGENTS_ENABLE_AGENT", False),
-            agent_type=os.environ.get("TS_AGENTS_AGENT_TYPE", "simple"),
-            persist_sessions=_env_flag("TS_AGENTS_PERSIST_SESSIONS", False),
-            title=os.environ.get("TS_AGENTS_UI_TITLE", "ts-agents Demo"),
-        )
+        try:
+            _app = create_app(
+                enable_agent=_env_flag("TS_AGENTS_ENABLE_AGENT", False),
+                agent_type=os.environ.get("TS_AGENTS_AGENT_TYPE", "simple"),
+                persist_sessions=_env_flag("TS_AGENTS_PERSIST_SESSIONS", False),
+                title=os.environ.get("TS_AGENTS_UI_TITLE", "ts-agents Demo"),
+            )
+        except ModuleNotFoundError as exc:
+            if exc.name and exc.name.split(".")[0] == "gradio":
+                raise ImportError(_UI_INSTALL_HINT) from exc
+            raise
     return _app
 
 
 def main() -> None:
     load_user_env()
-    launch_app(
-        get_app(),
-        share=_env_flag("GRADIO_SHARE", False),
-        server_name=os.environ.get("HOST", "0.0.0.0"),
-        server_port=int(os.environ.get("PORT", "7860")),
-    )
+    try:
+        launch_app(
+            get_app(),
+            share=_env_flag("GRADIO_SHARE", False),
+            server_name=os.environ.get("HOST", "0.0.0.0"),
+            server_port=int(os.environ.get("PORT", "7860")),
+        )
+    except ImportError as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 def __getattr__(name: str):

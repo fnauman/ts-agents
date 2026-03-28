@@ -194,7 +194,9 @@ def transform_rocket(
     try:
         from aeon.transformations.collection.convolution_based import Rocket
     except ImportError:
-        raise ImportError("aeon is required for ROCKET transform")
+        raise ImportError(
+            'ROCKET transform requires optional dependencies. Install with: pip install "ts-agents[classification]"'
+        )
 
     X = ensure_3d(X)
 

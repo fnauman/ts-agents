@@ -1,25 +1,24 @@
-"""Agent implementations for time series analysis.
+"""Agent implementations for time series analysis."""
 
-This package provides:
-- simple: LangChain-based agent with configurable tool bundles
-- deep: Multi-agent architecture with specialized sub-agents
-- benchmarks: Infrastructure for testing agent performance
+from __future__ import annotations
 
-Example usage:
-    >>> # Simple agent
-    >>> from ts_agents.agents.simple import create_simple_agent
-    >>> agent = create_simple_agent(tool_bundle="standard")
-    >>> result = agent.invoke({"messages": [{"role": "user", "content": "Analyze peaks"}]})
-    >>>
-    >>> # Deep agent with sub-agents
-    >>> from ts_agents.agents.deep import create_deep_agent, DeepAgentChat
-    >>> chat = DeepAgentChat()
-    >>> response = chat.chat("Decompose bx001_real using the best method")
-"""
+from ts_agents._lazy import load_export
 
-from .simple import create_simple_agent, SimpleAgentChat
-from .deep import create_deep_agent, DeepAgentChat, list_subagents
-from .benchmarks import AgentBenchmark, BenchmarkResult
+_LAZY_EXPORTS = {
+    "create_simple_agent": ("simple", "create_simple_agent"),
+    "SimpleAgentChat": ("simple", "SimpleAgentChat"),
+    "create_deep_agent": ("deep", "create_deep_agent"),
+    "DeepAgentChat": ("deep", "DeepAgentChat"),
+    "list_subagents": ("deep", "list_subagents"),
+    "AgentBenchmark": ("benchmarks", "AgentBenchmark"),
+    "BenchmarkResult": ("benchmarks", "BenchmarkResult"),
+}
+
+
+def __getattr__(name: str):
+    value = load_export(__name__, _LAZY_EXPORTS, name)
+    globals()[name] = value
+    return value
 
 __all__ = [
     # Simple agent
