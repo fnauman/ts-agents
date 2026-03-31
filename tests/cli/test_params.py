@@ -1,5 +1,7 @@
-import pytest
 import json
+from types import SimpleNamespace
+
+import pytest
 
 from ts_agents.cli.main import (
     _build_run_example_command,
@@ -371,6 +373,85 @@ def test_tool_run_json_returns_envelope(capsys):
     assert payload["command"] == "tool run"
     assert payload["name"] == "describe_series"
     assert payload["result"]["method"] == "descriptive"
+
+
+def test_tool_run_json_includes_artifact_refs_for_payload_wrappers(
+    monkeypatch,
+    capsys,
+    tmp_path,
+):
+    import importlib
+    import numpy as np
+    import ts_agents.core.spectral as spectral
+    import ts_agents.tools.agent_tools as agent_tools
+
+    cli_main = importlib.import_module("ts_agents.cli.main")
+
+    class _DummyAxis:
+        def plot(self, *args, **kwargs):
+            return None
+
+        def loglog(self, *args, **kwargs):
+            return None
+
+        def set_xlabel(self, *args, **kwargs):
+            return None
+
+        def set_ylabel(self, *args, **kwargs):
+            return None
+
+        def set_title(self, *args, **kwargs):
+            return None
+
+    class _DummyPlotLib:
+        def subplots(self, *args, **kwargs):
+            return object(), _DummyAxis()
+
+        def tight_layout(self):
+            return None
+
+        def savefig(self, buf, format="png"):
+            buf.write(b"png")
+
+        def close(self, fig):
+            return None
+
+    monkeypatch.setenv("TS_AGENTS_TOOL_ARTIFACT_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        agent_tools,
+        "_get_series_data",
+        lambda variable_name, unique_id: np.array([1.0, 0.5, 0.25, 0.125]),
+    )
+    monkeypatch.setattr(agent_tools, "_get_plt", lambda: _DummyPlotLib())
+    monkeypatch.setattr(
+        spectral,
+        "compute_psd",
+        lambda series, sample_rate=1.0, method="welch", nperseg=None: SimpleNamespace(
+            frequencies=np.array([0.25, 0.5]),
+            psd=np.array([1.0, 0.5]),
+            spectral_slope=-1.75,
+        ),
+    )
+
+    code = cli_main.run(
+        [
+            "tool",
+            "run",
+            "compute_psd_with_data",
+            "--run",
+            "Re200Rm200",
+            "--var",
+            "bx001_real",
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["name"] == "compute_psd_with_data"
+    assert payload["result"]["artifacts"][0]["path"].startswith(str(tmp_path))
+    assert payload["result"]["artifacts"][0]["mime_type"] == "image/png"
 
 
 def test_tool_run_json_dependency_error_is_typed(monkeypatch, capsys):

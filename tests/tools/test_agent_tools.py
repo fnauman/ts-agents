@@ -10,6 +10,12 @@ def _patch_plotting(monkeypatch, agent_tools):
         def plot(self, *args, **kwargs):
             return None
 
+        def imshow(self, *args, **kwargs):
+            return None
+
+        def bar(self, *args, **kwargs):
+            return None
+
         def loglog(self, *args, **kwargs):
             return None
 
@@ -45,7 +51,6 @@ def _patch_plotting(monkeypatch, agent_tools):
             return None
 
     monkeypatch.setattr(agent_tools, "_get_plt", lambda: _DummyPlotLib())
-    monkeypatch.setattr(agent_tools, "_create_plot_response", lambda buf: "")
 
 
 def test_compare_forecasts_with_data_forwards_models(monkeypatch):
@@ -352,7 +357,12 @@ def test_segment_changepoint_with_data_maps_n_changepoints_alias(monkeypatch):
         min_size=3,
     )
 
-    assert "Error in Changepoint" not in output
+    assert isinstance(output, ToolPayload)
+    assert output.summary == (
+        "Changepoint detection completed for bx001_real "
+        "(run Re200Rm200). Changepoints: [2, 4]."
+    )
+    assert len(output.artifacts) == 1
     assert observed["n_segments"] == 3
     assert observed["algorithm"] == "binseg"
     assert observed["cost_model"] == "l2"
@@ -391,7 +401,7 @@ def test_segment_changepoint_with_data_prefers_n_segments(monkeypatch):
         n_changepoints=1,
     )
 
-    assert "Error in Changepoint" not in output
+    assert isinstance(output, ToolPayload)
     assert observed["n_segments"] == 5
 
 
@@ -424,10 +434,14 @@ def test_segment_fluss_with_data_formats_segment_result(monkeypatch):
         n_segments=3,
     )
 
-    assert "Error in FLUSS segmentation" not in output
-    assert "Changepoints detected at indices: [2, 4]" in output
-    assert "Segments: 3" in output
-    assert "Segment 1: start=0, end=2, length=2, mean=0.0500, std=0.0500" in output
+    assert isinstance(output, ToolPayload)
+    assert output.summary == (
+        "FLUSS segmentation completed for bx001_real "
+        "(run Re200Rm200). Changepoints: [2, 4]; segments: 3."
+    )
+    assert output.data.changepoints == [2, 4]
+    assert output.data.n_segments == 3
+    assert len(output.artifacts) == 1
 
 
 def test_compute_psd_with_data_aliases_spectrum_name(monkeypatch):
@@ -459,11 +473,14 @@ def test_compute_psd_with_data_aliases_spectrum_name(monkeypatch):
         sampling_rate=2.0,
     )
 
-    assert "Error in PSD" not in output
-    assert "Power Spectral Density for bx001_real:" in output
-    assert "Dominant Frequency: 0.2500" in output
-    assert "Spectral Slope: -1.7500" in output
-    assert alias_output == output
+    assert isinstance(output, ToolPayload)
+    assert output.summary == (
+        "Power spectral density computed for bx001_real "
+        "(run Re200Rm200). Dominant frequency: 0.2500; spectral slope: -1.7500."
+    )
+    assert output.kind == "spectral"
+    assert len(output.artifacts) == 1
+    assert alias_output.summary == output.summary
 
 
 def test_compute_coherence_with_data_accepts_sampling_aliases(monkeypatch):
@@ -494,7 +511,7 @@ def test_compute_coherence_with_data_accepts_sampling_aliases(monkeypatch):
         fs=2.5,
     )
 
-    assert "Error in Coherence" not in output
+    assert isinstance(output, ToolPayload)
     assert observed["sample_rate"] == 2.5
 
     output = agent_tools.compute_coherence_with_data(
@@ -505,7 +522,7 @@ def test_compute_coherence_with_data_accepts_sampling_aliases(monkeypatch):
         sampling_rate=3.5,
     )
 
-    assert "Error in Coherence" not in output
+    assert isinstance(output, ToolPayload)
     assert observed["sample_rate"] == 3.5
 
     output = agent_tools.compute_coherence_with_data(
@@ -518,5 +535,7 @@ def test_compute_coherence_with_data_accepts_sampling_aliases(monkeypatch):
         fs=2.5,
     )
 
-    assert "Error in Coherence" not in output
+    assert isinstance(output, ToolPayload)
+    assert output.kind == "spectral"
+    assert len(output.artifacts) == 1
     assert observed["sample_rate"] == 4.5

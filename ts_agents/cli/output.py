@@ -12,6 +12,8 @@ from typing import Any, List, Optional, Tuple
 
 import numpy as np
 
+from ts_agents.contracts import ArtifactRef, ToolPayload
+
 IMAGE_DATA_PATTERN = re.compile(r"\[IMAGE_DATA:([A-Za-z0-9+/=]+)\]")
 
 
@@ -52,6 +54,17 @@ def format_human(value: Any) -> str:
     if value is None:
         return "(no result)"
 
+    if isinstance(value, ToolPayload):
+        return _format_tool_payload_human(
+            summary=value.summary,
+            data=value.data,
+            artifacts=value.artifacts,
+            warnings=value.warnings,
+        )
+
+    if isinstance(value, ArtifactRef):
+        return _format_artifact_ref_human(value)
+
     if isinstance(value, str):
         return value
 
@@ -70,9 +83,24 @@ def format_human(value: Any) -> str:
         return format_human(value.to_dict())
 
     if is_dataclass(value):
+        if _looks_like_tool_payload_dict(asdict(value)):
+            payload = asdict(value)
+            return _format_tool_payload_human(
+                summary=payload.get("summary", ""),
+                data=payload.get("data", {}),
+                artifacts=payload.get("artifacts", []),
+                warnings=payload.get("warnings", []),
+            )
         return format_human(asdict(value))
 
     if isinstance(value, dict):
+        if _looks_like_tool_payload_dict(value):
+            return _format_tool_payload_human(
+                summary=value.get("summary", ""),
+                data=value.get("data", {}),
+                artifacts=value.get("artifacts", []),
+                warnings=value.get("warnings", []),
+            )
         lines = []
         for key, item in value.items():
             if isinstance(item, (list, tuple)) and len(item) > 5:
@@ -97,6 +125,47 @@ def format_human(value: Any) -> str:
         return format_human({k: v for k, v in value.__dict__.items() if not k.startswith("_")})
 
     return str(value)
+
+
+def _looks_like_tool_payload_dict(value: Any) -> bool:
+    return isinstance(value, dict) and "summary" in value and "data" in value and "artifacts" in value
+
+
+def _format_artifact_ref_human(artifact: Any) -> str:
+    if isinstance(artifact, ArtifactRef):
+        artifact = asdict(artifact)
+    description = artifact.get("description") or artifact.get("kind") or "artifact"
+    mime_type = artifact.get("mime_type")
+    suffix = f" ({mime_type})" if mime_type else ""
+    return f"- {description}: {artifact.get('path')}{suffix}"
+
+
+def _format_tool_payload_human(
+    *,
+    summary: str,
+    data: Any,
+    artifacts: Any,
+    warnings: Any,
+) -> str:
+    parts = [summary or "(no summary)"]
+
+    warnings = warnings or []
+    if warnings:
+        parts.append("Warnings:")
+        parts.extend(f"- {warning}" for warning in warnings)
+
+    artifacts = artifacts or []
+    if artifacts:
+        parts.append("Artifacts:")
+        parts.extend(_format_artifact_ref_human(artifact) for artifact in artifacts)
+
+    if data not in ({}, [], None):
+        rendered_data = format_human(data)
+        if rendered_data and rendered_data != "(no result)":
+            parts.append("Data:")
+            parts.append(rendered_data)
+
+    return "\n".join(parts)
 
 
 def render_output(

@@ -39,6 +39,7 @@ from typing import Any, Callable, Dict, List, Optional, Type, Union
 from .results import format_result, serialize_result
 
 logger = logging.getLogger(__name__)
+_TOOL_ARTIFACT_DIR_ENV = "TS_AGENTS_TOOL_ARTIFACT_DIR"
 
 
 class SandboxMode(Enum):
@@ -523,6 +524,8 @@ class DockerBackend(ExecutorBackend):
                 io_dir = Path(td)
                 req_path = io_dir / "request.json"
                 resp_path = io_dir / "response.json"
+                artifact_dir = io_dir / "artifacts"
+                artifact_dir.mkdir(parents=True, exist_ok=True)
                 req_path.write_text(json.dumps(request_payload, indent=2, default=str))
 
                 cmd: List[str] = [
@@ -554,6 +557,7 @@ class DockerBackend(ExecutorBackend):
                 # Pass user-provided env vars
                 for k, v in (context.environment or {}).items():
                     cmd += ["-e", f"{k}={v}"]
+                cmd += ["-e", f"{_TOOL_ARTIFACT_DIR_ENV}=/io/artifacts"]
 
                 # Run the sandbox runner inside the container
                 cmd += [
@@ -698,11 +702,14 @@ class SubprocessBackend(ExecutorBackend):
                 io_dir = Path(td)
                 req_path = io_dir / "request.json"
                 resp_path = io_dir / "response.json"
+                artifact_dir = io_dir / "artifacts"
+                artifact_dir.mkdir(parents=True, exist_ok=True)
                 req_path.write_text(json.dumps(request_payload, indent=2, default=str))
 
                 env = os.environ.copy()
                 for k, v in (context.environment or {}).items():
                     env[k] = str(v)
+                env[_TOOL_ARTIFACT_DIR_ENV] = str(artifact_dir)
 
                 cmd = [
                     sys.executable,

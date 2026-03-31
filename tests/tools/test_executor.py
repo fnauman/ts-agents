@@ -3,8 +3,15 @@
 import json
 import numpy as np
 
+from ts_agents.contracts import ArtifactRef, ToolPayload
 from ts_agents.core.base import PeakResult
-from ts_agents.tools.executor import ExecutionContext, ExecutionResult, ExecutionStatus, SandboxMode
+from ts_agents.tools.executor import (
+    ExecutionContext,
+    ExecutionResult,
+    ExecutionStatus,
+    LocalBackend,
+    SandboxMode,
+)
 from ts_agents.tools.results import DecompositionResult as ToolDecompositionResult
 
 
@@ -59,3 +66,57 @@ def test_execution_result_serializes_tool_result():
     assert payload["result"]["trend"] == [1.0]
     assert payload["result"]["period"] == 1
     json.dumps(payload)
+
+
+def test_execution_result_serializes_tool_payload():
+    result = ToolPayload(
+        kind="statistics",
+        summary="Computed stats.",
+        data={"mean": 1.5},
+        artifacts=[
+            ArtifactRef(
+                kind="image",
+                path="/tmp/stats.png",
+                mime_type="image/png",
+                description="Stats plot",
+            )
+        ],
+    )
+
+    exec_result = ExecutionResult(status=ExecutionStatus.SUCCESS, result=result)
+    payload = exec_result.to_dict()
+
+    assert payload["result"]["summary"] == "Computed stats."
+    assert payload["result"]["artifacts"][0]["path"] == "/tmp/stats.png"
+    json.dumps(payload)
+
+
+def test_local_backend_formats_tool_payload_with_artifacts():
+    backend = LocalBackend()
+
+    def fake_tool():
+        return ToolPayload(
+            kind="patterns",
+            summary="Detected 3 peaks.",
+            data={"count": 3},
+            artifacts=[
+                ArtifactRef(
+                    kind="image",
+                    path="/tmp/peaks.png",
+                    mime_type="image/png",
+                    description="Peak detection plot",
+                )
+            ],
+        )
+
+    result = backend.execute(
+        "detect_peaks_with_data",
+        lambda: fake_tool(),
+        {},
+        ExecutionContext(),
+    )
+
+    assert result.success is True
+    assert "Detected 3 peaks." in result.formatted_output
+    assert "Artifacts:" in result.formatted_output
+    assert "/tmp/peaks.png" in result.formatted_output

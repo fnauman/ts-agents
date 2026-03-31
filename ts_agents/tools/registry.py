@@ -515,7 +515,7 @@ def _register_default_tools() -> None:
             dependencies=dependencies,
             parameters=parameters,
             examples=examples,
-            returns=returns,
+            returns=f"ToolPayload with structured data and optional artifact refs ({returns})",
         )
 
     # ---------------------------------------------------------------------

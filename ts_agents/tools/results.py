@@ -39,6 +39,8 @@ from typing import Any, Dict, List, Optional, Type, Union
 
 import numpy as np
 
+from ts_agents.contracts import ArtifactRef, ToolPayload
+
 
 def _serialize_value(value: Any) -> Any:
     """Convert numpy arrays and other types for JSON serialization."""
@@ -74,6 +76,48 @@ def serialize_result(result: Any) -> Any:
         return [serialize_result(v) for v in result]
 
     return _serialize_value(result)
+
+
+def _is_tool_payload_dict(result: Any) -> bool:
+    return isinstance(result, dict) and "summary" in result and "data" in result and "artifacts" in result
+
+
+def _format_artifact_ref(artifact: Any) -> str:
+    if isinstance(artifact, ArtifactRef):
+        artifact = asdict(artifact)
+    description = artifact.get("description") or artifact.get("kind") or "artifact"
+    mime_type = artifact.get("mime_type")
+    suffix = f" ({mime_type})" if mime_type else ""
+    return f"- {description}: {artifact.get('path')}{suffix}"
+
+
+def _format_tool_payload_sections(
+    *,
+    summary: str,
+    data: Any,
+    artifacts: Any,
+    warnings: Any,
+    format_value,
+) -> str:
+    parts = [summary or "(no summary)"]
+
+    warnings = warnings or []
+    if warnings:
+        parts.append("Warnings:")
+        parts.extend(f"- {warning}" for warning in warnings)
+
+    artifacts = artifacts or []
+    if artifacts:
+        parts.append("Artifacts:")
+        parts.extend(_format_artifact_ref(artifact) for artifact in artifacts)
+
+    if data not in ({}, [], None):
+        rendered_data = format_value(data)
+        if rendered_data and rendered_data != "(no result)":
+            parts.append("Data:")
+            parts.append(rendered_data)
+
+    return "\n".join(parts)
 
 
 @dataclass
@@ -587,6 +631,12 @@ class ResultFormatter:
         str
             Formatted output string
         """
+        if isinstance(result, ToolPayload):
+            return self._format_tool_payload(result)
+
+        if isinstance(result, ArtifactRef):
+            return _format_artifact_ref(result)
+
         # Handle string results (legacy format)
         if isinstance(result, str):
             return result
@@ -601,6 +651,15 @@ class ResultFormatter:
 
         # Handle dataclasses
         if is_dataclass(result):
+            if _is_tool_payload_dict(serialize_result(result)):
+                payload = serialize_result(result)
+                return _format_tool_payload_sections(
+                    summary=payload.get("summary", ""),
+                    data=payload.get("data", {}),
+                    artifacts=payload.get("artifacts", []),
+                    warnings=payload.get("warnings", []),
+                    format_value=self._format_payload_data,
+                )
             return self._format_dict_result(serialize_result(result))
 
         # Handle dict results (transitional format)
@@ -624,6 +683,15 @@ class ResultFormatter:
 
     def _format_dict_result(self, result: Dict[str, Any]) -> str:
         """Format a dictionary result."""
+        if _is_tool_payload_dict(result):
+            return _format_tool_payload_sections(
+                summary=result.get("summary", ""),
+                data=result.get("data", {}),
+                artifacts=result.get("artifacts", []),
+                warnings=result.get("warnings", []),
+                format_value=self._format_payload_data,
+            )
+
         parts = []
 
         # Handle summary or result field
@@ -648,6 +716,44 @@ class ResultFormatter:
                 parts.append(f"\n[IMAGE_DATA:{viz.data}]")
 
         return "\n".join(parts) if parts else str(result)
+
+    def _format_tool_payload(self, result: ToolPayload) -> str:
+        return _format_tool_payload_sections(
+            summary=result.summary,
+            data=result.data,
+            artifacts=result.artifacts,
+            warnings=result.warnings,
+            format_value=self._format_payload_data,
+        )
+
+    def _format_payload_data(self, value: Any) -> str:
+        if value is None:
+            return "(no result)"
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict):
+            if _is_tool_payload_dict(value):
+                return _format_tool_payload_sections(
+                    summary=value.get("summary", ""),
+                    data=value.get("data", {}),
+                    artifacts=value.get("artifacts", []),
+                    warnings=value.get("warnings", []),
+                    format_value=self._format_payload_data,
+                )
+            return self._format_dict_result(value)
+        if isinstance(value, (list, tuple)):
+            if len(value) == 0:
+                return "[]"
+            if len(value) > self.max_array_length:
+                return self._truncate_array(value)
+            return str(serialize_result(value))
+        if isinstance(value, np.ndarray):
+            return self._truncate_array(value)
+        if hasattr(value, "to_dict") and callable(value.to_dict):
+            return self._format_payload_data(serialize_result(value.to_dict()))
+        if is_dataclass(value):
+            return self._format_payload_data(serialize_result(value))
+        return str(serialize_result(value))
 
     def _truncate_array(self, arr: Union[List, np.ndarray]) -> str:
         """Truncate array for display."""
