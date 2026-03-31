@@ -1,4 +1,5 @@
 import pytest
+import json
 
 from ts_agents.cli.main import (
     _build_run_example_command,
@@ -48,6 +49,7 @@ def test_build_run_example_command_uses_run_var_shorthands():
         required=["variable_name", "unique_id"],
         param_types={"variable_name": "str", "unique_id": "str"},
     )
+    assert "uv run ts-agents tool run forecast_theta_with_data" in command
     assert "--run Re200Rm200" in command
     assert "--var bx001_real" in command
     assert "--param" not in command
@@ -79,7 +81,7 @@ def test_missing_required_error_includes_actionable_example():
     assert "Missing required parameters for 'compare_forecasts_with_data'" in message
     assert "Required parameters:" in message
     assert "Example:" in message
-    assert "uv run ts-agents run compare_forecasts_with_data" in message
+    assert "uv run ts-agents tool run compare_forecasts_with_data" in message
 
 
 def test_run_help_includes_examples(capsys):
@@ -88,7 +90,16 @@ def test_run_help_includes_examples(capsys):
         parser.parse_args(["run", "--help"])
     output = capsys.readouterr().out
     assert "Examples:" in output
-    assert "forecast_theta_with_data" in output
+    assert "tool run forecast_theta_with_data" in output
+
+
+def test_tool_run_help_includes_examples(capsys):
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["tool", "run", "--help"])
+    output = capsys.readouterr().out
+    assert "Examples:" in output
+    assert "tool run forecast_theta_with_data" in output
 
 
 def test_agent_run_help_includes_examples(capsys):
@@ -111,7 +122,7 @@ def test_demo_help_includes_examples(capsys):
 
 def test_unknown_tool_error_includes_suggestions(capsys):
     code = run(["run", "forecast_thta_with_data", "--run", "Re200Rm200", "--var", "bx001_real"])
-    assert code == 1
+    assert code == 2
     err = capsys.readouterr().err
     assert "Did you mean:" in err
     assert "forecast_theta_with_data" in err
@@ -119,7 +130,7 @@ def test_unknown_tool_error_includes_suggestions(capsys):
 
 def test_missing_required_error_is_actionable(capsys):
     code = run(["run", "forecast_theta_with_data", "--var", "bx001_real"])
-    assert code == 1
+    assert code == 2
     err = capsys.readouterr().err
     assert "Missing required parameters for 'forecast_theta_with_data'" in err
     assert "Example:" in err
@@ -145,7 +156,7 @@ def test_parser_accepts_extract_images_with_save():
 
 def test_extract_images_requires_save(capsys):
     code = run(["data", "vars", "--extract-images", "outputs/assets"])
-    assert code == 1
+    assert code == 2
     err = capsys.readouterr().err
     assert "--extract-images requires --save" in err
 
@@ -200,7 +211,6 @@ def test_run_extracts_images_when_saving(monkeypatch, tmp_path):
 
 def test_run_extracts_images_in_json_without_breaking_json(monkeypatch, tmp_path):
     import importlib
-    import json
 
     cli_main = importlib.import_module("ts_agents.cli.main")
 
@@ -226,8 +236,9 @@ def test_run_extracts_images_in_json_without_breaking_json(monkeypatch, tmp_path
     assert code == 0
     saved = output_path.read_text()
     payload = json.loads(saved)
-    assert "[IMAGE_DATA:" not in payload["message"]
-    assert "[IMAGE_FILE:" in payload["message"]
+    assert payload["ok"] is True
+    assert "[IMAGE_DATA:" not in payload["result"]["message"]
+    assert "[IMAGE_FILE:" in payload["result"]["message"]
     assert len(list(images_dir.glob("*.png"))) == 1
 
 
@@ -309,6 +320,96 @@ def test_cli_compare_forecasts_surfaces_tool_failure(monkeypatch, capsys):
         ]
     )
 
-    assert code == 1
+    assert code == 2
     err = capsys.readouterr().err
     assert "number sections must be larger than 0" in err
+
+
+def test_tool_show_json_returns_envelope(capsys):
+    code = run(["tool", "show", "forecast_theta_with_data", "--json"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["command"] == "tool show"
+    assert payload["name"] == "forecast_theta_with_data"
+    assert payload["result"]["name"] == "forecast_theta_with_data"
+    assert "input_schema" in payload["result"]
+
+
+def test_tool_show_json_unknown_tool_is_typed(capsys):
+    code = run(["tool", "show", "forecast_tetha_with_data", "--json"])
+
+    assert code == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["command"] == "tool show"
+    assert payload["name"] == "forecast_tetha_with_data"
+    assert payload["error"]["code"] == "validation_error"
+    assert "Tool 'forecast_tetha_with_data' not found." in payload["error"]["message"]
+    assert "Did you mean:" in payload["error"]["message"]
+    assert "forecast_theta_with_data" in payload["error"]["message"]
+
+
+def test_tool_search_json_returns_envelope(capsys):
+    code = run(["tool", "search", "forecast", "--json"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["command"] == "tool search"
+    assert payload["name"] == "forecast"
+    assert "tools" in payload["result"]
+
+
+def test_tool_run_json_returns_envelope(capsys):
+    code = run(["tool", "run", "describe_series", "--param", "series=[1,2,3]", "--json"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["command"] == "tool run"
+    assert payload["name"] == "describe_series"
+    assert payload["result"]["method"] == "descriptive"
+
+
+def test_tool_run_json_dependency_error_is_typed(monkeypatch, capsys):
+    import importlib
+    import numpy as np
+    import ts_agents.core.forecasting as forecasting
+    import ts_agents.tools.agent_tools as agent_tools
+
+    cli_main = importlib.import_module("ts_agents.cli.main")
+
+    monkeypatch.setattr(
+        agent_tools,
+        "_get_series_data",
+        lambda variable_name, unique_id: np.array([1.0, 2.0, 3.0, 4.0]),
+    )
+
+    def fake_forecast_theta(series, horizon=10, level=None, season_length=None):
+        raise ImportError(
+            'Statistical forecasting requires optional dependencies. Install with: pip install "ts-agents[forecasting]"'
+        )
+
+    monkeypatch.setattr(forecasting, "forecast_theta", fake_forecast_theta)
+
+    code = cli_main.run(
+        [
+            "tool",
+            "run",
+            "forecast_theta_with_data",
+            "--run",
+            "Re200Rm200",
+            "--var",
+            "bx001_real",
+            "--json",
+        ]
+    )
+
+    assert code == 3
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["command"] == "tool run"
+    assert payload["name"] == "forecast_theta_with_data"
+    assert payload["error"]["code"] == "dependency_error"

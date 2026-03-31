@@ -66,7 +66,7 @@ def build_skills_markdown() -> str:
         "## CLI",
         "- ts-agents data list",
         "- ts-agents tool list",
-        "- ts-agents run <tool> --run <RUN> --var <VAR>",
+        "- ts-agents tool run <tool> --run <RUN> --var <VAR>",
         "- ts-agents agent run \"<prompt>\"",
         "- ts-agents skills export --out skills_export",
         "- ts-agents skills validate",

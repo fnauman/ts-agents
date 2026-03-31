@@ -2,6 +2,8 @@ import numpy as np
 import pytest
 from types import SimpleNamespace
 
+from ts_agents.contracts import ToolPayload
+
 
 def _patch_plotting(monkeypatch, agent_tools):
     class _DummyAxis:
@@ -78,7 +80,7 @@ def test_compare_forecasts_with_data_forwards_models(monkeypatch):
         models=["theta"],
     )
 
-    assert "Error in Compare Forecasts" not in output
+    assert isinstance(output, ToolPayload)
     assert observed["horizon"] == 12
     assert observed["models"] == ["theta"]
     assert observed["extra_kwargs"] == {}
@@ -112,7 +114,7 @@ def test_compare_forecasts_with_data_accepts_methods_alias(monkeypatch):
         methods=["arima", "ets"],
     )
 
-    assert "Error in Compare Forecasts" not in output
+    assert isinstance(output, ToolPayload)
     assert observed["models"] == ["arima", "ets"]
 
 
@@ -145,7 +147,7 @@ def test_compare_forecasts_with_data_models_take_precedence(monkeypatch):
         methods=["arima"],
     )
 
-    assert "Error in Compare Forecasts" not in output
+    assert isinstance(output, ToolPayload)
     assert observed["models"] == ["theta"]
 
 
@@ -206,7 +208,7 @@ def test_compare_forecasts_with_data_forwards_season_length(monkeypatch):
         season_length=12,
     )
 
-    assert "Error in Compare Forecasts" not in output
+    assert isinstance(output, ToolPayload)
     assert observed["season_length"] == 12
 
 
@@ -235,7 +237,8 @@ def test_forecast_seasonal_naive_with_data_forwards_season_length(monkeypatch):
         season_length=12,
     )
 
-    assert "Error in Seasonal Naive" not in output
+    assert isinstance(output, ToolPayload)
+    assert output.kind == "forecast"
     assert observed["horizon"] == 2
     assert observed["season_length"] == 12
 
@@ -271,10 +274,44 @@ def test_forecast_ensemble_with_data_uses_get_ensemble(monkeypatch):
         season_length=12,
     )
 
-    assert "Error in Ensemble" not in output
+    assert isinstance(output, ToolPayload)
+    assert output.kind == "forecast_comparison"
+    assert output.summary == (
+        "Ensemble forecast completed for bx001_real "
+        "(run Re200Rm200) with 2 model forecasts."
+    )
     assert observed["horizon"] == 2
     assert observed["models"] == ["seasonal_naive", "theta"]
     assert observed["season_length"] == 12
+
+
+def test_forecast_ensemble_with_data_omits_zero_count_when_models_absent(monkeypatch):
+    from ts_agents.tools import agent_tools
+    import ts_agents.core.forecasting as forecasting
+
+    def fake_get_series_data(variable_name, unique_id):
+        return np.array([1.0, 2.0, 3.0, 4.0])
+
+    class FakeEnsembleResult:
+        def get_ensemble(self):
+            return np.array([4.5, 5.5])
+
+    monkeypatch.setattr(agent_tools, "_get_series_data", fake_get_series_data)
+    monkeypatch.setattr(
+        forecasting,
+        "forecast_ensemble",
+        lambda series, horizon=10, models=None, season_length=None: FakeEnsembleResult(),
+    )
+    _patch_plotting(monkeypatch, agent_tools)
+
+    output = agent_tools.forecast_ensemble_with_data(
+        variable_name="bx001_real",
+        unique_id="Re200Rm200",
+        horizon=2,
+    )
+
+    assert isinstance(output, ToolPayload)
+    assert output.summary == "Ensemble forecast completed for bx001_real (run Re200Rm200)."
 
 
 def test_segment_changepoint_with_data_maps_n_changepoints_alias(monkeypatch):

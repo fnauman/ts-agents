@@ -4,12 +4,15 @@
 [![Python](https://img.shields.io/badge/python-3.11--3.13-3776AB)](#installation)
 [![License](https://img.shields.io/badge/license-MIT-2EA44F)](https://github.com/fnauman/ts-agents/blob/main/LICENSE)
 
-`ts-agents` is a CLI-first toolkit for time-series analysis and agent-driven
-automation. It combines:
-- a stable CLI contract for reproducible runs (`ts-agents`)
+`ts-agents` provides time-series skills, tool contracts, and sandboxes for
+agentic workflows.
+
+It is built around:
+- a stable CLI contract for discovery and execution (`ts-agents tool ...`)
 - inspectable artifacts instead of chat-only outputs (plots, JSON, reports)
-- optional sandboxes for safer execution (`local`, `subprocess`, `docker`, `daytona`, `modal`)
-- both a Gradio UI (`ts-agents-ui`) and tool-driven agents (simple + deep)
+- reusable skills that encode time-series workflow guidance
+- optional sandboxes for safer, reproducible execution (`local`, `subprocess`, `docker`, `daytona`, `modal`)
+- optional adapters on top, including Gradio and built-in agent entrypoints
 
 It ships with two out-of-the-box demos:
 - `window-classification` (synthetic labeled-stream window-size selection + evaluation)
@@ -55,14 +58,15 @@ automation.
 
 ```bash
 ts-agents tool list --bundle demo
-ts-agents run stl_decompose_with_data --run Re200Rm200 --var bx001_real
+ts-agents tool show forecast_theta_with_data
+ts-agents tool run stl_decompose_with_data --run Re200Rm200 --var bx001_real
 ts-agents demo window-classification --no-llm
 ```
 
 ### 3. Launch the UI or prepare a hosted demo
 
 Use the Gradio app for interactive exploration, or the hosted entrypoint for a
-public manual-mode deployment.
+manual/public demo deployment. This is optional and secondary to the CLI.
 
 ```bash
 python -m pip install "ts-agents[ui]"

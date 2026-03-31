@@ -1,7 +1,7 @@
 [project]
 name = "ts-agents"
 version = "0.1.1"
-description = "Time series analysis toolkit with CLI, agents, and Gradio UI"
+description = "Time-series skills, tool contracts, and sandboxes for agentic workflows."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11,<3.14"

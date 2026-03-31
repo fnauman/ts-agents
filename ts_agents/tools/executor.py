@@ -207,6 +207,7 @@ class ToolErrorCode(Enum):
     UNKNOWN = "unknown"
     VALIDATION_ERROR = "validation_error"
     NOT_FOUND = "not_found"
+    BACKEND_UNAVAILABLE = "backend_unavailable"
     PERMISSION_DENIED = "permission_denied"
     TIMEOUT = "timeout"
     RESOURCE_EXHAUSTED = "resource_exhausted"
@@ -231,6 +232,8 @@ class ToolError(Exception):
         Human-readable error message
     recoverable : bool
         Whether the error might be recoverable (e.g., retry with different params)
+    hint : str, optional
+        Actionable recovery hint for users and calling agents
     details : Dict[str, Any]
         Additional error details
     tool_name : str, optional
@@ -239,6 +242,7 @@ class ToolError(Exception):
     code: ToolErrorCode
     message: str
     recoverable: bool = False
+    hint: Optional[str] = None
     details: Dict[str, Any] = field(default_factory=dict)
     tool_name: Optional[str] = None
 
@@ -251,6 +255,7 @@ class ToolError(Exception):
             "code": self.code.value,
             "message": self.message,
             "recoverable": self.recoverable,
+            "hint": self.hint,
             "details": self.details,
             "tool_name": self.tool_name,
         }
@@ -262,6 +267,7 @@ class ToolError(Exception):
             code=ToolErrorCode(data.get("code", "unknown")),
             message=data.get("message", "Unknown error"),
             recoverable=data.get("recoverable", False),
+            hint=data.get("hint"),
             details=data.get("details", {}),
             tool_name=data.get("tool_name"),
         )
@@ -298,6 +304,7 @@ class ToolError(Exception):
             code=code,
             message=str(exc),
             recoverable=recoverable,
+            hint=str(exc) if code == ToolErrorCode.DEPENDENCY_ERROR else None,
             details={"exception_type": exc_type},
             tool_name=tool_name,
         )
@@ -1441,12 +1448,15 @@ class ToolExecutor:
             )
 
         # Get execution backend
+        requested_backend = context.sandbox_mode
         backend = self.backends.get(context.sandbox_mode)
+        actual_backend = context.sandbox_mode
         if backend is None or not backend.is_available():
             logger.warning(
                 f"Backend {context.sandbox_mode} not available, falling back to local"
             )
             backend = self.backends[SandboxMode.LOCAL]
+            actual_backend = SandboxMode.LOCAL
 
         # Apply resource limits from metadata if not specified in context
         context = self._apply_metadata_limits(metadata, context)
@@ -1458,6 +1468,13 @@ class ToolExecutor:
             params=params,
             context=context,
         )
+
+        result.metadata = {
+            **(result.metadata or {}),
+            "backend_requested": requested_backend.value,
+            "backend_actual": actual_backend.value,
+            "fallback_used": actual_backend != requested_backend,
+        }
 
         # Log execution
         self._log_execution(tool_name, params, context, result)
