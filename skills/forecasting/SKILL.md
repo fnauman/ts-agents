@@ -10,6 +10,9 @@ metadata:
   ts_agents:
     tool_category: forecasting
     prefers_with_data_tools: true
+    preferred_workflow: forecast-series
+    preferred_tools: [compare_forecasts_with_data, forecast_theta_with_data, forecast_ets_with_data]
+    artifact_checklist: [forecast_comparison.json, forecast.json, forecast.csv, report.md]
   claude_code:
     allowed-tools: [Bash, Read, Write, Edit]
     disable-model-invocation: false

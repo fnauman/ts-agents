@@ -18,6 +18,7 @@ def test_workflow_list_json_returns_envelope(capsys):
     assert payload["ok"] is True
     assert payload["command"] == "workflow list"
     workflow_names = [workflow["name"] for workflow in payload["result"]["workflows"]]
+    assert "activity-recognition" in workflow_names
     assert "inspect-series" in workflow_names
     assert "forecast-series" in workflow_names
 
@@ -118,9 +119,96 @@ def test_workflow_run_forecast_series_writes_expected_files(monkeypatch, capsys,
     assert str(output_dir / "report.md") in artifact_paths
 
 
+def test_workflow_run_activity_recognition_writes_expected_files(monkeypatch, capsys, tmp_path):
+    import ts_agents.core.windowing as windowing
+
+    class FakeSelection:
+        best_window_size = 96
+        metric = "balanced_accuracy"
+
+        def to_dict(self):
+            return {
+                "method": "window_size_selection",
+                "best_window_size": 96,
+                "metric": "balanced_accuracy",
+                "scores_by_window": {32: 0.66, 96: 0.84},
+                "n_windows_by_window": {32: 180, 96: 120},
+                "details": {},
+            }
+
+    class FakeEval:
+        metric = "balanced_accuracy"
+        score = 0.84
+
+        def to_dict(self):
+            return {
+                "method": "windowed_classification",
+                "window_size": 96,
+                "stride": 48,
+                "classifier": "minirocket",
+                "metric": "balanced_accuracy",
+                "score": 0.84,
+                "n_windows": 120,
+                "class_counts": {"idle": 62, "walk": 58},
+                "classification": {
+                    "method": "minirocket",
+                    "accuracy": 0.86,
+                    "f1_score": 0.83,
+                    "confusion_matrix": [[26, 4], [5, 25]],
+                    "predictions": ["idle", "walk"],
+                },
+            }
+
+    monkeypatch.setattr(windowing, "select_window_size", lambda *args, **kwargs: FakeSelection())
+    monkeypatch.setattr(windowing, "evaluate_windowed_classifier", lambda *args, **kwargs: FakeEval())
+
+    csv_path = tmp_path / "stream.csv"
+    csv_path.write_text(
+        "x,y,z,label\n"
+        "0,0,0,idle\n"
+        "1,1,1,idle\n"
+        "2,2,2,walk\n"
+        "3,3,3,walk\n"
+    )
+
+    output_dir = tmp_path / "activity"
+    code = run(
+        [
+            "workflow",
+            "run",
+            "activity-recognition",
+            "--input",
+            str(csv_path),
+            "--label-col",
+            "label",
+            "--value-cols",
+            "x,y,z",
+            "--window-sizes",
+            "32,96",
+            "--skip-plots",
+            "--output-dir",
+            str(output_dir),
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["name"] == "activity-recognition"
+    assert payload["result"]["data"]["best_window_size"] == 96
+    assert payload["result"]["data"]["classifier_used"] == "minirocket"
+    assert (output_dir / "window_selection.json").exists()
+    assert (output_dir / "eval.json").exists()
+    assert (output_dir / "report.md").exists()
+    artifact_paths = {artifact["path"] for artifact in payload["result"]["artifacts"]}
+    assert str(output_dir / "window_selection.json") in artifact_paths
+    assert str(output_dir / "eval.json") in artifact_paths
+    assert str(output_dir / "report.md") in artifact_paths
+
+
 def test_handle_workflow_command_uses_registry_runner(monkeypatch):
     import importlib
-    import ts_agents.cli.input_parsing as input_parsing
     import ts_agents.workflows as workflows
 
     cli_main = importlib.import_module("ts_agents.cli.main")
@@ -136,19 +224,19 @@ def test_handle_workflow_command_uses_registry_runner(monkeypatch):
         observed["builder_args"] = args.workflow_name
         return {"output_dir": "outputs/custom", "skip_plots": True}
 
+    def fake_load_input(args):
+        observed["loader_args"] = args.workflow_name
+        return fake_series_input
+
     monkeypatch.setattr(
         workflows,
         "get_workflow",
         lambda name: SimpleNamespace(
             name=name,
             runner=fake_runner,
+            load_input=fake_load_input,
             build_runner_kwargs=fake_build_runner_kwargs,
         ),
-    )
-    monkeypatch.setattr(
-        input_parsing,
-        "load_series_input",
-        lambda **kwargs: fake_series_input,
     )
 
     args = argparse.Namespace(
@@ -173,6 +261,7 @@ def test_handle_workflow_command_uses_registry_runner(monkeypatch):
     assert text is None
     assert result == {"ok": True}
     assert observed["series_input"] is fake_series_input
+    assert observed["loader_args"] == "inspect-series"
     assert observed["builder_args"] == "inspect-series"
     assert observed["kwargs"] == {
         "output_dir": "outputs/custom",

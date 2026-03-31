@@ -11,6 +11,9 @@ metadata:
   ts_agents:
     tool_categories: [statistics, spectral]
     prefers_with_data_tools: true
+    preferred_workflow: inspect-series
+    preferred_tools: [describe_series_with_data, detect_periodicity_with_data, compute_autocorrelation_with_data]
+    artifact_checklist: [summary.json, report.md]
 ---
 
 # Time series diagnostics (EDA)

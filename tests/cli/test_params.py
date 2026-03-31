@@ -132,6 +132,16 @@ def test_workflow_help_includes_examples(capsys):
     assert "Examples:" in output
     assert "workflow run inspect-series" in output
     assert "workflow run forecast-series" in output
+    assert "workflow run activity-recognition" in output
+
+
+def test_sandbox_help_includes_commands(capsys):
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["sandbox", "--help"])
+    output = capsys.readouterr().out
+    assert "list" in output
+    assert "doctor" in output
 
 
 def test_unknown_tool_error_includes_suggestions(capsys):
@@ -166,6 +176,26 @@ def test_parser_accepts_extract_images_with_save():
     )
     assert args.extract_images == "outputs/assets"
     assert args.save == "outputs/result.txt"
+
+
+def test_tool_run_parser_accepts_explicit_fallback_flags():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "tool",
+            "run",
+            "describe_series",
+            "--param",
+            "series=[1,2,3]",
+            "--sandbox",
+            "docker",
+            "--allow-fallback",
+            "--fallback-backend",
+            "local",
+        ]
+    )
+    assert args.allow_fallback is True
+    assert args.fallback_backend == "local"
 
 
 def test_extract_images_requires_save(capsys):

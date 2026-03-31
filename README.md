@@ -50,12 +50,14 @@ uv sync
 uv run ts-agents workflow list
 uv run ts-agents workflow run inspect-series --input-json '{"series":[1,2,3,4]}'
 uv run ts-agents workflow run forecast-series --run-id Re200Rm200 --variable bx001_real --horizon 12
+uv run ts-agents workflow run activity-recognition --input data/demo_labeled_stream.csv --label-col label --value-cols x,y,z
 ```
 
 ### 2. Run a deterministic demo when you want the legacy demo path
 
 Use the scripted demo aliases when you want the previous demo-oriented entry
-points without requiring an LLM key.
+points without requiring an LLM key. `demo window-classification` now rides on
+the same workflow core as `workflow run activity-recognition`.
 
 ```bash
 ts-agents demo window-classification --no-llm
@@ -71,7 +73,8 @@ analysis functions.
 ts-agents tool list --bundle demo
 ts-agents tool show forecast_theta_with_data
 ts-agents tool run describe_series --input-json '{"series":[1,2,3,4]}'
-ts-agents demo window-classification --no-llm
+ts-agents sandbox list
+ts-agents skills show forecasting
 ```
 
 ### 4. Launch the UI or prepare a hosted demo
@@ -124,6 +127,7 @@ uv sync
 uv run ts-agents workflow list
 uv run ts-agents workflow run inspect-series --input-json '{"series":[1,2,3,4]}'
 uv run ts-agents workflow run forecast-series --run-id Re200Rm200 --variable bx001_real --horizon 12
+uv run ts-agents workflow run activity-recognition --input data/demo_labeled_stream.csv --label-col label --value-cols x,y,z
 ```
 
 LLM-backed demo/report mode requires `OPENAI_API_KEY`. Either export it

@@ -66,6 +66,134 @@ def _coerce_sandbox_mode(value: Union["SandboxMode", str, None]) -> "SandboxMode
     raise ValueError(f"Invalid sandbox mode: {value}")
 
 
+def _first_nonempty_line(*chunks: str) -> Optional[str]:
+    for chunk in chunks:
+        for line in (chunk or "").splitlines():
+            stripped = line.strip()
+            if stripped:
+                return stripped
+    return None
+
+
+def describe_sandbox_backend(mode: Union["SandboxMode", str]) -> Dict[str, Any]:
+    """Return a structured readiness probe for one sandbox backend."""
+    sandbox_mode = _coerce_sandbox_mode(mode)
+    requirements = {
+        SandboxMode.LOCAL: ["Python environment with ts-agents installed."],
+        SandboxMode.SUBPROCESS: ["Python environment with ts-agents installed."],
+        SandboxMode.DOCKER: ["Docker CLI installed.", "Docker daemon running.", "Sandbox image available."],
+        SandboxMode.DAYTONA: ["`daytona` Python package installed.", "`DAYTONA_API_KEY` configured."],
+        SandboxMode.MODAL: ["`modal` Python package installed.", "Modal credentials configured.", "Remote app deployed."],
+    }
+    status: Dict[str, Any] = {
+        "backend": sandbox_mode.value,
+        "description": {
+            SandboxMode.LOCAL: "In-process execution on the current machine.",
+            SandboxMode.SUBPROCESS: "Separate local Python process for basic isolation.",
+            SandboxMode.DOCKER: "Containerized execution through Docker.",
+            SandboxMode.DAYTONA: "Managed cloud sandbox via Daytona.",
+            SandboxMode.MODAL: "Remote serverless execution via Modal.",
+        }[sandbox_mode],
+        "available": True,
+        "reason": None,
+        "suggested_fix": None,
+        "requirements": requirements[sandbox_mode],
+        "details": {},
+    }
+
+    if sandbox_mode == SandboxMode.LOCAL:
+        status["details"] = {"python": sys.executable}
+        return status
+
+    if sandbox_mode == SandboxMode.SUBPROCESS:
+        status["details"] = {"python": sys.executable}
+        return status
+
+    if sandbox_mode == SandboxMode.DOCKER:
+        docker_path = shutil.which("docker")
+        if docker_path is None:
+            status["available"] = False
+            status["reason"] = "Docker CLI not found."
+            status["suggested_fix"] = "Install Docker or run with --sandbox local."
+            return status
+        try:
+            probe = subprocess.run(
+                ["docker", "version", "--format", "{{.Server.Version}}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except Exception as exc:
+            status["available"] = False
+            status["reason"] = f"Docker probe failed: {exc}"
+            status["suggested_fix"] = "Start Docker and retry, or run with --sandbox local."
+            return status
+
+        if probe.returncode != 0:
+            status["available"] = False
+            status["reason"] = _first_nonempty_line(probe.stderr, probe.stdout) or "Docker daemon is not reachable."
+            status["suggested_fix"] = "Start Docker and retry, or run with --sandbox local."
+            return status
+
+        status["details"] = {
+            "docker_path": docker_path,
+            "server_version": probe.stdout.strip() or None,
+            "image": os.environ.get("TS_AGENTS_DOCKER_IMAGE", "ts-agents-sandbox:latest"),
+        }
+        return status
+
+    if sandbox_mode == SandboxMode.DAYTONA:
+        try:
+            import daytona  # noqa: F401
+        except Exception:
+            status["available"] = False
+            status["reason"] = "Daytona SDK is not installed."
+            status["suggested_fix"] = "Install `daytona` and configure DAYTONA_API_KEY, or run with --sandbox local."
+            return status
+
+        if not os.environ.get("DAYTONA_API_KEY"):
+            status["available"] = False
+            status["reason"] = "DAYTONA_API_KEY is not set."
+            status["suggested_fix"] = "Set DAYTONA_API_KEY before using the Daytona backend."
+            return status
+
+        status["details"] = {
+            "api_url": os.environ.get("DAYTONA_API_URL"),
+            "target": os.environ.get("DAYTONA_TARGET"),
+            "snapshot": os.environ.get("TS_AGENTS_DAYTONA_SNAPSHOT", "daytonaio/sandbox:0.4.3"),
+        }
+        return status
+
+    try:
+        import modal  # noqa: F401
+    except Exception:
+        status["available"] = False
+        status["reason"] = "Modal SDK is not installed."
+        status["suggested_fix"] = "Install `modal` and authenticate, or run with --sandbox local."
+        return status
+
+    has_env_auth = bool(os.environ.get("MODAL_TOKEN_ID") and os.environ.get("MODAL_TOKEN_SECRET"))
+    has_profile_auth = Path.home().joinpath(".modal.toml").exists()
+    if not (has_env_auth or has_profile_auth):
+        status["available"] = False
+        status["reason"] = "Modal credentials are not configured."
+        status["suggested_fix"] = "Run `modal token new` or set MODAL_TOKEN_ID and MODAL_TOKEN_SECRET."
+        return status
+
+    status["details"] = {
+        "auth_source": "env" if has_env_auth else "profile",
+        "environment": os.environ.get("MODAL_ENVIRONMENT"),
+        "app_name": os.environ.get("TS_AGENTS_MODAL_APP", "ts-agents-sandbox"),
+        "function_name": os.environ.get("TS_AGENTS_MODAL_FUNCTION", "run_tool"),
+    }
+    return status
+
+
+def list_sandbox_backends() -> List[Dict[str, Any]]:
+    """List readiness for every supported sandbox backend."""
+    return [describe_sandbox_backend(mode) for mode in SandboxMode]
+
+
 def _get_persistent_artifact_dir() -> Path:
     """Create a persistent per-execution directory for sandbox artifacts."""
     global _PERSISTENT_ARTIFACT_ROOT
@@ -272,6 +400,8 @@ class ExecutionContext:
     # Cross-sandbox security toggles
     # ------------------------------------------------------------------
     allow_network: bool = False
+    allow_fallback: bool = False
+    fallback_backend: Optional[Union[SandboxMode, str]] = None
 
     # ------------------------------------------------------------------
     # Docker backend options
@@ -310,6 +440,8 @@ class ExecutionContext:
     def __post_init__(self) -> None:
         """Normalize sandbox mode inputs."""
         self.sandbox_mode = _coerce_sandbox_mode(self.sandbox_mode)
+        if self.fallback_backend is not None:
+            self.fallback_backend = _coerce_sandbox_mode(self.fallback_backend)
 
 
 @dataclass
@@ -1629,14 +1761,80 @@ class ToolExecutor:
 
         # Get execution backend
         requested_backend = context.sandbox_mode
-        backend = self.backends.get(context.sandbox_mode)
         actual_backend = context.sandbox_mode
-        if backend is None or not backend.is_available():
+        requested_status = describe_sandbox_backend(requested_backend)
+        backend = self.backends.get(requested_backend)
+        fallback_backend = context.fallback_backend or SandboxMode.LOCAL
+
+        if backend is None or not requested_status["available"] or not backend.is_available():
+            if not context.allow_fallback:
+                return ExecutionResult(
+                    status=ExecutionStatus.FAILED,
+                    error=ToolError(
+                        code=ToolErrorCode.BACKEND_UNAVAILABLE,
+                        message=(
+                            f"Requested backend '{requested_backend.value}' is unavailable and fallback is not allowed."
+                        ),
+                        recoverable=True,
+                        hint=requested_status.get("suggested_fix")
+                        or f"Run `ts-agents sandbox doctor {requested_backend.value}` or retry with --allow-fallback.",
+                        tool_name=tool_name,
+                        details={
+                            "backend_requested": requested_backend.value,
+                            "backend_status": requested_status,
+                            "fallback_allowed": False,
+                        },
+                    ),
+                    metadata={
+                        "tool_name": tool_name,
+                        "backend_requested": requested_backend.value,
+                        "backend_actual": None,
+                        "fallback_allowed": False,
+                        "fallback_used": False,
+                        "backend_status": requested_status,
+                    },
+                )
+
+            fallback_status = describe_sandbox_backend(fallback_backend)
+            backend = self.backends.get(fallback_backend)
+            if backend is None or not fallback_status["available"]:
+                return ExecutionResult(
+                    status=ExecutionStatus.FAILED,
+                    error=ToolError(
+                        code=ToolErrorCode.BACKEND_UNAVAILABLE,
+                        message=(
+                            f"Requested backend '{requested_backend.value}' is unavailable and fallback backend "
+                            f"'{fallback_backend.value}' is also unavailable."
+                        ),
+                        recoverable=True,
+                        hint=fallback_status.get("suggested_fix") or requested_status.get("suggested_fix"),
+                        tool_name=tool_name,
+                        details={
+                            "backend_requested": requested_backend.value,
+                            "requested_backend_status": requested_status,
+                            "fallback_backend": fallback_backend.value,
+                            "fallback_backend_status": fallback_status,
+                            "fallback_allowed": True,
+                        },
+                    ),
+                    metadata={
+                        "tool_name": tool_name,
+                        "backend_requested": requested_backend.value,
+                        "backend_actual": None,
+                        "fallback_allowed": True,
+                        "fallback_backend": fallback_backend.value,
+                        "fallback_used": False,
+                        "backend_status": requested_status,
+                    },
+                )
+
             logger.warning(
-                f"Backend {context.sandbox_mode} not available, falling back to local"
+                "Backend %s unavailable (%s); falling back to %s",
+                requested_backend.value,
+                requested_status.get("reason"),
+                fallback_backend.value,
             )
-            backend = self.backends[SandboxMode.LOCAL]
-            actual_backend = SandboxMode.LOCAL
+            actual_backend = fallback_backend
 
         # Apply resource limits from metadata if not specified in context
         context = self._apply_metadata_limits(metadata, context)
@@ -1654,6 +1852,8 @@ class ToolExecutor:
             "backend_requested": requested_backend.value,
             "backend_actual": actual_backend.value,
             "fallback_used": actual_backend != requested_backend,
+            "fallback_allowed": context.allow_fallback,
+            "fallback_backend": fallback_backend.value if context.allow_fallback else None,
         }
 
         # Log execution

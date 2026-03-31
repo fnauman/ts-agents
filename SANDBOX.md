@@ -11,6 +11,8 @@ ts-agents supports multiple sandbox backends for tool execution:
 ## Quick start
 
 ```bash
+uv run ts-agents sandbox list
+uv run ts-agents sandbox doctor docker
 uv run ts-agents run describe_series --param series=[1,2,3,4] --sandbox subprocess
 ```
 
@@ -18,6 +20,15 @@ Set a default backend:
 
 ```bash
 export TS_AGENTS_SANDBOX_MODE=subprocess
+```
+
+Fallback is now explicit. If a requested backend is unavailable, `ts-agents`
+fails with a typed backend error unless you opt in:
+
+```bash
+uv run ts-agents tool run describe_series --input-json '{"series":[1,2,3,4]}' --sandbox docker
+uv run ts-agents tool run describe_series --input-json '{"series":[1,2,3,4]}' --sandbox docker --allow-fallback
+uv run ts-agents tool run describe_series --input-json '{"series":[1,2,3,4]}' --sandbox modal --fallback-backend local
 ```
 
 ## Sandbox environment variables

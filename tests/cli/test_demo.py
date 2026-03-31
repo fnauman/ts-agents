@@ -71,18 +71,14 @@ def test_scripted_demo_writes_report(monkeypatch, tmp_path):
                 },
             }
 
-    def fake_select_window_size_from_csv(*args, **kwargs):
+    def fake_select_window_size(*args, **kwargs):
         return FakeSelection()
 
-    def fake_evaluate_windowed_classifier_from_csv(*args, **kwargs):
+    def fake_evaluate_windowed_classifier(*args, **kwargs):
         return FakeEval()
 
-    monkeypatch.setattr(windowing, "select_window_size_from_csv", fake_select_window_size_from_csv)
-    monkeypatch.setattr(
-        windowing,
-        "evaluate_windowed_classifier_from_csv",
-        fake_evaluate_windowed_classifier_from_csv,
-    )
+    monkeypatch.setattr(windowing, "select_window_size", fake_select_window_size)
+    monkeypatch.setattr(windowing, "evaluate_windowed_classifier", fake_evaluate_windowed_classifier)
 
     csv_path = tmp_path / "demo_labeled_stream.csv"
     csv_path.write_text("x,y,z,label\n0,0,0,idle\n")
@@ -248,12 +244,8 @@ def test_demo_window_classification_cli_scripted_integration(monkeypatch, tmp_pa
                 },
             }
 
-    monkeypatch.setattr(windowing, "select_window_size_from_csv", lambda *args, **kwargs: FakeSelection())
-    monkeypatch.setattr(
-        windowing,
-        "evaluate_windowed_classifier_from_csv",
-        lambda *args, **kwargs: FakeEval(),
-    )
+    monkeypatch.setattr(windowing, "select_window_size", lambda *args, **kwargs: FakeSelection())
+    monkeypatch.setattr(windowing, "evaluate_windowed_classifier", lambda *args, **kwargs: FakeEval())
 
     csv_path = tmp_path / "demo_labeled_stream.csv"
     csv_path.write_text("x,y,z,label\n0,0,0,idle\n1,1,1,walk\n")

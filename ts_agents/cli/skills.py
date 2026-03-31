@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
@@ -66,9 +67,15 @@ def build_skills_markdown() -> str:
         "## CLI",
         "- ts-agents data list",
         "- ts-agents tool list",
+        "- ts-agents tool show forecast_theta_with_data",
         "- ts-agents tool run <tool> --run <RUN> --var <VAR>",
+        "- ts-agents workflow run inspect-series --input-json '{\"series\":[1,2,3,4]}'",
+        "- ts-agents workflow run activity-recognition --input stream.csv --label-col label --value-cols x,y,z",
+        "- ts-agents sandbox list",
+        "- ts-agents skills show forecasting",
         "- ts-agents agent run \"<prompt>\"",
         "- ts-agents skills export --out skills_export",
+        "- ts-agents skills export --format json --out skills_export.json",
         "- ts-agents skills validate",
         "- python -m ts_agents ...  # supported module entrypoint",
         "",
@@ -170,6 +177,72 @@ def parse_skill_frontmatter(skill_path: Path) -> Tuple[Dict, str]:
     return {}, content
 
 
+def _extract_markdown_sections(body: str) -> List[Dict[str, Any]]:
+    sections: List[Dict[str, Any]] = []
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("#"):
+            continue
+        level = len(stripped) - len(stripped.lstrip("#"))
+        title = stripped[level:].strip()
+        if not title:
+            continue
+        sections.append(
+            {
+                "level": level,
+                "title": title,
+                "slug": title.lower().replace(" ", "-"),
+            }
+        )
+    return sections
+
+
+def _extract_ts_agents_commands(body: str) -> List[str]:
+    commands: List[str] = []
+    for raw_line in body.splitlines():
+        line = raw_line.strip()
+        if line.startswith("uv run ts-agents ") or line.startswith("ts-agents ") or line.startswith("python -m ts_agents "):
+            commands.append(line)
+    return commands
+
+
+def get_skill_details(
+    skill_name: str,
+    skills_dir: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Return structured metadata for a single skill."""
+    skills_dir = skills_dir or get_canonical_skills_dir()
+    skill_dir = skills_dir / skill_name
+    skill_file = skill_dir / "SKILL.md"
+
+    if not skill_dir.exists():
+        raise ValueError(f"Skill '{skill_name}' not found in {skills_dir}")
+    if not skill_file.exists():
+        raise ValueError(f"SKILL.md not found in {skill_dir}")
+
+    frontmatter, body = parse_skill_frontmatter(skill_file)
+    return {
+        "name": skill_dir.name,
+        "path": str(skill_file),
+        "description": frontmatter.get("description", ""),
+        "compatibility": frontmatter.get("compatibility"),
+        "metadata": frontmatter.get("metadata", {}),
+        "frontmatter": frontmatter,
+        "sections": _extract_markdown_sections(body),
+        "commands": _extract_ts_agents_commands(body),
+        "body": body,
+    }
+
+
+def build_skills_catalog(skills_dir: Optional[Path] = None) -> Dict[str, Any]:
+    """Build a machine-readable catalog for all skills."""
+    skills_dir = skills_dir or get_canonical_skills_dir()
+    return {
+        "skills_dir": str(skills_dir),
+        "skills": [get_skill_details(skill_dir.name, skills_dir=skills_dir) for skill_dir in list_skills(skills_dir)],
+    }
+
+
 def validate_skill(skill_dir: Path) -> List[str]:
     """Validate a single skill directory.
 
@@ -226,6 +299,22 @@ def validate_skill(skill_dir: Path) -> List[str]:
                     errors.append(
                         f"{skill_dir.name}: Use either 'tool_category' or 'tool_categories', not both"
                     )
+                preferred_workflow = ts_meta.get("preferred_workflow")
+                if preferred_workflow is not None and not isinstance(preferred_workflow, str):
+                    errors.append(f"{skill_dir.name}: 'preferred_workflow' must be a string")
+                min_series_length = ts_meta.get("min_series_length")
+                if min_series_length is not None and (
+                    not isinstance(min_series_length, int) or min_series_length < 1
+                ):
+                    errors.append(f"{skill_dir.name}: 'min_series_length' must be a positive integer")
+                for list_field in ("preferred_tools", "avoid_tools", "artifact_checklist"):
+                    value = ts_meta.get(list_field)
+                    if value is not None and (
+                        not isinstance(value, list) or any(not isinstance(item, str) for item in value)
+                    ):
+                        errors.append(
+                            f"{skill_dir.name}: '{list_field}' must be a list of strings"
+                        )
 
     # Check body has content
     if len(body.strip()) < 50:
@@ -424,6 +513,7 @@ def export_skills(
     agent: Optional[str] = None,
     all_agents: bool = False,
     use_symlinks: bool = False,
+    format_name: Optional[str] = None,
 ) -> Path:
     """Export skills to a path.
 
@@ -444,8 +534,11 @@ def export_skills(
         Output path
     """
     output_path = Path(path)
+    effective_format = format_name or ("json" if output_path.suffix.lower() == ".json" else "markdown")
 
     if all_agents:
+        if effective_format == "json":
+            raise ValueError("--format json is not supported with --all-agents")
         # Place skills for all agents under the requested output root.
         if output_path.exists() and output_path.is_file():
             raise ValueError(f"Output path must be a directory for --all-agents: {output_path}")
@@ -460,6 +553,8 @@ def export_skills(
         return output_path
 
     if agent:
+        if effective_format == "json":
+            raise ValueError("--format json is not supported with --agent")
         # Place skills for specific agent under the requested output root.
         if output_path.exists() and output_path.is_file():
             raise ValueError(f"Output path must be a directory for --agent: {output_path}")
@@ -473,6 +568,13 @@ def export_skills(
             use_symlinks=use_symlinks,
         )
         return output_path / AGENT_SKILL_PATHS[agent]
+
+    if effective_format == "json":
+        if output_path.is_dir() or output_path.suffix == "":
+            output_path = output_path / "skills_export.json"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(build_skills_catalog(), indent=2))
+        return output_path
 
     # Default: export aggregate SKILLS.md
     if output_path.is_dir() or output_path.suffix == "":

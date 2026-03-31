@@ -10,6 +10,7 @@ metadata:
   ts_agents:
     tool_category: classification
     prefers_with_data_tools: false
+    preferred_tools: [rocket_classify, knn_classify, compare_classifiers]
 ---
 
 # Time series classification

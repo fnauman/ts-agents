@@ -68,6 +68,9 @@ metadata:
   ts_agents:
     tool_category: category_name
     prefers_with_data_tools: true
+    preferred_workflow: inspect-series
+    preferred_tools: [describe_series_with_data]
+    artifact_checklist: [summary.json, report.md]
 ---
 
 # Skill Title

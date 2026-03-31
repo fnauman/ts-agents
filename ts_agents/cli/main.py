@@ -304,6 +304,17 @@ def _add_tool_run_args(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Allow network access in sandboxed execution (if supported)",
     )
+    parser.add_argument(
+        "--allow-fallback",
+        action="store_true",
+        help="Allow fallback to another backend when the requested sandbox is unavailable",
+    )
+    parser.add_argument(
+        "--fallback-backend",
+        choices=["local", "subprocess", "docker", "daytona", "modal"],
+        default=None,
+        help="Fallback backend when fallback is allowed (default: local)",
+    )
     _add_json_input_args(parser)
     _add_output_args(parser)
 
@@ -311,6 +322,10 @@ def _add_tool_run_args(parser: argparse.ArgumentParser) -> None:
 def _command_label(args: argparse.Namespace) -> str:
     if args.command == "tool":
         return f"tool {args.tool_command}"
+    if args.command == "skills":
+        return f"skills {args.skills_command}"
+    if args.command == "sandbox":
+        return f"sandbox {args.sandbox_command}"
     if args.command == "workflow":
         return f"workflow {args.workflow_command}"
     if args.command == "run":
@@ -324,9 +339,15 @@ def _command_target_name(args: argparse.Namespace, exc: Optional[Exception] = No
             return getattr(args, "tool", None)
         if args.tool_command == "search":
             return getattr(args, "query", None)
+    if args.command == "sandbox":
+        if args.sandbox_command == "doctor":
+            return getattr(args, "backend", None)
     if args.command == "workflow":
         if args.workflow_command == "run":
             return getattr(args, "workflow_name", None)
+    if args.command == "skills":
+        if args.skills_command == "show":
+            return getattr(args, "skill", None)
     if args.command == "run":
         return getattr(args, "tool", None)
     if isinstance(exc, ToolError):
@@ -355,6 +376,12 @@ def _command_input_payload(args: argparse.Namespace) -> Dict[str, Any]:
             }
     if args.command == "data":
         return {k: v for k, v in vars(args).items() if k not in {"json", "save", "extract_images"}}
+    if args.command == "sandbox":
+        return {
+            k: v
+            for k, v in vars(args).items()
+            if k not in {"json", "save", "extract_images"}
+        }
     if args.command == "skills":
         return {k: v for k, v in vars(args).items() if k not in {"json", "save", "extract_images"}}
     if args.command == "workflow":
@@ -423,6 +450,9 @@ def _exception_to_cli_error(exc: Exception) -> CLIError:
     if isinstance(exc, ValueError):
         return CLIError(code="validation_error", message=str(exc), retryable=False)
 
+    if isinstance(exc, (ImportError, ModuleNotFoundError)):
+        return CLIError(code="dependency_error", message=str(exc), retryable=False)
+
     if isinstance(exc, PermissionError):
         return CLIError(code="permission_denied", message=str(exc), retryable=False)
 
@@ -460,6 +490,8 @@ def _exit_code_for_exception(exc: Exception) -> int:
 
     if isinstance(exc, ValueError):
         return 2
+    if isinstance(exc, (ImportError, ModuleNotFoundError)):
+        return 3
     if isinstance(exc, PermissionError):
         return 7
     if isinstance(exc, TimeoutError):
@@ -692,6 +724,12 @@ def _add_skills_subcommands(subparsers: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Use symlinks instead of copies for agent exports (local dev only)",
     )
+    export_parser.add_argument(
+        "--format",
+        choices=["markdown", "json"],
+        default=None,
+        help="Export aggregate skills as markdown or machine-readable JSON (default: infer from output path)",
+    )
     _add_output_args(export_parser)
 
     # Validate subcommand
@@ -713,6 +751,35 @@ def _add_skills_subcommands(subparsers: argparse._SubParsersAction) -> None:
         help="Skills directory to list (default: canonical skills/)",
     )
     _add_output_args(list_parser)
+
+    show_parser = skills_sub.add_parser("show", help="Show one skill as structured metadata")
+    show_parser.add_argument("skill", type=str, help="Skill name to inspect")
+    show_parser.add_argument(
+        "--path",
+        type=str,
+        default=None,
+        help="Skills directory to inspect (default: canonical skills/)",
+    )
+    _add_output_args(show_parser)
+
+
+def _add_sandbox_subcommands(subparsers: argparse._SubParsersAction) -> None:
+    sandbox_parser = subparsers.add_parser(
+        "sandbox",
+        help="Inspect sandbox backend readiness and policy",
+    )
+    sandbox_sub = sandbox_parser.add_subparsers(dest="sandbox_command", required=True)
+
+    list_parser = sandbox_sub.add_parser("list", help="List sandbox backends and readiness")
+    _add_output_args(list_parser)
+
+    doctor_parser = sandbox_sub.add_parser("doctor", help="Probe one sandbox backend")
+    doctor_parser.add_argument(
+        "backend",
+        choices=["local", "subprocess", "docker", "daytona", "modal"],
+        help="Backend name to inspect",
+    )
+    _add_output_args(doctor_parser)
 
 
 def _add_workflow_source_args(parser: argparse.ArgumentParser) -> None:
@@ -771,6 +838,33 @@ def _add_workflow_source_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_tabular_workflow_source_args(parser: argparse.ArgumentParser) -> None:
+    source_group = parser.add_mutually_exclusive_group(required=True)
+    source_group.add_argument(
+        "--input",
+        type=str,
+        default=None,
+        help="Path to CSV, parquet, JSON, or JSONL input data.",
+    )
+    source_group.add_argument(
+        "--input-json",
+        type=str,
+        default=None,
+        help="Tabular JSON payload or path to a JSON file.",
+    )
+    source_group.add_argument(
+        "--stdin",
+        action="store_true",
+        help="Read tabular JSON or CSV input from stdin.",
+    )
+    parser.add_argument(
+        "--time-col",
+        type=str,
+        default=None,
+        help="Optional time/index column for tabular inputs",
+    )
+
+
 def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
     workflow_parser = subparsers.add_parser(
         "workflow",
@@ -790,6 +884,7 @@ def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
             "  uv run ts-agents workflow list\n"
             "  uv run ts-agents workflow run inspect-series --input data.csv --time-col ds --value-col y\n"
             "  uv run ts-agents workflow run forecast-series --input data.csv --time-col ds --value-col y --horizon 48\n"
+            "  uv run ts-agents workflow run activity-recognition --input stream.csv --label-col label --value-cols x,y,z\n"
             "  echo '{\"series\": [1,2,3,4]}' | uv run ts-agents workflow run inspect-series --stdin --output-dir outputs/inspect"
         ),
     )
@@ -854,6 +949,78 @@ def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
         help="Skip plot generation",
     )
     _add_output_args(forecast_parser)
+
+    activity_parser = workflow_run_sub.add_parser(
+        "activity-recognition",
+        help="Select a window size and evaluate a classifier on a labeled stream",
+    )
+    _add_tabular_workflow_source_args(activity_parser)
+    activity_parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="outputs/activity",
+        help="Output directory for workflow artifacts",
+    )
+    activity_parser.add_argument(
+        "--label-col",
+        type=str,
+        default="label",
+        help="Label column containing per-timepoint activity labels",
+    )
+    activity_parser.add_argument(
+        "--value-cols",
+        type=_split_csv,
+        default=["x", "y", "z"],
+        help="Comma-separated value columns (default: x,y,z)",
+    )
+    activity_parser.add_argument(
+        "--window-sizes",
+        type=_split_int_csv,
+        default=[32, 64, 96, 128, 160],
+        help="Comma-separated candidate window sizes",
+    )
+    activity_parser.add_argument(
+        "--metric",
+        type=str,
+        default="balanced_accuracy",
+        help="Metric: accuracy | balanced_accuracy | f1_macro",
+    )
+    activity_parser.add_argument(
+        "--classifier",
+        type=str,
+        default="auto",
+        help="Classifier: auto | minirocket | rocket | knn",
+    )
+    activity_parser.add_argument(
+        "--balance",
+        type=str,
+        default="segment_cap",
+        help="Balancing: none | undersample | segment_cap",
+    )
+    activity_parser.add_argument(
+        "--max-windows-per-segment",
+        type=int,
+        default=25,
+        help="Cap windows per segment when balance=segment_cap",
+    )
+    activity_parser.add_argument(
+        "--test-size",
+        type=float,
+        default=0.25,
+        help="Test fraction per split",
+    )
+    activity_parser.add_argument(
+        "--seed",
+        type=int,
+        default=1337,
+        help="Random seed for selection/evaluation",
+    )
+    activity_parser.add_argument(
+        "--skip-plots",
+        action="store_true",
+        help="Skip plot generation",
+    )
+    _add_output_args(activity_parser)
 
 
 def _resolve_runtime_path(path: str) -> Path:
@@ -1101,6 +1268,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_tool_subcommands(subparsers)
     _add_run_subcommands(subparsers)
     _add_agent_subcommands(subparsers)
+    _add_sandbox_subcommands(subparsers)
     _add_skills_subcommands(subparsers)
     _add_workflow_subcommands(subparsers)
     _add_demo_subcommands(subparsers)
@@ -1324,11 +1492,15 @@ def _handle_run_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]:
     params = dict(input_params)
     params.update(_parse_param_entries(args.param, param_types))
     params = _apply_run_var_args(params, param_types, args.run_id, args.variable)
+    allow_fallback = getattr(args, "allow_fallback", False) or bool(getattr(args, "fallback_backend", None))
     args._ts_input_payload = {
         "params": params,
         "input_source": input_source,
         "run_id": args.run_id,
         "variable": args.variable,
+        "sandbox": args.sandbox or os.environ.get("TS_AGENTS_SANDBOX_MODE") or "local",
+        "allow_fallback": allow_fallback,
+        "fallback_backend": getattr(args, "fallback_backend", None) or "local",
     }
     _raise_missing_required_error(
         tool_name=args.tool,
@@ -1342,6 +1514,8 @@ def _handle_run_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]:
         sandbox_mode=sandbox_mode,
         user_approved=getattr(args, "approve", False),
         allow_network=getattr(args, "allow_network", False),
+        allow_fallback=allow_fallback,
+        fallback_backend=getattr(args, "fallback_backend", None) or "local",
     )
     execution = execute_tool(args.tool, params, context=context)
     args._ts_execution_result = execution
@@ -1354,7 +1528,6 @@ def _handle_run_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]:
 
 
 def _handle_workflow_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]:
-    from ts_agents.cli.input_parsing import load_series_input
     from ts_agents.workflows import get_workflow, list_workflows
 
     if args.workflow_command == "list":
@@ -1381,24 +1554,16 @@ def _handle_workflow_command(args: argparse.Namespace) -> Tuple[Any, Optional[st
     except KeyError:
         raise ValueError(f"Unknown workflow '{args.workflow_name}'.") from None
     _validate_workflow_source_args(args)
+    args.use_test_data_resolved = _resolve_use_test_data(args)
 
-    series_input = load_series_input(
-        input_path=getattr(args, "input", None),
-        input_json=getattr(args, "input_json", None),
-        use_stdin=getattr(args, "stdin", False),
-        run_id=getattr(args, "run_id", None),
-        variable_name=getattr(args, "variable", None),
-        time_col=getattr(args, "time_col", None),
-        value_col=getattr(args, "value_col", None),
-        use_test_data=_resolve_use_test_data(args),
-    )
+    workflow_input = workflow.load_input(args)
     runner_kwargs = workflow.build_runner_kwargs(args)
     args._ts_input_payload = {
         "workflow": args.workflow_name,
-        "source": series_input.provenance.get("series_ref", {}),
+        "source": _workflow_input_source_ref(workflow_input),
         "options": runner_kwargs,
     }
-    result = workflow.runner(series_input, **runner_kwargs)
+    result = workflow.runner(workflow_input, **runner_kwargs)
     return result, None
 
 
@@ -1418,6 +1583,16 @@ def _validate_workflow_source_args(args: argparse.Namespace) -> None:
         raise ValueError(
             "--variable is only valid with --run-id and cannot be combined with --input, --input-json, or --stdin."
         )
+
+
+def _workflow_input_source_ref(workflow_input: Any) -> Dict[str, Any]:
+    provenance = getattr(workflow_input, "provenance", {}) or {}
+    return (
+        provenance.get("input_ref")
+        or provenance.get("series_ref")
+        or provenance.get("stream_ref")
+        or {}
+    )
 
 
 def _approval_prompt(tool_name: str) -> bool:
@@ -1455,13 +1630,56 @@ def _handle_agent_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]
     return {"response": response}, response
 
 
+def _handle_sandbox_command(args: argparse.Namespace) -> Tuple[Any, str]:
+    from ts_agents.tools.executor import describe_sandbox_backend, list_sandbox_backends
+
+    if args.sandbox_command == "list":
+        result = {
+            "default_backend": os.environ.get("TS_AGENTS_SANDBOX_MODE", "local"),
+            "fallback_default": "local",
+            "fallback_requires_opt_in": True,
+            "backends": list_sandbox_backends(),
+        }
+        lines = [
+            f"Default backend: {result['default_backend']}",
+            "Fallback requires --allow-fallback (default backend: local).",
+            "Backends:",
+        ]
+        for backend in result["backends"]:
+            state = "available" if backend["available"] else "unavailable"
+            line = f"- {backend['backend']}: {state}"
+            if backend.get("reason"):
+                line += f" ({backend['reason']})"
+            lines.append(line)
+        return result, "\n".join(lines)
+
+    if args.sandbox_command == "doctor":
+        result = describe_sandbox_backend(args.backend)
+        lines = [
+            f"Backend: {result['backend']}",
+            f"Available: {result['available']}",
+            f"Description: {result['description']}",
+        ]
+        if result.get("reason"):
+            lines.append(f"Reason: {result['reason']}")
+        if result.get("suggested_fix"):
+            lines.append(f"Suggested fix: {result['suggested_fix']}")
+        if result.get("requirements"):
+            lines.append("Requirements:")
+            for requirement in result["requirements"]:
+                lines.append(f"- {requirement}")
+        return result, "\n".join(lines)
+
+    raise ValueError(f"Unknown sandbox command: {args.sandbox_command}")
+
+
 def _handle_skills_command(args: argparse.Namespace) -> Tuple[Any, str]:
     from pathlib import Path
     from .skills import (
         export_skills,
+        get_skill_details,
         validate_all_skills,
         list_skills,
-        get_canonical_skills_dir,
         parse_skill_frontmatter,
     )
 
@@ -1471,14 +1689,20 @@ def _handle_skills_command(args: argparse.Namespace) -> Tuple[Any, str]:
             agent=getattr(args, "agent", None),
             all_agents=getattr(args, "all_agents", False),
             use_symlinks=getattr(args, "symlink", False),
+            format_name=getattr(args, "format", None),
         )
-        result = {"skills_path": str(output_path)}
+        result = {
+            "skills_path": str(output_path),
+            "format": getattr(args, "format", None) or ("json" if str(output_path).endswith(".json") else "markdown"),
+        }
         if getattr(args, "all_agents", False):
             mode = "symlinks" if getattr(args, "symlink", False) else "copies"
             return result, f"Exported skills as {mode} to all agent directories under {output_path}"
         elif getattr(args, "agent", None):
             mode = "symlinks" if getattr(args, "symlink", False) else "copies"
             return result, f"Exported skills as {mode} to {output_path}"
+        if result["format"] == "json":
+            return result, f"Exported structured skills metadata to {output_path}"
         return result, f"Exported skills to {output_path}"
 
     elif args.skills_command == "validate":
@@ -1518,12 +1742,35 @@ def _handle_skills_command(args: argparse.Namespace) -> Tuple[Any, str]:
             lines.append(f"  - {info['name']}: {desc}")
         return result, "\n".join(lines)
 
+    elif args.skills_command == "show":
+        skills_dir = Path(args.path) if args.path else None
+        result = get_skill_details(args.skill, skills_dir=skills_dir)
+        lines = [
+            f"Skill: {result['name']}",
+            f"Description: {result['description']}",
+        ]
+        preferred_workflow = ((result.get("metadata") or {}).get("ts_agents") or {}).get("preferred_workflow")
+        if preferred_workflow:
+            lines.append(f"Preferred workflow: {preferred_workflow}")
+        preferred_tools = ((result.get("metadata") or {}).get("ts_agents") or {}).get("preferred_tools") or []
+        if preferred_tools:
+            lines.append(f"Preferred tools: {', '.join(preferred_tools)}")
+        if result.get("commands"):
+            lines.append("Commands:")
+            for command in result["commands"][:5]:
+                lines.append(f"- {command}")
+        return result, "\n".join(lines)
+
     else:
         raise ValueError(f"Unknown skills command: {args.skills_command}")
 
 
 def _split_csv(raw: str) -> List[str]:
     return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+def _split_int_csv(raw: str) -> List[int]:
+    return [int(part) for part in _split_csv(raw)]
 
 
 def _find_tool_payload(tool_calls: List[Any], tool_name: str) -> Optional[Dict[str, Any]]:
@@ -1781,13 +2028,10 @@ def _generate_demo_data(args: argparse.Namespace, csv_path: Path) -> None:
 
 def _run_demo_window_classification_scripted(args: argparse.Namespace) -> Dict[str, Any]:
     from pathlib import Path
-    import subprocess
 
-    from ts_agents.cli.output import render_output, to_jsonable, write_output
-    from ts_agents.core.windowing import (
-        select_window_size_from_csv,
-        evaluate_windowed_classifier_from_csv,
-    )
+    from ts_agents.cli.input_parsing import load_labeled_stream_input
+    from ts_agents.cli.output import write_output
+    from ts_agents.workflows.activity import run_activity_recognition_workflow
 
     csv_path = Path(args.csv_path)
     output_dir = Path(args.output_dir)
@@ -1796,67 +2040,27 @@ def _run_demo_window_classification_scripted(args: argparse.Namespace) -> Dict[s
     _generate_demo_data(args, csv_path)
 
     value_columns = _split_csv(args.value_columns)
-    window_sizes = [int(v) for v in _split_csv(args.window_sizes)] if args.window_sizes else None
-    classifier = args.classifier if args.classifier != "auto" else "minirocket"
-
-    selection = select_window_size_from_csv(
-        str(csv_path),
-        value_columns=value_columns,
-        label_column=args.label_column,
-        window_sizes=window_sizes,
+    workflow_input = load_labeled_stream_input(
+        input_path=str(csv_path),
+        time_col=None,
+        value_cols=value_columns,
+        label_col=args.label_column,
+    )
+    payload = run_activity_recognition_workflow(
+        workflow_input,
+        output_dir=str(output_dir),
+        window_sizes=_split_int_csv(args.window_sizes) if args.window_sizes else None,
         metric=args.metric,
-        classifier=classifier,
+        classifier=args.classifier,
         balance=args.balance,
         max_windows_per_segment=args.max_windows_per_segment,
         test_size=args.test_size,
         seed=args.seed,
+        skip_plots=args.skip_plots,
     )
-
-    eval_result = evaluate_windowed_classifier_from_csv(
-        str(csv_path),
-        value_columns=value_columns,
-        label_column=args.label_column,
-        window_size=int(selection.best_window_size),
-        metric=args.metric,
-        classifier=classifier,
-        balance=args.balance,
-        max_windows_per_segment=args.max_windows_per_segment,
-        test_size=args.test_size,
-        seed=args.seed,
-    )
-
-    selection_payload = to_jsonable(selection)
-    eval_payload = to_jsonable(eval_result)
-
-    selection_path = output_dir / "window_selection.json"
-    eval_path = output_dir / "eval.json"
-    write_output(render_output(selection_payload, json_output=True), str(selection_path))
-    write_output(render_output(eval_payload, json_output=True), str(eval_path))
-
-    window_plot = output_dir / "window_scores.png"
-    confusion_plot = output_dir / "confusion_matrix.png"
-
-    if not args.skip_plots:
-        plot_window_selection = _resolve_required_runtime_path("demo/plot_window_selection.py")
-        plot_confusion_matrix = _resolve_required_runtime_path("demo/plot_confusion_matrix.py")
-        subprocess.run(
-            [
-                sys.executable,
-                str(plot_window_selection),
-                str(selection_path),
-                str(window_plot),
-            ],
-            check=True,
-        )
-        subprocess.run(
-            [
-                sys.executable,
-                str(plot_confusion_matrix),
-                str(eval_path),
-                str(confusion_plot),
-            ],
-            check=True,
-        )
+    selection_payload = payload.data["window_selection"]
+    eval_payload = payload.data["evaluation"]
+    classifier = payload.data["classifier_used"]
 
     report = _build_demo_window_report(
         csv_path=str(csv_path),
@@ -1870,14 +2074,22 @@ def _run_demo_window_classification_scripted(args: argparse.Namespace) -> Dict[s
     return {
         "csv_path": str(csv_path),
         "output_dir": str(output_dir),
-        "best_window_size": int(selection.best_window_size),
-        "metric": str(eval_result.metric),
-        "score": float(eval_result.score),
+        "best_window_size": int(payload.data["best_window_size"]),
+        "metric": str(eval_payload["metric"]),
+        "score": float(eval_payload["score"]),
         "classifier": classifier,
-        "window_selection_path": str(selection_path),
-        "eval_path": str(eval_path),
-        "window_scores_plot": str(window_plot) if window_plot.exists() else None,
-        "confusion_matrix_plot": str(confusion_plot) if confusion_plot.exists() else None,
+        "window_selection_path": str(output_dir / "window_selection.json"),
+        "eval_path": str(output_dir / "eval.json"),
+        "window_scores_plot": (
+            str(output_dir / "window_scores.png")
+            if (output_dir / "window_scores.png").exists()
+            else None
+        ),
+        "confusion_matrix_plot": (
+            str(output_dir / "confusion_matrix.png")
+            if (output_dir / "confusion_matrix.png").exists()
+            else None
+        ),
         "report_path": str(report_path),
         "report": report,
         "mode": "scripted",
@@ -2171,6 +2383,8 @@ def run(argv: Optional[List[str]] = None) -> int:
             result, text = _handle_run_command(args)
         elif args.command == "agent":
             result, text = _handle_agent_command(args)
+        elif args.command == "sandbox":
+            result, text = _handle_sandbox_command(args)
         elif args.command == "skills":
             result, text = _handle_skills_command(args)
         elif args.command == "workflow":
