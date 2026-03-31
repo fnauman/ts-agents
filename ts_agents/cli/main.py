@@ -11,6 +11,9 @@ import shlex
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
+from ts_agents.contracts import CLIEnvelope, CLIError, CLIExecution
+from ts_agents.tools.executor import ToolError, ToolErrorCode
+
 from .output import (
     extract_images_from_jsonable,
     extract_images_to_files,
@@ -187,7 +190,7 @@ def _build_run_example_command(
     required: List[str],
     param_types: Dict[str, str],
 ) -> str:
-    parts = [f"uv run ts-agents run {tool_name}"]
+    parts = [f"uv run ts-agents tool run {tool_name}"]
 
     # Prefer CLI shorthands where available.
     if "unique_id" in required:
@@ -229,6 +232,188 @@ def _raise_missing_required_error(
         f"Example:\n  {example}\n"
         f"Tip: inspect tool parameters with:\n  uv run ts-agents tool list --json"
     )
+
+
+def _add_tool_run_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("tool", type=str, help="Tool name to execute")
+    parser.add_argument(
+        "--param",
+        action="append",
+        default=[],
+        help="Tool parameter in key=value form (repeatable)",
+    )
+    parser.add_argument(
+        "--run",
+        dest="run_id",
+        type=str,
+        default=None,
+        help="Run ID (maps to unique_id/run_id)",
+    )
+    parser.add_argument(
+        "--var",
+        dest="variable",
+        type=str,
+        default=None,
+        help="Variable name (maps to variable_name/variable)",
+    )
+    parser.add_argument(
+        "--approve",
+        action="store_true",
+        help="Approve execution of very high cost tools",
+    )
+    parser.add_argument(
+        "--sandbox",
+        choices=["local", "subprocess", "docker", "daytona", "modal"],
+        default=None,
+        help="Execution sandbox (overrides TS_AGENTS_SANDBOX_MODE)",
+    )
+    parser.add_argument(
+        "--allow-network",
+        action="store_true",
+        help="Allow network access in sandboxed execution (if supported)",
+    )
+    _add_output_args(parser)
+
+
+def _command_label(args: argparse.Namespace) -> str:
+    if args.command == "tool":
+        return f"tool {args.tool_command}"
+    if args.command == "run":
+        return "tool run"
+    return args.command
+
+
+def _command_target_name(args: argparse.Namespace, exc: Optional[Exception] = None) -> Optional[str]:
+    if args.command == "tool":
+        if args.tool_command in {"show", "run"}:
+            return getattr(args, "tool", None)
+        if args.tool_command == "search":
+            return getattr(args, "query", None)
+    if args.command == "run":
+        return getattr(args, "tool", None)
+    if isinstance(exc, ToolError):
+        return exc.tool_name
+    return None
+
+
+def _command_input_payload(args: argparse.Namespace) -> Dict[str, Any]:
+    if hasattr(args, "_ts_input_payload"):
+        return getattr(args, "_ts_input_payload")
+
+    if args.command == "tool":
+        if args.tool_command == "list":
+            return {
+                "bundle": args.bundle,
+                "category": args.category,
+                "max_cost": args.max_cost,
+            }
+        if args.tool_command == "show":
+            return {"tool": args.tool}
+        if args.tool_command == "search":
+            return {
+                "query": args.query,
+                "category": args.category,
+                "max_cost": args.max_cost,
+            }
+    if args.command == "data":
+        return {k: v for k, v in vars(args).items() if k not in {"json", "save", "extract_images"}}
+    if args.command == "skills":
+        return {k: v for k, v in vars(args).items() if k not in {"json", "save", "extract_images"}}
+    if args.command == "demo":
+        return {k: v for k, v in vars(args).items() if k not in {"json", "save", "extract_images"}}
+    if args.command == "agent":
+        return {
+            "type": args.type,
+            "model": args.model,
+            "tool_bundle": args.tool_bundle,
+        }
+    if args.command == "run":
+        return getattr(args, "_ts_input_payload", {})
+    return {}
+
+
+def _execution_payload(execution: Any) -> Optional[CLIExecution]:
+    if execution is None:
+        return None
+
+    metadata = getattr(execution, "metadata", {}) or {}
+    backend_requested = metadata.get("backend_requested")
+    backend_actual = metadata.get("backend_actual") or metadata.get("backend")
+    return CLIExecution(
+        backend_requested=backend_requested,
+        backend_actual=backend_actual,
+        duration_ms=getattr(execution, "duration_ms", None),
+        metadata=metadata,
+    )
+
+
+def _success_envelope(args: argparse.Namespace, result: Any) -> CLIEnvelope:
+    execution = _execution_payload(getattr(args, "_ts_execution_result", None))
+    return CLIEnvelope(
+        ok=True,
+        command=_command_label(args),
+        name=_command_target_name(args),
+        input=_command_input_payload(args),
+        result=result,
+        execution=execution,
+    )
+
+
+def _exception_to_cli_error(exc: Exception) -> CLIError:
+    if isinstance(exc, ToolError):
+        return CLIError(
+            code=exc.code.value,
+            message=exc.message,
+            retryable=exc.recoverable,
+            hint=exc.hint,
+            details=exc.details,
+        )
+
+    if isinstance(exc, ValueError):
+        return CLIError(code="validation_error", message=str(exc), retryable=False)
+
+    if isinstance(exc, PermissionError):
+        return CLIError(code="permission_denied", message=str(exc), retryable=False)
+
+    if isinstance(exc, TimeoutError):
+        return CLIError(code="timeout", message=str(exc), retryable=True)
+
+    return CLIError(code="execution_failure", message=str(exc), retryable=False)
+
+
+def _error_envelope(args: argparse.Namespace, exc: Exception) -> CLIEnvelope:
+    execution = _execution_payload(getattr(args, "_ts_execution_result", None))
+    return CLIEnvelope(
+        ok=False,
+        command=_command_label(args),
+        name=_command_target_name(args, exc),
+        input=_command_input_payload(args),
+        error=_exception_to_cli_error(exc),
+        execution=execution,
+    )
+
+
+def _exit_code_for_exception(exc: Exception) -> int:
+    if isinstance(exc, ToolError):
+        mapping = {
+            ToolErrorCode.VALIDATION_ERROR: 2,
+            ToolErrorCode.DEPENDENCY_ERROR: 3,
+            ToolErrorCode.DATA_ERROR: 4,
+            ToolErrorCode.NOT_FOUND: 4,
+            ToolErrorCode.BACKEND_UNAVAILABLE: 5,
+            ToolErrorCode.PERMISSION_DENIED: 7,
+            ToolErrorCode.TIMEOUT: 8,
+            ToolErrorCode.RESOURCE_EXHAUSTED: 8,
+        }
+        return mapping.get(exc.code, 6)
+
+    if isinstance(exc, ValueError):
+        return 2
+    if isinstance(exc, PermissionError):
+        return 7
+    if isinstance(exc, TimeoutError):
+        return 8
+    return 6
 
 
 def _add_output_args(parser: argparse.ArgumentParser) -> None:
@@ -331,57 +516,54 @@ def _add_tool_subcommands(subparsers: argparse._SubParsersAction) -> None:
     )
     _add_output_args(list_parser)
 
+    show_parser = tool_sub.add_parser("show", help="Show detailed metadata for one tool")
+    show_parser.add_argument("tool", type=str, help="Tool name to inspect")
+    _add_output_args(show_parser)
 
-def _add_run_subcommands(subparsers: argparse._SubParsersAction) -> None:
-    run_parser = subparsers.add_parser(
+    search_parser = tool_sub.add_parser("search", help="Search tools by name or description")
+    search_parser.add_argument("query", type=str, help="Search query")
+    search_parser.add_argument(
+        "--category",
+        type=str,
+        default=None,
+        help="Optional tool category filter",
+    )
+    search_parser.add_argument(
+        "--max-cost",
+        type=str,
+        default=None,
+        help="Optional maximum cost filter",
+    )
+    _add_output_args(search_parser)
+
+    run_parser = tool_sub.add_parser(
         "run",
         help="Run a tool by name",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  uv run ts-agents run forecast_theta_with_data --run Re200Rm200 --var bx001_real --param horizon=12\n"
-            "  uv run ts-agents run compare_forecasts_with_data --run Re200Rm200 --var bx001_real --param models=arima,theta --json\n"
-            "  uv run ts-agents run stl_decompose_with_data --run Re200Rm200 --var bx001_real --save outputs/stl.md"
+            "  uv run ts-agents tool run forecast_theta_with_data --run Re200Rm200 --var bx001_real --param horizon=12\n"
+            "  uv run ts-agents tool run compare_forecasts_with_data --run Re200Rm200 --var bx001_real --param models=arima,theta --json\n"
+            "  uv run ts-agents tool run describe_series_with_data --run Re200Rm200 --var bx001_real"
         ),
     )
-    run_parser.add_argument("tool", type=str, help="Tool name to execute")
-    run_parser.add_argument(
-        "--param",
-        action="append",
-        default=[],
-        help="Tool parameter in key=value form (repeatable)",
+    _add_tool_run_args(run_parser)
+
+
+def _add_run_subcommands(subparsers: argparse._SubParsersAction) -> None:
+    run_parser = subparsers.add_parser(
+        "run",
+        help="Compatibility alias for 'tool run'",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Compatibility alias for 'ts-agents tool run'.\n\n"
+            "Examples:\n"
+            "  uv run ts-agents tool run forecast_theta_with_data --run Re200Rm200 --var bx001_real --param horizon=12\n"
+            "  uv run ts-agents tool run compare_forecasts_with_data --run Re200Rm200 --var bx001_real --param models=arima,theta --json\n"
+            "  uv run ts-agents tool run stl_decompose_with_data --run Re200Rm200 --var bx001_real --save outputs/stl.md"
+        ),
     )
-    run_parser.add_argument(
-        "--run",
-        dest="run_id",
-        type=str,
-        default=None,
-        help="Run ID (maps to unique_id/run_id)",
-    )
-    run_parser.add_argument(
-        "--var",
-        dest="variable",
-        type=str,
-        default=None,
-        help="Variable name (maps to variable_name/variable)",
-    )
-    run_parser.add_argument(
-        "--approve",
-        action="store_true",
-        help="Approve execution of very high cost tools",
-    )
-    run_parser.add_argument(
-        "--sandbox",
-        choices=["local", "subprocess", "docker", "daytona", "modal"],
-        default=None,
-        help="Execution sandbox (overrides TS_AGENTS_SANDBOX_MODE)",
-    )
-    run_parser.add_argument(
-        "--allow-network",
-        action="store_true",
-        help="Allow network access in sandboxed execution (if supported)",
-    )
-    _add_output_args(run_parser)
+    _add_tool_run_args(run_parser)
 
 
 def _add_agent_subcommands(subparsers: argparse._SubParsersAction) -> None:
@@ -779,68 +961,147 @@ def _handle_data_command(args: argparse.Namespace) -> Tuple[Any, str]:
     return result, "\n".join(text_lines)
 
 
+def _tool_summary_dict(tool: Any) -> Dict[str, Any]:
+    return {
+        "name": tool.name,
+        "category": tool.category.value,
+        "cost": tool.cost.value,
+        "description": tool.description,
+        "dependencies": tool.dependencies,
+    }
+
+
+def _tool_detail_dict(tool: Any) -> Dict[str, Any]:
+    required = [param.name for param in tool.parameters if not param.optional]
+    return {
+        "name": tool.name,
+        "category": tool.category.value,
+        "cost": tool.cost.value,
+        "description": tool.description,
+        "signature": tool.get_signature(),
+        "dependencies": tool.dependencies,
+        "parameters": [
+            {
+                "name": param.name,
+                "type": param.type,
+                "description": param.description,
+                "optional": param.optional,
+                "default": param.default,
+            }
+            for param in tool.parameters
+        ],
+        "required_parameters": required,
+        "input_schema": tool.to_schema(),
+        "returns": {
+            "description": tool.returns,
+        },
+        "examples": tool.examples,
+        "resources": {
+            "timeout_seconds": tool.timeout_seconds,
+            "memory_mb": tool.memory_mb,
+            "disk_mb": tool.disk_mb,
+        },
+    }
+
+
 def _handle_tool_command(args: argparse.Namespace) -> Tuple[Any, str]:
     from ts_agents.tools.registry import ToolRegistry, ToolCategory, ComputationalCost
     from ts_agents.tools.bundles import get_bundle_names, get_bundle_summary
 
-    bundle = args.bundle
-    if bundle:
-        tool_names = get_bundle_names(bundle)
-        tools = [ToolRegistry.get(name) for name in tool_names]
-    else:
-        tools = ToolRegistry.list_all()
-
-    if args.category:
+    def _parse_category(raw: Optional[str]) -> Optional[Any]:
+        if not raw:
+            return None
         try:
-            category = ToolCategory(args.category)
+            return ToolCategory(raw)
         except ValueError:
-            category = ToolCategory(args.category.lower())
-        tools = [tool for tool in tools if tool.category == category]
+            return ToolCategory(raw.lower())
 
-    if args.max_cost:
+    def _parse_cost(raw: Optional[str]) -> Optional[Any]:
+        if not raw:
+            return None
         try:
-            max_cost = ComputationalCost(args.max_cost)
+            return ComputationalCost(raw)
         except ValueError:
-            max_cost = ComputationalCost(args.max_cost.lower())
-        allowed = {tool.name for tool in ToolRegistry.list_by_max_cost(max_cost)}
-        tools = [tool for tool in tools if tool.name in allowed]
+            return ComputationalCost(raw.lower())
 
-    result = {
-        "bundle": bundle,
-        "bundle_summary": get_bundle_summary(),
-        "tools": [
-            {
-                "name": tool.name,
-                "category": tool.category.value,
-                "cost": tool.cost.value,
-                "description": tool.description,
-                "dependencies": tool.dependencies,
-                "parameters": [
-                    {
-                        "name": p.name,
-                        "type": p.type,
-                        "optional": p.optional,
-                        "default": p.default,
-                    }
-                    for p in tool.parameters
-                ],
-            }
-            for tool in tools
-        ],
-    }
+    if args.tool_command == "list":
+        bundle = args.bundle
+        if bundle:
+            tool_names = get_bundle_names(bundle)
+            tools = [ToolRegistry.get(name) for name in tool_names]
+        else:
+            tools = ToolRegistry.list_all()
 
-    lines = ["Bundles:"]
-    for name, info in result["bundle_summary"].items():
-        lines.append(f"- {name}: {info['count']} tools")
+        category = _parse_category(args.category)
+        if category is not None:
+            tools = [tool for tool in tools if tool.category == category]
 
-    lines.append("Tools:")
-    for tool in tools:
-        dependency_hint = ""
+        max_cost = _parse_cost(args.max_cost)
+        if max_cost is not None:
+            allowed = {tool.name for tool in ToolRegistry.list_by_max_cost(max_cost)}
+            tools = [tool for tool in tools if tool.name in allowed]
+
+        result = {
+            "bundle": bundle,
+            "bundle_summary": get_bundle_summary(),
+            "tools": [_tool_summary_dict(tool) for tool in tools],
+        }
+
+        lines = ["Bundles:"]
+        for name, info in result["bundle_summary"].items():
+            lines.append(f"- {name}: {info['count']} tools")
+
+        lines.append("Tools:")
+        for tool in tools:
+            dependency_hint = ""
+            if tool.dependencies:
+                dependency_hint = f" deps={','.join(tool.dependencies)}"
+            lines.append(f"- {tool.name} ({tool.category.value}, {tool.cost.value}){dependency_hint}")
+
+        return result, "\n".join(lines)
+
+    if args.tool_command == "show":
+        tool = ToolRegistry.get(args.tool)
+        result = _tool_detail_dict(tool)
+        lines = [
+            f"Tool: {tool.name}",
+            f"Category: {tool.category.value}",
+            f"Cost: {tool.cost.value}",
+            f"Description: {tool.description}",
+            f"Returns: {tool.returns}",
+        ]
         if tool.dependencies:
-            dependency_hint = f" deps={','.join(tool.dependencies)}"
-        lines.append(f"- {tool.name} ({tool.category.value}, {tool.cost.value}){dependency_hint}")
+            lines.append(f"Dependencies: {', '.join(tool.dependencies)}")
+        if tool.parameters:
+            lines.append("Parameters:")
+            for param in tool.parameters:
+                optional = "optional" if param.optional else "required"
+                lines.append(f"- {param.name} ({param.type}, {optional})")
+        if tool.examples:
+            lines.append("Examples:")
+            for example in tool.examples:
+                lines.append(f"- {example}")
+        return result, "\n".join(lines)
 
-    return result, "\n".join(lines)
+    if args.tool_command == "search":
+        category = _parse_category(args.category)
+        max_cost = _parse_cost(args.max_cost)
+        tools = ToolRegistry.search(args.query, category=category, max_cost=max_cost)
+        result = {
+            "query": args.query,
+            "tools": [_tool_summary_dict(tool) for tool in tools],
+        }
+        lines = [f"Matches for '{args.query}':"]
+        for tool in tools:
+            lines.append(f"- {tool.name} ({tool.category.value}, {tool.cost.value})")
+        if not tools:
+            lines.append("(no matches)")
+        return result, "\n".join(lines)
+
+    if args.tool_command == "run":
+        return _handle_run_command(args)
+
+    raise ValueError(f"Unknown tool command: {args.tool_command}")
 
 
 def _handle_run_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]:
@@ -868,6 +1129,7 @@ def _handle_run_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]:
 
     params = _parse_param_entries(args.param, param_types)
     params = _apply_run_var_args(params, param_types, args.run_id, args.variable)
+    args._ts_input_payload = {"params": params}
     _raise_missing_required_error(
         tool_name=args.tool,
         param_types=param_types,
@@ -882,13 +1144,12 @@ def _handle_run_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]:
         allow_network=getattr(args, "allow_network", False),
     )
     execution = execute_tool(args.tool, params, context=context)
+    args._ts_execution_result = execution
     if not execution.success:
         if execution.error:
             raise execution.error
         raise RuntimeError(execution.formatted_output or "Tool execution failed")
 
-    if getattr(args, "json", False):
-        return execution.to_dict(), None
     return execution.result, execution.formatted_output or None
 
 
@@ -1611,7 +1872,8 @@ def run(argv: Optional[List[str]] = None) -> int:
             parser.error("Unknown command")
             return 2
 
-        output = render_output(result, json_output=args.json, text_output=text)
+        output_result = _success_envelope(args, result) if args.json else result
+        output = render_output(output_result, json_output=args.json, text_output=text)
         print(output)
 
         if args.save:
@@ -1621,7 +1883,7 @@ def run(argv: Optional[List[str]] = None) -> int:
             if args.extract_images:
                 filename_prefix = Path(args.save).stem or "image"
                 if args.json:
-                    payload = to_jsonable(result)
+                    payload = to_jsonable(output_result)
                     payload, image_paths = extract_images_from_jsonable(
                         payload,
                         image_dir=args.extract_images,
@@ -1650,11 +1912,11 @@ def run(argv: Optional[List[str]] = None) -> int:
         return 0
     except Exception as exc:  # pragma: no cover - fall through for CLI errors
         if getattr(args, "json", False):
-            error_output = render_output({"error": str(exc)}, json_output=True)
+            error_output = render_output(_error_envelope(args, exc), json_output=True)
             print(error_output)
         else:
             print(f"Error: {exc}", file=sys.stderr)
-        return 1
+        return _exit_code_for_exception(exc)
 
 
 def main() -> None:

@@ -4,6 +4,7 @@ from typing import Optional
 
 import numpy as np
 
+from ts_agents.contracts import ToolPayload
 from ts_agents.data_access import get_series as _get_series
 
 
@@ -31,7 +32,42 @@ def _get_series_data(
         variable_name=variable_name,
         use_test_data=use_test_data,
     )
-    
+
+
+def _result_data(result):
+    if hasattr(result, "to_dict") and callable(result.to_dict):
+        return result.to_dict()
+    return result
+
+
+def _series_provenance(variable_name: str, unique_id: str) -> dict:
+    return {
+        "series_ref": {
+            "source_type": "bundled_run",
+            "run_id": unique_id,
+            "variable": variable_name,
+        }
+    }
+
+
+def _tool_payload(
+    *,
+    kind: str,
+    summary: str,
+    data,
+    variable_name: str,
+    unique_id: str,
+    warnings: Optional[list] = None,
+) -> ToolPayload:
+    return ToolPayload(
+        kind=kind,
+        summary=summary,
+        data=data,
+        warnings=warnings or [],
+        provenance=_series_provenance(variable_name, unique_id),
+    )
+
+
 # Helper to format plots for agents (base64)
 def _create_plot_response(buf: io.BytesIO) -> str:
     img_base64 = base64.b64encode(buf.read()).decode('utf-8')
@@ -156,114 +192,74 @@ def forecast_arima_with_data(
     horizon: int = 10,
     confidence_level: float = 0.95,
     season_length: Optional[int] = None,
-) -> str:
+) -> ToolPayload:
     from ts_agents.core.forecasting import forecast_arima
-    try:
-        series = _get_series_data(variable_name, unique_id)
-        # Convert confidence_level 0.95 to level [95]
-        level_int = int(confidence_level * 100)
-        forecast_kwargs = {
-            "horizon": horizon,
-            "level": [level_int],
-        }
-        if season_length is not None:
-            forecast_kwargs["season_length"] = season_length
-        result = forecast_arima(series, **forecast_kwargs)
-        
-        output = f"ARIMA Forecast for {variable_name} (run {unique_id}):\n"
-        output += f"- Horizon: {horizon}\n"
-        output += f"- Forecast Values (next 5): {result.forecast[:5]}\n"
-
-        # Plotting
-        plt = _get_plt()
-        fig, ax = plt.subplots(figsize=(10, 6))
-        # Plot last part of history
-        hist = series[-min(len(series), 100):]
-        ax.plot(np.arange(len(hist)), hist, label='History')
-        # Plot forecast
-        x_pred = np.arange(len(hist), len(hist) + horizon)
-        ax.plot(x_pred, result.forecast, label='Forecast')
-        if result.lower_bound is not None:
-             ax.fill_between(x_pred, result.lower_bound, result.upper_bound, color='gray', alpha=0.2, label=f'{level_int}% CI')
-        
-        ax.legend()
-        plt.tight_layout()
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png')
-        plt.close(fig)
-        buf.seek(0)
-        output += _create_plot_response(buf)
-        return output
-    except Exception as e:
-        return f"Error in ARIMA: {str(e)}"
+    series = _get_series_data(variable_name, unique_id)
+    level_int = int(confidence_level * 100)
+    forecast_kwargs = {
+        "horizon": horizon,
+        "level": [level_int],
+    }
+    if season_length is not None:
+        forecast_kwargs["season_length"] = season_length
+    result = forecast_arima(series, **forecast_kwargs)
+    data = _result_data(result)
+    return _tool_payload(
+        kind="forecast",
+        summary=(
+            f"ARIMA forecast completed for {variable_name} "
+            f"(run {unique_id}) with horizon {horizon}."
+        ),
+        data=data,
+        variable_name=variable_name,
+        unique_id=unique_id,
+    )
 
 def forecast_ets_with_data(
     variable_name: str,
     unique_id: str,
     horizon: int = 10,
     season_length: Optional[int] = None,
-) -> str:
+) -> ToolPayload:
     from ts_agents.core.forecasting import forecast_ets
-    try:
-        series = _get_series_data(variable_name, unique_id)
-        forecast_kwargs = {"horizon": horizon}
-        if season_length is not None:
-            forecast_kwargs["season_length"] = season_length
-        result = forecast_ets(series, **forecast_kwargs)
-        
-        output = f"ETS Forecast for {variable_name} (run {unique_id}):\n"
-        output += f"First 5 predictions: {result.forecast[:5]}\n"
-        
-        plt = _get_plt()
-        fig, ax = plt.subplots(figsize=(10, 6))
-        hist = series[-min(len(series), 100):]
-        ax.plot(np.arange(len(hist)), hist, label='History')
-        x_pred = np.arange(len(hist), len(hist) + horizon)
-        ax.plot(x_pred, result.forecast, label='Forecast')
-        ax.legend()
-        plt.tight_layout()
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png')
-        plt.close(fig)
-        buf.seek(0)
-        output += _create_plot_response(buf)
-        return output
-    except Exception as e:
-        return f"Error in ETS: {str(e)}"
+    series = _get_series_data(variable_name, unique_id)
+    forecast_kwargs = {"horizon": horizon}
+    if season_length is not None:
+        forecast_kwargs["season_length"] = season_length
+    result = forecast_ets(series, **forecast_kwargs)
+    return _tool_payload(
+        kind="forecast",
+        summary=(
+            f"ETS forecast completed for {variable_name} "
+            f"(run {unique_id}) with horizon {horizon}."
+        ),
+        data=_result_data(result),
+        variable_name=variable_name,
+        unique_id=unique_id,
+    )
 
 def forecast_theta_with_data(
     variable_name: str,
     unique_id: str,
     horizon: int = 10,
     season_length: Optional[int] = None,
-) -> str:
+) -> ToolPayload:
     from ts_agents.core.forecasting import forecast_theta
-    try:
-        series = _get_series_data(variable_name, unique_id)
-        forecast_kwargs = {"horizon": horizon}
-        if season_length is not None:
-            forecast_kwargs["season_length"] = season_length
-        result = forecast_theta(series, **forecast_kwargs)
-
-        output = f"Theta Forecast for {variable_name} (run {unique_id}):\n"
-        output += f"First 5 predictions: {result.forecast[:5]}\n"
-        
-        plt = _get_plt()
-        fig, ax = plt.subplots(figsize=(10, 6))
-        hist = series[-min(len(series), 100):]
-        ax.plot(np.arange(len(hist)), hist, label='History')
-        x_pred = np.arange(len(hist), len(hist) + horizon)
-        ax.plot(x_pred, result.forecast, label='Forecast')
-        ax.legend()
-        plt.tight_layout()
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png')
-        plt.close(fig)
-        buf.seek(0)
-        output += _create_plot_response(buf)
-        return output
-    except Exception as e:
-        return f"Error in Theta: {str(e)}"
+    series = _get_series_data(variable_name, unique_id)
+    forecast_kwargs = {"horizon": horizon}
+    if season_length is not None:
+        forecast_kwargs["season_length"] = season_length
+    result = forecast_theta(series, **forecast_kwargs)
+    return _tool_payload(
+        kind="forecast",
+        summary=(
+            f"Theta forecast completed for {variable_name} "
+            f"(run {unique_id}) with horizon {horizon}."
+        ),
+        data=_result_data(result),
+        variable_name=variable_name,
+        unique_id=unique_id,
+    )
 
 
 def forecast_seasonal_naive_with_data(
@@ -271,36 +267,23 @@ def forecast_seasonal_naive_with_data(
     unique_id: str,
     horizon: int = 10,
     season_length: Optional[int] = None,
-) -> str:
+) -> ToolPayload:
     from ts_agents.core.forecasting import forecast_seasonal_naive
-    try:
-        series = _get_series_data(variable_name, unique_id)
-        forecast_kwargs = {"horizon": horizon}
-        if season_length is not None:
-            forecast_kwargs["season_length"] = season_length
-        result = forecast_seasonal_naive(series, **forecast_kwargs)
-
-        output = f"Seasonal Naive Forecast for {variable_name} (run {unique_id}):\n"
-        output += f"- Horizon: {horizon}\n"
-        output += f"- Season length: {season_length or 1}\n"
-        output += f"- First 5 predictions: {result.forecast[:5]}\n"
-
-        plt = _get_plt()
-        fig, ax = plt.subplots(figsize=(10, 6))
-        hist = series[-min(len(series), 100):]
-        ax.plot(np.arange(len(hist)), hist, label='History')
-        x_pred = np.arange(len(hist), len(hist) + horizon)
-        ax.plot(x_pred, result.forecast, label='Forecast')
-        ax.legend()
-        plt.tight_layout()
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png')
-        plt.close(fig)
-        buf.seek(0)
-        output += _create_plot_response(buf)
-        return output
-    except Exception as e:
-        return f"Error in Seasonal Naive: {str(e)}"
+    series = _get_series_data(variable_name, unique_id)
+    forecast_kwargs = {"horizon": horizon}
+    if season_length is not None:
+        forecast_kwargs["season_length"] = season_length
+    result = forecast_seasonal_naive(series, **forecast_kwargs)
+    return _tool_payload(
+        kind="forecast",
+        summary=(
+            f"Seasonal naive forecast completed for {variable_name} "
+            f"(run {unique_id}) with horizon {horizon}."
+        ),
+        data=_result_data(result),
+        variable_name=variable_name,
+        unique_id=unique_id,
+    )
 
 # Pattern Wrappers
 
@@ -445,42 +428,30 @@ def forecast_ensemble_with_data(
     horizon: int = 10,
     models: list = None,
     season_length: Optional[int] = None,
-) -> str:
+) -> ToolPayload:
     from ts_agents.core.forecasting import forecast_ensemble
-    try:
-        series = _get_series_data(variable_name, unique_id)
-        forecast_kwargs = {
-            "horizon": horizon,
-            "models": models,
-        }
-        if season_length is not None:
-            forecast_kwargs["season_length"] = season_length
-        result = forecast_ensemble(series, **forecast_kwargs)
-        ensemble_forecast = result.get_ensemble()
-        
-        output = f"Ensemble Forecast for {variable_name}:\n"
-        output += f"First 5 predictions: {ensemble_forecast[:5]}\n"
-        
-        plt = _get_plt()
-        fig, ax = plt.subplots(figsize=(10, 6))
-        hist = series[-min(len(series), 100):]
-        ax.plot(np.arange(len(hist)), hist, label='History')
-        x_pred = np.arange(len(hist), len(hist) + horizon)
-        ax.plot(x_pred, ensemble_forecast, label='Ensemble Forecast', linewidth=2)
-        
-        # Plot individual models if available
-        # Assuming result has a way to access individual forecasts, but for now just plotting ensemble
-        
-        ax.legend()
-        plt.tight_layout()
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png')
-        plt.close(fig)
-        buf.seek(0)
-        output += _create_plot_response(buf)
-        return output
-    except Exception as e:
-        return f"Error in Ensemble: {str(e)}"
+    series = _get_series_data(variable_name, unique_id)
+    forecast_kwargs = {
+        "horizon": horizon,
+        "models": models,
+    }
+    if season_length is not None:
+        forecast_kwargs["season_length"] = season_length
+    result = forecast_ensemble(series, **forecast_kwargs)
+    data = _result_data(result)
+    if not isinstance(data, dict):
+        data = {}
+    data["ensemble_forecast"] = result.get_ensemble()
+    return _tool_payload(
+        kind="forecast_comparison",
+        summary=(
+            f"Ensemble forecast completed for {variable_name} "
+            f"(run {unique_id}) with {len(data.get('forecasts', {}))} model forecasts."
+        ),
+        data=data,
+        variable_name=variable_name,
+        unique_id=unique_id,
+    )
 
 def compare_forecasts_with_data(
     variable_name: str,
@@ -489,7 +460,7 @@ def compare_forecasts_with_data(
     models: list = None,
     methods: list = None,
     season_length: Optional[int] = None,
-    ) -> str:
+    ) -> ToolPayload:
     from ts_agents.core.forecasting import compare_forecasts
     series = _get_series_data(variable_name, unique_id)
     selected_models = models if models is not None else methods
@@ -500,10 +471,18 @@ def compare_forecasts_with_data(
     if season_length is not None:
         compare_kwargs["season_length"] = season_length
     result = compare_forecasts(series, **compare_kwargs)
-
-    output = f"Forecast Comparison for {variable_name}:\n"
-    output += str(result)
-    return output
+    best_model = result.get("best_model")
+    summary = (
+        f"Forecast comparison completed for {variable_name} (run {unique_id}); "
+        f"best model by MAE: {best_model or 'n/a'}."
+    )
+    return _tool_payload(
+        kind="forecast_comparison",
+        summary=summary,
+        data=result,
+        variable_name=variable_name,
+        unique_id=unique_id,
+    )
 
 # Patterns
 
@@ -728,14 +707,17 @@ def compute_coherence_with_data(
 
 # Statistics
 
-def describe_series_with_data(variable_name: str, unique_id: str) -> str:
+def describe_series_with_data(variable_name: str, unique_id: str) -> ToolPayload:
     from ts_agents.core.statistics import describe_series
-    try:
-        series = _get_series_data(variable_name, unique_id)
-        result = describe_series(series)
-        return f"Statistics for {variable_name} (Run {unique_id}):\n{result}"
-    except Exception as e:
-        return f"Error in Stats: {str(e)}"
+    series = _get_series_data(variable_name, unique_id)
+    result = describe_series(series)
+    return _tool_payload(
+        kind="statistics",
+        summary=f"Descriptive statistics computed for {variable_name} (run {unique_id}).",
+        data=_result_data(result),
+        variable_name=variable_name,
+        unique_id=unique_id,
+    )
 
 def compute_autocorrelation_with_data(variable_name: str, unique_id: str, max_lag: int = None) -> str:
     from ts_agents.core.statistics import compute_autocorrelation

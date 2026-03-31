@@ -2,6 +2,8 @@ import numpy as np
 import pytest
 from types import SimpleNamespace
 
+from ts_agents.contracts import ToolPayload
+
 
 def _patch_plotting(monkeypatch, agent_tools):
     class _DummyAxis:
@@ -78,7 +80,7 @@ def test_compare_forecasts_with_data_forwards_models(monkeypatch):
         models=["theta"],
     )
 
-    assert "Error in Compare Forecasts" not in output
+    assert isinstance(output, ToolPayload)
     assert observed["horizon"] == 12
     assert observed["models"] == ["theta"]
     assert observed["extra_kwargs"] == {}
@@ -112,7 +114,7 @@ def test_compare_forecasts_with_data_accepts_methods_alias(monkeypatch):
         methods=["arima", "ets"],
     )
 
-    assert "Error in Compare Forecasts" not in output
+    assert isinstance(output, ToolPayload)
     assert observed["models"] == ["arima", "ets"]
 
 
@@ -145,7 +147,7 @@ def test_compare_forecasts_with_data_models_take_precedence(monkeypatch):
         methods=["arima"],
     )
 
-    assert "Error in Compare Forecasts" not in output
+    assert isinstance(output, ToolPayload)
     assert observed["models"] == ["theta"]
 
 
@@ -206,7 +208,7 @@ def test_compare_forecasts_with_data_forwards_season_length(monkeypatch):
         season_length=12,
     )
 
-    assert "Error in Compare Forecasts" not in output
+    assert isinstance(output, ToolPayload)
     assert observed["season_length"] == 12
 
 
@@ -235,7 +237,8 @@ def test_forecast_seasonal_naive_with_data_forwards_season_length(monkeypatch):
         season_length=12,
     )
 
-    assert "Error in Seasonal Naive" not in output
+    assert isinstance(output, ToolPayload)
+    assert output.kind == "forecast"
     assert observed["horizon"] == 2
     assert observed["season_length"] == 12
 
@@ -271,7 +274,8 @@ def test_forecast_ensemble_with_data_uses_get_ensemble(monkeypatch):
         season_length=12,
     )
 
-    assert "Error in Ensemble" not in output
+    assert isinstance(output, ToolPayload)
+    assert output.kind == "forecast_comparison"
     assert observed["horizon"] == 2
     assert observed["models"] == ["seasonal_naive", "theta"]
     assert observed["season_length"] == 12
