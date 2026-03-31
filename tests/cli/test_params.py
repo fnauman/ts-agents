@@ -1,4 +1,6 @@
+import io
 import json
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -120,6 +122,16 @@ def test_demo_help_includes_examples(capsys):
     output = capsys.readouterr().out
     assert "Examples:" in output
     assert "demo forecasting --no-llm" in output
+
+
+def test_workflow_help_includes_examples(capsys):
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["workflow", "run", "--help"])
+    output = capsys.readouterr().out
+    assert "Examples:" in output
+    assert "workflow run inspect-series" in output
+    assert "workflow run forecast-series" in output
 
 
 def test_unknown_tool_error_includes_suggestions(capsys):
@@ -373,6 +385,45 @@ def test_tool_run_json_returns_envelope(capsys):
     assert payload["command"] == "tool run"
     assert payload["name"] == "describe_series"
     assert payload["result"]["method"] == "descriptive"
+
+
+def test_tool_run_accepts_input_json(capsys):
+    code = run(
+        [
+            "tool",
+            "run",
+            "describe_series",
+            "--input-json",
+            '{"series":[1,2,3,4]}',
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["input"]["input_source"] == "inline_json"
+    assert payload["result"]["length"] == 4
+
+
+def test_tool_run_accepts_stdin_json(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "stdin", io.StringIO('{"series":[1,2,3,4]}'))
+
+    code = run(
+        [
+            "tool",
+            "run",
+            "describe_series",
+            "--stdin",
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["input"]["input_source"] == "stdin_json"
+    assert payload["result"]["length"] == 4
 
 
 def test_tool_run_json_includes_artifact_refs_for_payload_wrappers(
