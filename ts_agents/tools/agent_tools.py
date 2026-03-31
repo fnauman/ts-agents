@@ -156,6 +156,7 @@ def _finalize_plot_artifact(
 def _multi_series_provenance(series_refs: list[dict]) -> dict:
     return {"series_refs": series_refs}
 
+
 def stl_decompose_with_data(
     variable_name: str,
     unique_id: str,

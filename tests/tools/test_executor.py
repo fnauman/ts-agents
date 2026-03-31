@@ -1,6 +1,9 @@
 """Tests for tool executor serialization and context handling."""
 
 import json
+import shutil
+from pathlib import Path
+
 import numpy as np
 
 from ts_agents.contracts import ArtifactRef, ToolPayload
@@ -11,6 +14,8 @@ from ts_agents.tools.executor import (
     ExecutionStatus,
     LocalBackend,
     SandboxMode,
+    _persist_docker_artifacts,
+    _persist_subprocess_artifacts,
 )
 from ts_agents.tools.results import DecompositionResult as ToolDecompositionResult
 
@@ -89,6 +94,76 @@ def test_execution_result_serializes_tool_payload():
     assert payload["result"]["summary"] == "Computed stats."
     assert payload["result"]["artifacts"][0]["path"] == "/tmp/stats.png"
     json.dumps(payload)
+
+
+def _serialized_tool_payload(artifact_path: str) -> dict:
+    return {
+        "kind": "statistics",
+        "summary": "Computed stats.",
+        "data": {"mean": 1.5},
+        "artifacts": [
+            {
+                "kind": "image",
+                "path": artifact_path,
+                "mime_type": "image/png",
+                "description": "Stats plot",
+            }
+        ],
+    }
+
+
+def test_persist_subprocess_artifacts_copies_files_out_of_temp_dir(tmp_path):
+    artifact_dir = tmp_path / "subprocess" / "artifacts"
+    artifact_dir.mkdir(parents=True)
+    source_path = artifact_dir / "stats.png"
+    source_path.write_bytes(b"subprocess-png")
+
+    result = ExecutionResult(
+        status=ExecutionStatus.SUCCESS,
+        result=_serialized_tool_payload(str(source_path)),
+        formatted_output="stale formatted output",
+    )
+
+    persisted = _persist_subprocess_artifacts(
+        result,
+        host_artifact_dir=artifact_dir,
+    )
+    persisted_path = Path(persisted.result["artifacts"][0]["path"])
+
+    assert persisted_path != source_path
+    assert persisted_path.read_bytes() == b"subprocess-png"
+
+    shutil.rmtree(artifact_dir.parent)
+    assert persisted_path.exists()
+    assert str(persisted_path) in persisted.formatted_output
+
+
+def test_persist_docker_artifacts_remaps_container_paths(tmp_path):
+    artifact_dir = tmp_path / "docker" / "artifacts"
+    artifact_dir.mkdir(parents=True)
+    host_path = artifact_dir / "stats.png"
+    host_path.write_bytes(b"docker-png")
+
+    result = ExecutionResult(
+        status=ExecutionStatus.SUCCESS,
+        result=_serialized_tool_payload("/io/artifacts/stats.png"),
+        formatted_output="stale formatted output",
+    )
+
+    persisted = _persist_docker_artifacts(
+        result,
+        container_artifact_dir="/io/artifacts",
+        host_artifact_dir=artifact_dir,
+    )
+    persisted_path = Path(persisted.result["artifacts"][0]["path"])
+
+    assert persisted_path != host_path
+    assert persisted_path.read_bytes() == b"docker-png"
+    assert not str(persisted_path).startswith("/io/artifacts")
+
+    shutil.rmtree(artifact_dir.parent)
+    assert persisted_path.exists()
+    assert str(persisted_path) in persisted.formatted_output
 
 
 def test_local_backend_formats_tool_payload_with_artifacts():
