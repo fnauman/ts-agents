@@ -1,3 +1,4 @@
+import argparse
 import io
 import json
 import sys
@@ -48,6 +49,8 @@ def test_workflow_run_inspect_series_accepts_stdin_json(monkeypatch, capsys, tmp
     artifact_paths = {artifact["path"] for artifact in payload["result"]["artifacts"]}
     assert str(output_dir / "summary.json") in artifact_paths
     assert str(output_dir / "report.md") in artifact_paths
+    assert payload["result"]["data"]["autocorrelation"]["max_lag"] == 4
+    assert payload["result"]["data"]["autocorrelation"]["requested_max_lag"] == 8
 
 
 def test_workflow_run_forecast_series_writes_expected_files(monkeypatch, capsys, tmp_path):
@@ -113,3 +116,69 @@ def test_workflow_run_forecast_series_writes_expected_files(monkeypatch, capsys,
     assert str(output_dir / "forecast.json") in artifact_paths
     assert str(output_dir / "forecast.csv") in artifact_paths
     assert str(output_dir / "report.md") in artifact_paths
+
+
+def test_handle_workflow_command_uses_registry_runner(monkeypatch):
+    import importlib
+    import ts_agents.cli.input_parsing as input_parsing
+    import ts_agents.workflows as workflows
+
+    cli_main = importlib.import_module("ts_agents.cli.main")
+    observed = {}
+    fake_series_input = SimpleNamespace(provenance={"series_ref": {"source_type": "inline_json"}})
+
+    def fake_runner(series_input, **kwargs):
+        observed["series_input"] = series_input
+        observed["kwargs"] = kwargs
+        return {"ok": True}
+
+    def fake_build_runner_kwargs(args):
+        observed["builder_args"] = args.workflow_name
+        return {"output_dir": "outputs/custom", "skip_plots": True}
+
+    monkeypatch.setattr(
+        workflows,
+        "get_workflow",
+        lambda name: SimpleNamespace(
+            name=name,
+            runner=fake_runner,
+            build_runner_kwargs=fake_build_runner_kwargs,
+        ),
+    )
+    monkeypatch.setattr(
+        input_parsing,
+        "load_series_input",
+        lambda **kwargs: fake_series_input,
+    )
+
+    args = argparse.Namespace(
+        workflow_command="run",
+        workflow_name="inspect-series",
+        input=None,
+        input_json='{"series":[1,2,3]}',
+        stdin=False,
+        run_id=None,
+        variable=None,
+        time_col=None,
+        value_col=None,
+        use_test_data=False,
+        full_data=False,
+        output_dir="outputs/inspect",
+        max_lag=None,
+        skip_plots=True,
+    )
+
+    result, text = cli_main._handle_workflow_command(args)
+
+    assert text is None
+    assert result == {"ok": True}
+    assert observed["series_input"] is fake_series_input
+    assert observed["builder_args"] == "inspect-series"
+    assert observed["kwargs"] == {
+        "output_dir": "outputs/custom",
+        "skip_plots": True,
+    }
+    assert args._ts_input_payload["options"] == {
+        "output_dir": "outputs/custom",
+        "skip_plots": True,
+    }

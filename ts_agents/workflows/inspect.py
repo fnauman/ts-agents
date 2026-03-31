@@ -37,6 +37,7 @@ def run_inspect_series_workflow(
         acf=acf,
         length=len(series_input.series),
     )
+    effective_max_lag = max(len(acf) - 1, 0)
     summary_data = {
         "workflow": workflow_name,
         "source": series_input.provenance.get("series_ref", {}),
@@ -44,7 +45,8 @@ def run_inspect_series_workflow(
         "stats": to_jsonable(stats),
         "periodicity": to_jsonable(periodicity),
         "autocorrelation": {
-            "max_lag": int(resolved_max_lag),
+            "max_lag": int(effective_max_lag),
+            "requested_max_lag": int(resolved_max_lag),
             "lag_1": float(acf[1]) if len(acf) > 1 else None,
         },
         "recommended_next_steps": recommended_next_steps,

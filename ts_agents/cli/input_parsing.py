@@ -75,7 +75,20 @@ def load_tool_params_from_json(
         return {}, None
 
     if isinstance(payload, dict):
-        return payload, source_type
+        known_keys = [key for key in payload.keys() if key in param_names]
+        unknown_keys = [key for key in payload.keys() if key not in param_names]
+
+        if not unknown_keys:
+            return payload, source_type
+
+        if len(param_names) == 1 and not known_keys:
+            return {param_names[0]: payload}, source_type
+
+        available = ", ".join(param_names)
+        unknown = ", ".join(unknown_keys)
+        raise ValueError(
+            f"Unknown parameter(s) in JSON input: {unknown}. Available: {available}"
+        )
 
     if len(param_names) == 1:
         return {param_names[0]: payload}, source_type
@@ -135,7 +148,8 @@ def load_series_input(
             input_json=input_json,
             use_stdin=use_stdin,
         )
-        assert source_type is not None
+        if source_type is None:
+            raise RuntimeError("load_json_value returned no source type unexpectedly")
         return _series_input_from_json_payload(
             payload,
             source_type=source_type,
@@ -144,7 +158,8 @@ def load_series_input(
             value_col=value_col,
         )
 
-    assert input_path is not None
+    if input_path is None:
+        raise RuntimeError("load_series_input requires input_path when no other source is set")
     return _load_series_from_path(
         input_path=input_path,
         time_col=time_col,

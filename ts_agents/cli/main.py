@@ -716,24 +716,35 @@ def _add_skills_subcommands(subparsers: argparse._SubParsersAction) -> None:
 
 
 def _add_workflow_source_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
+    source_group = parser.add_mutually_exclusive_group()
+    source_group.add_argument(
         "--input",
         type=str,
         default=None,
-        help="Path to CSV, parquet, or JSON input data. Use '-' to read from stdin.",
+        help="Path to CSV, parquet, or JSON input data. Mutually exclusive with --input-json/--stdin/--run-id.",
     )
-    _add_json_input_args(parser)
-    parser.add_argument(
+    source_group.add_argument(
+        "--input-json",
+        type=str,
+        default=None,
+        help="JSON object/string or path to JSON file used as workflow input. Mutually exclusive with --input/--stdin/--run-id.",
+    )
+    source_group.add_argument(
+        "--stdin",
+        action="store_true",
+        help="Read workflow input from stdin. Mutually exclusive with --input/--input-json/--run-id.",
+    )
+    source_group.add_argument(
         "--run-id",
         type=str,
         default=None,
-        help="Bundled dataset run ID (compatibility source for workflows)",
+        help="Bundled dataset run ID. Requires --variable and is mutually exclusive with --input/--input-json/--stdin.",
     )
     parser.add_argument(
         "--variable",
         type=str,
         default=None,
-        help="Bundled dataset variable name (compatibility source for workflows)",
+        help="Bundled dataset variable name. Requires --run-id and should not be combined with other input source flags.",
     )
     parser.add_argument(
         "--time-col",
@@ -1369,6 +1380,7 @@ def _handle_workflow_command(args: argparse.Namespace) -> Tuple[Any, Optional[st
         workflow = get_workflow(args.workflow_name)
     except KeyError:
         raise ValueError(f"Unknown workflow '{args.workflow_name}'.") from None
+    _validate_workflow_source_args(args)
 
     series_input = load_series_input(
         input_path=getattr(args, "input", None),
@@ -1380,40 +1392,32 @@ def _handle_workflow_command(args: argparse.Namespace) -> Tuple[Any, Optional[st
         value_col=getattr(args, "value_col", None),
         use_test_data=_resolve_use_test_data(args),
     )
+    runner_kwargs = workflow.build_runner_kwargs(args)
     args._ts_input_payload = {
         "workflow": args.workflow_name,
         "source": series_input.provenance.get("series_ref", {}),
-        "options": {
-            "output_dir": getattr(args, "output_dir", None),
-            "horizon": getattr(args, "horizon", None),
-            "validation_size": getattr(args, "validation_size", None),
-            "methods": _split_csv(args.methods) if getattr(args, "methods", None) else None,
-            "max_lag": getattr(args, "max_lag", None),
-            "skip_plots": getattr(args, "skip_plots", False),
-        },
+        "options": runner_kwargs,
     }
+    result = workflow.runner(series_input, **runner_kwargs)
+    return result, None
 
-    if args.workflow_name == "inspect-series":
-        result = workflow.runner(
-            series_input,
-            output_dir=args.output_dir,
-            max_lag=args.max_lag,
-            skip_plots=args.skip_plots,
+
+def _validate_workflow_source_args(args: argparse.Namespace) -> None:
+    run_id = getattr(args, "run_id", None)
+    variable = getattr(args, "variable", None)
+    if bool(run_id) != bool(variable):
+        raise ValueError("Bundled workflow inputs require both --run-id and --variable.")
+
+    if variable and any(
+        (
+            getattr(args, "input", None),
+            getattr(args, "input_json", None),
+            getattr(args, "stdin", False),
         )
-        return result, None
-
-    if args.workflow_name == "forecast-series":
-        result = workflow.runner(
-            series_input,
-            output_dir=args.output_dir,
-            horizon=args.horizon,
-            methods=_split_csv(args.methods),
-            validation_size=args.validation_size,
-            skip_plots=args.skip_plots,
+    ):
+        raise ValueError(
+            "--variable is only valid with --run-id and cannot be combined with --input, --input-json, or --stdin."
         )
-        return result, None
-
-    raise ValueError(f"Unknown workflow '{args.workflow_name}'.")
 
 
 def _approval_prompt(tool_name: str) -> bool:

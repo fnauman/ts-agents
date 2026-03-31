@@ -406,6 +406,25 @@ def test_tool_run_accepts_input_json(capsys):
     assert payload["result"]["length"] == 4
 
 
+def test_tool_run_input_json_rejects_unknown_keys(capsys):
+    code = run(
+        [
+            "tool",
+            "run",
+            "describe_series",
+            "--input-json",
+            '{"series":[1,2,3,4],"name":"demo"}',
+            "--json",
+        ]
+    )
+
+    assert code == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "validation_error"
+    assert "Unknown parameter(s) in JSON input: name" in payload["error"]["message"]
+
+
 def test_tool_run_accepts_stdin_json(monkeypatch, capsys):
     monkeypatch.setattr(sys, "stdin", io.StringIO('{"series":[1,2,3,4]}'))
 
@@ -424,6 +443,22 @@ def test_tool_run_accepts_stdin_json(monkeypatch, capsys):
     assert payload["ok"] is True
     assert payload["input"]["input_source"] == "stdin_json"
     assert payload["result"]["length"] == 4
+
+
+def test_workflow_parser_rejects_conflicting_primary_sources():
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "workflow",
+                "run",
+                "inspect-series",
+                "--input",
+                "data.csv",
+                "--run-id",
+                "Re200Rm200",
+            ]
+        )
 
 
 def test_tool_run_json_includes_artifact_refs_for_payload_wrappers(
