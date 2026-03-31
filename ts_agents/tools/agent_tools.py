@@ -442,11 +442,21 @@ def forecast_ensemble_with_data(
     if not isinstance(data, dict):
         data = {}
     data["ensemble_forecast"] = result.get_ensemble()
+    if models is not None:
+        model_count = len(models)
+    else:
+        forecasts = data.get("forecasts")
+        model_count = len(forecasts) if isinstance(forecasts, dict) and forecasts else None
+    count_text = (
+        f" with {model_count} model forecasts."
+        if model_count is not None
+        else "."
+    )
     return _tool_payload(
         kind="forecast_comparison",
         summary=(
             f"Ensemble forecast completed for {variable_name} "
-            f"(run {unique_id}) with {len(data.get('forecasts', {}))} model forecasts."
+            f"(run {unique_id}){count_text}"
         ),
         data=data,
         variable_name=variable_name,

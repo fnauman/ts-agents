@@ -234,6 +234,23 @@ def _raise_missing_required_error(
     )
 
 
+def _raise_unknown_tool_error(tool_name: str) -> None:
+    from ts_agents.tools.registry import ToolRegistry
+
+    tool_names = [tool.name for tool in ToolRegistry.list_all()]
+    suggestions = _suggest_tool_names(tool_name, tool_names)
+    if suggestions:
+        hint = f" Did you mean: {', '.join(suggestions)}?"
+    else:
+        hint = ""
+    raise ValueError(
+        f"Tool '{tool_name}' not found.{hint}\n"
+        f"Tip: list tools with:\n"
+        f"  uv run ts-agents tool list\n"
+        f"  uv run ts-agents tool list --json"
+    )
+
+
 def _add_tool_run_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("tool", type=str, help="Tool name to execute")
     parser.add_argument(
@@ -1061,7 +1078,10 @@ def _handle_tool_command(args: argparse.Namespace) -> Tuple[Any, str]:
         return result, "\n".join(lines)
 
     if args.tool_command == "show":
-        tool = ToolRegistry.get(args.tool)
+        try:
+            tool = ToolRegistry.get(args.tool)
+        except KeyError:
+            _raise_unknown_tool_error(args.tool)
         result = _tool_detail_dict(tool)
         lines = [
             f"Tool: {tool.name}",
@@ -1111,18 +1131,7 @@ def _handle_run_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]:
     try:
         metadata = ToolRegistry.get(args.tool)
     except KeyError:
-        tool_names = [tool.name for tool in ToolRegistry.list_all()]
-        suggestions = _suggest_tool_names(args.tool, tool_names)
-        if suggestions:
-            hint = f" Did you mean: {', '.join(suggestions)}?"
-        else:
-            hint = ""
-        raise ValueError(
-            f"Tool '{args.tool}' not found.{hint}\n"
-            f"Tip: list tools with:\n"
-            f"  uv run ts-agents tool list\n"
-            f"  uv run ts-agents tool list --json"
-        )
+        _raise_unknown_tool_error(args.tool)
 
     param_types = {param.name: param.type for param in metadata.parameters}
     required = [param.name for param in metadata.parameters if not param.optional]
@@ -1910,7 +1919,7 @@ def run(argv: Optional[List[str]] = None) -> int:
                         print("No embedded images found to extract.")
 
         return 0
-    except Exception as exc:  # pragma: no cover - fall through for CLI errors
+    except Exception as exc:
         if getattr(args, "json", False):
             error_output = render_output(_error_envelope(args, exc), json_output=True)
             print(error_output)

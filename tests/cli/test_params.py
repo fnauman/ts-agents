@@ -337,6 +337,20 @@ def test_tool_show_json_returns_envelope(capsys):
     assert "input_schema" in payload["result"]
 
 
+def test_tool_show_json_unknown_tool_is_typed(capsys):
+    code = run(["tool", "show", "forecast_tetha_with_data", "--json"])
+
+    assert code == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["command"] == "tool show"
+    assert payload["name"] == "forecast_tetha_with_data"
+    assert payload["error"]["code"] == "validation_error"
+    assert "Tool 'forecast_tetha_with_data' not found." in payload["error"]["message"]
+    assert "Did you mean:" in payload["error"]["message"]
+    assert "forecast_theta_with_data" in payload["error"]["message"]
+
+
 def test_tool_search_json_returns_envelope(capsys):
     code = run(["tool", "search", "forecast", "--json"])
 

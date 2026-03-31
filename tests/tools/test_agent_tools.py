@@ -276,9 +276,42 @@ def test_forecast_ensemble_with_data_uses_get_ensemble(monkeypatch):
 
     assert isinstance(output, ToolPayload)
     assert output.kind == "forecast_comparison"
+    assert output.summary == (
+        "Ensemble forecast completed for bx001_real "
+        "(run Re200Rm200) with 2 model forecasts."
+    )
     assert observed["horizon"] == 2
     assert observed["models"] == ["seasonal_naive", "theta"]
     assert observed["season_length"] == 12
+
+
+def test_forecast_ensemble_with_data_omits_zero_count_when_models_absent(monkeypatch):
+    from ts_agents.tools import agent_tools
+    import ts_agents.core.forecasting as forecasting
+
+    def fake_get_series_data(variable_name, unique_id):
+        return np.array([1.0, 2.0, 3.0, 4.0])
+
+    class FakeEnsembleResult:
+        def get_ensemble(self):
+            return np.array([4.5, 5.5])
+
+    monkeypatch.setattr(agent_tools, "_get_series_data", fake_get_series_data)
+    monkeypatch.setattr(
+        forecasting,
+        "forecast_ensemble",
+        lambda series, horizon=10, models=None, season_length=None: FakeEnsembleResult(),
+    )
+    _patch_plotting(monkeypatch, agent_tools)
+
+    output = agent_tools.forecast_ensemble_with_data(
+        variable_name="bx001_real",
+        unique_id="Re200Rm200",
+        horizon=2,
+    )
+
+    assert isinstance(output, ToolPayload)
+    assert output.summary == "Ensemble forecast completed for bx001_real (run Re200Rm200)."
 
 
 def test_segment_changepoint_with_data_maps_n_changepoints_alias(monkeypatch):
