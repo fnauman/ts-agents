@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+from ts_agents.contracts import ArtifactRef, ToolPayload
 from ts_agents.cli.output import (
     extract_images_from_jsonable,
     extract_images_to_files,
@@ -103,3 +104,30 @@ def test_extract_images_from_jsonable_nested_payload(tmp_path):
     assert "[IMAGE_FILE:" in rewritten["message"]
     assert "[IMAGE_DATA:" not in rewritten["nested"][1]["details"]
     assert "[IMAGE_FILE:" in rewritten["nested"][1]["details"]
+
+
+def test_format_human_tool_payload_includes_artifacts():
+    payload = ToolPayload(
+        kind="patterns",
+        summary="Detected 2 peaks.",
+        data={"count": 2},
+        artifacts=[
+            ArtifactRef(
+                kind="image",
+                path="/tmp/peaks.png",
+                mime_type="image/png",
+                description="Peak detection plot",
+            )
+        ],
+        warnings=["Review prominence threshold."],
+    )
+
+    output = format_human(payload)
+
+    assert "Detected 2 peaks." in output
+    assert "Warnings:" in output
+    assert "Review prominence threshold." in output
+    assert "Artifacts:" in output
+    assert "/tmp/peaks.png" in output
+    assert "Data:" in output
+    assert "- count: 2" in output

@@ -33,12 +33,14 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Dict, List, Optional, Type, Union
 
 from .results import format_result, serialize_result
 
 logger = logging.getLogger(__name__)
+_TOOL_ARTIFACT_DIR_ENV = "TS_AGENTS_TOOL_ARTIFACT_DIR"
+_PERSISTENT_ARTIFACT_ROOT: Optional[Path] = None
 
 
 class SandboxMode(Enum):
@@ -62,6 +64,169 @@ def _coerce_sandbox_mode(value: Union["SandboxMode", str, None]) -> "SandboxMode
             if normalized in {mode.value, mode.name.lower()}:
                 return mode
     raise ValueError(f"Invalid sandbox mode: {value}")
+
+
+def _get_persistent_artifact_dir() -> Path:
+    """Create a persistent per-execution directory for sandbox artifacts."""
+    global _PERSISTENT_ARTIFACT_ROOT
+
+    if _PERSISTENT_ARTIFACT_ROOT is None:
+        _PERSISTENT_ARTIFACT_ROOT = Path(
+            tempfile.mkdtemp(prefix="ts_agents_exec_artifacts_")
+        )
+    _PERSISTENT_ARTIFACT_ROOT.mkdir(parents=True, exist_ok=True)
+
+    execution_dir = _PERSISTENT_ARTIFACT_ROOT / uuid.uuid4().hex[:8]
+    execution_dir.mkdir(parents=True, exist_ok=True)
+    return execution_dir
+
+
+def _is_artifact_ref_dict(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and isinstance(value.get("kind"), str)
+        and isinstance(value.get("path"), str)
+    )
+
+
+def _copy_artifact_to_dir(source_path: Path, dest_dir: Path) -> Path:
+    destination = dest_dir / source_path.name
+    if destination.exists():
+        destination = (
+            dest_dir / f"{source_path.stem}_{uuid.uuid4().hex[:8]}{source_path.suffix}"
+        )
+    shutil.copy2(source_path, destination)
+    return destination
+
+
+def _resolve_subprocess_artifact_path(
+    artifact_path: str,
+    *,
+    host_artifact_dir: Path,
+) -> Optional[Path]:
+    candidate = Path(artifact_path)
+    if not candidate.is_absolute():
+        candidate = host_artifact_dir / candidate
+
+    try:
+        resolved_base = host_artifact_dir.resolve()
+        resolved_candidate = candidate.resolve(strict=False)
+        resolved_candidate.relative_to(resolved_base)
+    except ValueError:
+        return None
+
+    return resolved_candidate
+
+
+def _resolve_docker_artifact_path(
+    artifact_path: str,
+    *,
+    container_artifact_dir: str,
+    host_artifact_dir: Path,
+) -> Optional[Path]:
+    try:
+        relative_path = PurePosixPath(artifact_path).relative_to(
+            PurePosixPath(container_artifact_dir)
+        )
+    except ValueError:
+        return None
+
+    return host_artifact_dir / Path(*relative_path.parts)
+
+
+def _relocate_artifact_refs(
+    value: Any,
+    *,
+    source_path_resolver: Callable[[str], Optional[Path]],
+    persistent_dir_holder: list[Optional[Path]],
+) -> tuple[Any, bool]:
+    if _is_artifact_ref_dict(value):
+        relocated = dict(value)
+        source_path = source_path_resolver(relocated["path"])
+        if source_path is None or not source_path.exists():
+            return relocated, False
+
+        persistent_dir = persistent_dir_holder[0]
+        if persistent_dir is None:
+            persistent_dir = _get_persistent_artifact_dir()
+            persistent_dir_holder[0] = persistent_dir
+
+        relocated["path"] = str(_copy_artifact_to_dir(source_path, persistent_dir))
+        return relocated, True
+
+    if isinstance(value, dict):
+        relocated = {}
+        changed = False
+        for key, item in value.items():
+            relocated_item, item_changed = _relocate_artifact_refs(
+                item,
+                source_path_resolver=source_path_resolver,
+                persistent_dir_holder=persistent_dir_holder,
+            )
+            relocated[key] = relocated_item
+            changed = changed or item_changed
+        return relocated, changed
+
+    if isinstance(value, list):
+        relocated = []
+        changed = False
+        for item in value:
+            relocated_item, item_changed = _relocate_artifact_refs(
+                item,
+                source_path_resolver=source_path_resolver,
+                persistent_dir_holder=persistent_dir_holder,
+            )
+            relocated.append(relocated_item)
+            changed = changed or item_changed
+        return relocated, changed
+
+    return value, False
+
+
+def _persist_subprocess_artifacts(
+    result: ExecutionResult,
+    *,
+    host_artifact_dir: Path,
+) -> ExecutionResult:
+    relocated_result, changed = _relocate_artifact_refs(
+        result.result,
+        source_path_resolver=lambda artifact_path: _resolve_subprocess_artifact_path(
+            artifact_path,
+            host_artifact_dir=host_artifact_dir,
+        ),
+        persistent_dir_holder=[None],
+    )
+    if not changed:
+        return result
+
+    result.result = relocated_result
+    if result.result is not None:
+        result.formatted_output = format_result(result.result)
+    return result
+
+
+def _persist_docker_artifacts(
+    result: ExecutionResult,
+    *,
+    container_artifact_dir: str,
+    host_artifact_dir: Path,
+) -> ExecutionResult:
+    relocated_result, changed = _relocate_artifact_refs(
+        result.result,
+        source_path_resolver=lambda artifact_path: _resolve_docker_artifact_path(
+            artifact_path,
+            container_artifact_dir=container_artifact_dir,
+            host_artifact_dir=host_artifact_dir,
+        ),
+        persistent_dir_holder=[None],
+    )
+    if not changed:
+        return result
+
+    result.result = relocated_result
+    if result.result is not None:
+        result.formatted_output = format_result(result.result)
+    return result
 
 
 class ExecutionStatus(Enum):
@@ -523,6 +688,8 @@ class DockerBackend(ExecutorBackend):
                 io_dir = Path(td)
                 req_path = io_dir / "request.json"
                 resp_path = io_dir / "response.json"
+                artifact_dir = io_dir / "artifacts"
+                artifact_dir.mkdir(parents=True, exist_ok=True)
                 req_path.write_text(json.dumps(request_payload, indent=2, default=str))
 
                 cmd: List[str] = [
@@ -554,6 +721,7 @@ class DockerBackend(ExecutorBackend):
                 # Pass user-provided env vars
                 for k, v in (context.environment or {}).items():
                     cmd += ["-e", f"{k}={v}"]
+                cmd += ["-e", f"{_TOOL_ARTIFACT_DIR_ENV}=/io/artifacts"]
 
                 # Run the sandbox runner inside the container
                 cmd += [
@@ -612,6 +780,11 @@ class DockerBackend(ExecutorBackend):
 
                 response_dict = json.loads(resp_path.read_text())
                 result = ExecutionResult.from_dict(response_dict)
+                result = _persist_docker_artifacts(
+                    result,
+                    container_artifact_dir="/io/artifacts",
+                    host_artifact_dir=artifact_dir,
+                )
 
                 # Augment metadata (preserve sandbox-side metadata too)
                 result.metadata = {**(result.metadata or {}), "backend": "docker", "image": image}
@@ -698,11 +871,14 @@ class SubprocessBackend(ExecutorBackend):
                 io_dir = Path(td)
                 req_path = io_dir / "request.json"
                 resp_path = io_dir / "response.json"
+                artifact_dir = io_dir / "artifacts"
+                artifact_dir.mkdir(parents=True, exist_ok=True)
                 req_path.write_text(json.dumps(request_payload, indent=2, default=str))
 
                 env = os.environ.copy()
                 for k, v in (context.environment or {}).items():
                     env[k] = str(v)
+                env[_TOOL_ARTIFACT_DIR_ENV] = str(artifact_dir)
 
                 cmd = [
                     sys.executable,
@@ -760,6 +936,10 @@ class SubprocessBackend(ExecutorBackend):
 
                 response_dict = json.loads(resp_path.read_text())
                 result = ExecutionResult.from_dict(response_dict)
+                result = _persist_subprocess_artifacts(
+                    result,
+                    host_artifact_dir=artifact_dir,
+                )
                 result.metadata = {**(result.metadata or {}), "backend": "subprocess"}
                 return result
 
