@@ -251,6 +251,21 @@ def _raise_unknown_tool_error(tool_name: str) -> None:
     )
 
 
+def _add_json_input_args(parser: argparse.ArgumentParser) -> None:
+    input_group = parser.add_mutually_exclusive_group()
+    input_group.add_argument(
+        "--input-json",
+        type=str,
+        default=None,
+        help="JSON object/string or path to JSON file used as structured input",
+    )
+    input_group.add_argument(
+        "--stdin",
+        action="store_true",
+        help="Read structured JSON input from stdin",
+    )
+
+
 def _add_tool_run_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("tool", type=str, help="Tool name to execute")
     parser.add_argument(
@@ -289,12 +304,15 @@ def _add_tool_run_args(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Allow network access in sandboxed execution (if supported)",
     )
+    _add_json_input_args(parser)
     _add_output_args(parser)
 
 
 def _command_label(args: argparse.Namespace) -> str:
     if args.command == "tool":
         return f"tool {args.tool_command}"
+    if args.command == "workflow":
+        return f"workflow {args.workflow_command}"
     if args.command == "run":
         return "tool run"
     return args.command
@@ -306,6 +324,9 @@ def _command_target_name(args: argparse.Namespace, exc: Optional[Exception] = No
             return getattr(args, "tool", None)
         if args.tool_command == "search":
             return getattr(args, "query", None)
+    if args.command == "workflow":
+        if args.workflow_command == "run":
+            return getattr(args, "workflow_name", None)
     if args.command == "run":
         return getattr(args, "tool", None)
     if isinstance(exc, ToolError):
@@ -336,6 +357,19 @@ def _command_input_payload(args: argparse.Namespace) -> Dict[str, Any]:
         return {k: v for k, v in vars(args).items() if k not in {"json", "save", "extract_images"}}
     if args.command == "skills":
         return {k: v for k, v in vars(args).items() if k not in {"json", "save", "extract_images"}}
+    if args.command == "workflow":
+        return {
+            k: v
+            for k, v in vars(args).items()
+            if k
+            not in {
+                "json",
+                "save",
+                "extract_images",
+                "_ts_input_payload",
+                "_ts_execution_result",
+            }
+        }
     if args.command == "demo":
         return {k: v for k, v in vars(args).items() if k not in {"json", "save", "extract_images"}}
     if args.command == "agent":
@@ -560,6 +594,8 @@ def _add_tool_subcommands(subparsers: argparse._SubParsersAction) -> None:
         epilog=(
             "Examples:\n"
             "  uv run ts-agents tool run forecast_theta_with_data --run Re200Rm200 --var bx001_real --param horizon=12\n"
+            "  uv run ts-agents tool run describe_series --input-json '{\"series\": [1,2,3,4]}'\n"
+            "  echo '{\"series\": [1,2,3,4]}' | uv run ts-agents tool run describe_series --stdin\n"
             "  uv run ts-agents tool run compare_forecasts_with_data --run Re200Rm200 --var bx001_real --param models=arima,theta --json\n"
             "  uv run ts-agents tool run describe_series_with_data --run Re200Rm200 --var bx001_real"
         ),
@@ -576,6 +612,7 @@ def _add_run_subcommands(subparsers: argparse._SubParsersAction) -> None:
             "Compatibility alias for 'ts-agents tool run'.\n\n"
             "Examples:\n"
             "  uv run ts-agents tool run forecast_theta_with_data --run Re200Rm200 --var bx001_real --param horizon=12\n"
+            "  uv run ts-agents tool run describe_series --input-json '{\"series\": [1,2,3,4]}'\n"
             "  uv run ts-agents tool run compare_forecasts_with_data --run Re200Rm200 --var bx001_real --param models=arima,theta --json\n"
             "  uv run ts-agents tool run stl_decompose_with_data --run Re200Rm200 --var bx001_real --save outputs/stl.md"
         ),
@@ -676,6 +713,147 @@ def _add_skills_subcommands(subparsers: argparse._SubParsersAction) -> None:
         help="Skills directory to list (default: canonical skills/)",
     )
     _add_output_args(list_parser)
+
+
+def _add_workflow_source_args(parser: argparse.ArgumentParser) -> None:
+    source_group = parser.add_mutually_exclusive_group()
+    source_group.add_argument(
+        "--input",
+        type=str,
+        default=None,
+        help="Path to CSV, parquet, or JSON input data. Mutually exclusive with --input-json/--stdin/--run-id.",
+    )
+    source_group.add_argument(
+        "--input-json",
+        type=str,
+        default=None,
+        help="JSON object/string or path to JSON file used as workflow input. Mutually exclusive with --input/--stdin/--run-id.",
+    )
+    source_group.add_argument(
+        "--stdin",
+        action="store_true",
+        help="Read workflow input from stdin. Mutually exclusive with --input/--input-json/--run-id.",
+    )
+    source_group.add_argument(
+        "--run-id",
+        type=str,
+        default=None,
+        help="Bundled dataset run ID. Requires --variable and is mutually exclusive with --input/--input-json/--stdin.",
+    )
+    parser.add_argument(
+        "--variable",
+        type=str,
+        default=None,
+        help="Bundled dataset variable name. Requires --run-id and should not be combined with other input source flags.",
+    )
+    parser.add_argument(
+        "--time-col",
+        type=str,
+        default=None,
+        help="Optional time/index column for tabular inputs",
+    )
+    parser.add_argument(
+        "--value-col",
+        type=str,
+        default=None,
+        help="Series value column for tabular inputs",
+    )
+    data_group = parser.add_mutually_exclusive_group()
+    data_group.add_argument(
+        "--use-test-data",
+        action="store_true",
+        help="Force use of bundled test data when using --run-id/--variable",
+    )
+    data_group.add_argument(
+        "--full-data",
+        action="store_true",
+        help="Force use of the full bundled dataset when using --run-id/--variable",
+    )
+
+
+def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
+    workflow_parser = subparsers.add_parser(
+        "workflow",
+        help="Opinionated end-to-end workflows",
+    )
+    workflow_sub = workflow_parser.add_subparsers(dest="workflow_command", required=True)
+
+    list_parser = workflow_sub.add_parser("list", help="List available workflows")
+    _add_output_args(list_parser)
+
+    run_parser = workflow_sub.add_parser(
+        "run",
+        help="Run a named workflow",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  uv run ts-agents workflow list\n"
+            "  uv run ts-agents workflow run inspect-series --input data.csv --time-col ds --value-col y\n"
+            "  uv run ts-agents workflow run forecast-series --input data.csv --time-col ds --value-col y --horizon 48\n"
+            "  echo '{\"series\": [1,2,3,4]}' | uv run ts-agents workflow run inspect-series --stdin --output-dir outputs/inspect"
+        ),
+    )
+    workflow_run_sub = run_parser.add_subparsers(dest="workflow_name", required=True)
+
+    inspect_parser = workflow_run_sub.add_parser(
+        "inspect-series",
+        help="Run quick diagnostics and write summary/report artifacts",
+    )
+    _add_workflow_source_args(inspect_parser)
+    inspect_parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="outputs/inspect",
+        help="Output directory for workflow artifacts",
+    )
+    inspect_parser.add_argument(
+        "--max-lag",
+        type=int,
+        default=None,
+        help="Maximum lag for autocorrelation output",
+    )
+    inspect_parser.add_argument(
+        "--skip-plots",
+        action="store_true",
+        help="Skip plot generation",
+    )
+    _add_output_args(inspect_parser)
+
+    forecast_parser = workflow_run_sub.add_parser(
+        "forecast-series",
+        help="Compare baseline forecasting methods and write forecast artifacts",
+    )
+    _add_workflow_source_args(forecast_parser)
+    forecast_parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="outputs/forecast",
+        help="Output directory for workflow artifacts",
+    )
+    forecast_parser.add_argument(
+        "--horizon",
+        type=int,
+        default=12,
+        help="Forecast horizon",
+    )
+    forecast_parser.add_argument(
+        "--methods",
+        type=str,
+        default="arima,theta",
+        help="Comma-separated methods to compare (default: arima,theta)",
+    )
+    forecast_parser.add_argument(
+        "--validation-size",
+        type=int,
+        default=None,
+        help="Holdout size for comparison (default: horizon)",
+    )
+    forecast_parser.add_argument(
+        "--skip-plots",
+        action="store_true",
+        help="Skip plot generation",
+    )
+    _add_output_args(forecast_parser)
 
 
 def _resolve_runtime_path(path: str) -> Path:
@@ -924,6 +1102,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_run_subcommands(subparsers)
     _add_agent_subcommands(subparsers)
     _add_skills_subcommands(subparsers)
+    _add_workflow_subcommands(subparsers)
     _add_demo_subcommands(subparsers)
 
     return parser
@@ -1125,6 +1304,7 @@ def _handle_tool_command(args: argparse.Namespace) -> Tuple[Any, str]:
 
 
 def _handle_run_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]:
+    from ts_agents.cli.input_parsing import load_tool_params_from_json
     from ts_agents.tools.registry import ToolRegistry
     from ts_agents.tools.executor import ExecutionContext, execute_tool
 
@@ -1136,9 +1316,20 @@ def _handle_run_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]:
     param_types = {param.name: param.type for param in metadata.parameters}
     required = [param.name for param in metadata.parameters if not param.optional]
 
-    params = _parse_param_entries(args.param, param_types)
+    input_params, input_source = load_tool_params_from_json(
+        input_json=getattr(args, "input_json", None),
+        use_stdin=getattr(args, "stdin", False),
+        param_names=list(param_types.keys()),
+    )
+    params = dict(input_params)
+    params.update(_parse_param_entries(args.param, param_types))
     params = _apply_run_var_args(params, param_types, args.run_id, args.variable)
-    args._ts_input_payload = {"params": params}
+    args._ts_input_payload = {
+        "params": params,
+        "input_source": input_source,
+        "run_id": args.run_id,
+        "variable": args.variable,
+    }
     _raise_missing_required_error(
         tool_name=args.tool,
         param_types=param_types,
@@ -1160,6 +1351,73 @@ def _handle_run_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]:
         raise RuntimeError(execution.formatted_output or "Tool execution failed")
 
     return execution.result, execution.formatted_output or None
+
+
+def _handle_workflow_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]:
+    from ts_agents.cli.input_parsing import load_series_input
+    from ts_agents.workflows import get_workflow, list_workflows
+
+    if args.workflow_command == "list":
+        workflows = list_workflows()
+        result = {
+            "workflows": [
+                {
+                    "name": workflow.name,
+                    "description": workflow.description,
+                }
+                for workflow in workflows
+            ]
+        }
+        lines = ["Workflows:"]
+        for workflow in workflows:
+            lines.append(f"- {workflow.name}: {workflow.description}")
+        return result, "\n".join(lines)
+
+    if args.workflow_command != "run":
+        raise ValueError(f"Unknown workflow command: {args.workflow_command}")
+
+    try:
+        workflow = get_workflow(args.workflow_name)
+    except KeyError:
+        raise ValueError(f"Unknown workflow '{args.workflow_name}'.") from None
+    _validate_workflow_source_args(args)
+
+    series_input = load_series_input(
+        input_path=getattr(args, "input", None),
+        input_json=getattr(args, "input_json", None),
+        use_stdin=getattr(args, "stdin", False),
+        run_id=getattr(args, "run_id", None),
+        variable_name=getattr(args, "variable", None),
+        time_col=getattr(args, "time_col", None),
+        value_col=getattr(args, "value_col", None),
+        use_test_data=_resolve_use_test_data(args),
+    )
+    runner_kwargs = workflow.build_runner_kwargs(args)
+    args._ts_input_payload = {
+        "workflow": args.workflow_name,
+        "source": series_input.provenance.get("series_ref", {}),
+        "options": runner_kwargs,
+    }
+    result = workflow.runner(series_input, **runner_kwargs)
+    return result, None
+
+
+def _validate_workflow_source_args(args: argparse.Namespace) -> None:
+    run_id = getattr(args, "run_id", None)
+    variable = getattr(args, "variable", None)
+    if bool(run_id) != bool(variable):
+        raise ValueError("Bundled workflow inputs require both --run-id and --variable.")
+
+    if variable and any(
+        (
+            getattr(args, "input", None),
+            getattr(args, "input_json", None),
+            getattr(args, "stdin", False),
+        )
+    ):
+        raise ValueError(
+            "--variable is only valid with --run-id and cannot be combined with --input, --input-json, or --stdin."
+        )
 
 
 def _approval_prompt(tool_name: str) -> bool:
@@ -1743,16 +2001,28 @@ def _run_demo_window_classification_llm(args: argparse.Namespace) -> Dict[str, A
 
 
 def _run_demo_forecasting_scripted(args: argparse.Namespace) -> Dict[str, Any]:
-    from ts_agents.cli.output import write_output
+    from pathlib import Path
 
-    artifacts = _run_forecasting_demo_comparison(args)
-    report = _build_demo_forecasting_report(
+    from ts_agents.cli.input_parsing import load_series_input
+    from ts_agents.cli.output import write_output
+    from ts_agents.workflows.forecast import run_forecast_series_workflow
+
+    series_input = load_series_input(
         run_id=args.run_id,
         variable_name=args.variable,
-        horizon=args.horizon,
-        methods=artifacts["methods"],
-        comparison_payload=artifacts["comparison_payload"],
+        use_test_data=_resolve_use_test_data(args),
     )
+    payload = run_forecast_series_workflow(
+        series_input,
+        output_dir=args.output_dir,
+        horizon=args.horizon,
+        methods=_split_csv(args.methods),
+        validation_size=args.validation_size,
+        skip_plots=args.skip_plots,
+        report_mode="scripted",
+    )
+    workflow_output_dir = Path(args.output_dir)
+    report = _as_demo_forecasting_report((workflow_output_dir / "report.md").read_text())
     report_path = _resolve_demo_report_path(
         args,
         default_report_path="outputs/demo/forecasting_report.md",
@@ -1763,11 +2033,15 @@ def _run_demo_forecasting_scripted(args: argparse.Namespace) -> Dict[str, Any]:
         "run_id": args.run_id,
         "variable": args.variable,
         "horizon": int(args.horizon),
-        "methods": artifacts["methods"],
-        "output_dir": str(artifacts["output_dir"]),
-        "comparison_path": str(artifacts["comparison_path"]),
-        "forecast_comparison_plot": str(artifacts["plot_path"]) if artifacts["plot_path"].exists() else None,
-        "best_method": artifacts["best_method"],
+        "methods": payload.data.get("methods", []),
+        "output_dir": str(workflow_output_dir),
+        "comparison_path": str(workflow_output_dir / "forecast_comparison.json"),
+        "forecast_comparison_plot": (
+            str(workflow_output_dir / "forecast_comparison.png")
+            if (workflow_output_dir / "forecast_comparison.png").exists()
+            else None
+        ),
+        "best_method": payload.data.get("best_method"),
         "report_path": str(report_path),
         "report": report,
         "mode": "scripted",
@@ -1775,7 +2049,11 @@ def _run_demo_forecasting_scripted(args: argparse.Namespace) -> Dict[str, Any]:
 
 
 def _run_demo_forecasting_llm(args: argparse.Namespace) -> Dict[str, Any]:
+    from pathlib import Path
+
+    from ts_agents.cli.input_parsing import load_series_input
     from ts_agents.cli.output import write_output
+    from ts_agents.workflows.forecast import run_forecast_series_workflow
 
     if not os.environ.get("OPENAI_API_KEY"):
         raise ValueError(
@@ -1783,15 +2061,23 @@ def _run_demo_forecasting_llm(args: argparse.Namespace) -> Dict[str, Any]:
             "Set OPENAI_API_KEY or run with --no-llm (scripted)."
         )
 
-    artifacts = _run_forecasting_demo_comparison(args)
-    report = _render_forecasting_report_with_llm(
-        model_name=args.model,
+    series_input = load_series_input(
         run_id=args.run_id,
         variable_name=args.variable,
-        horizon=args.horizon,
-        methods=artifacts["methods"],
-        comparison_payload=artifacts["comparison_payload"],
+        use_test_data=_resolve_use_test_data(args),
     )
+    payload = run_forecast_series_workflow(
+        series_input,
+        output_dir=args.output_dir,
+        horizon=args.horizon,
+        methods=_split_csv(args.methods),
+        validation_size=args.validation_size,
+        skip_plots=args.skip_plots,
+        report_mode="llm",
+        model_name=args.model,
+    )
+    workflow_output_dir = Path(args.output_dir)
+    report = _as_demo_forecasting_report((workflow_output_dir / "report.md").read_text())
     report_path = _resolve_demo_report_path(
         args,
         default_report_path="outputs/demo/forecasting_report.md",
@@ -1802,15 +2088,27 @@ def _run_demo_forecasting_llm(args: argparse.Namespace) -> Dict[str, Any]:
         "run_id": args.run_id,
         "variable": args.variable,
         "horizon": int(args.horizon),
-        "methods": artifacts["methods"],
-        "output_dir": str(artifacts["output_dir"]),
-        "comparison_path": str(artifacts["comparison_path"]),
-        "forecast_comparison_plot": str(artifacts["plot_path"]) if artifacts["plot_path"].exists() else None,
-        "best_method": artifacts["best_method"],
+        "methods": payload.data.get("methods", []),
+        "output_dir": str(workflow_output_dir),
+        "comparison_path": str(workflow_output_dir / "forecast_comparison.json"),
+        "forecast_comparison_plot": (
+            str(workflow_output_dir / "forecast_comparison.png")
+            if (workflow_output_dir / "forecast_comparison.png").exists()
+            else None
+        ),
+        "best_method": payload.data.get("best_method"),
         "report_path": str(report_path),
         "report": report,
         "mode": "llm",
     }
+
+
+def _as_demo_forecasting_report(report: str) -> str:
+    return report.replace(
+        "### Report on Forecast-Series Workflow",
+        "### Report on Forecasting Demo",
+        1,
+    )
 
 
 def _handle_demo_command(args: argparse.Namespace) -> Tuple[Any, str]:
@@ -1875,6 +2173,8 @@ def run(argv: Optional[List[str]] = None) -> int:
             result, text = _handle_agent_command(args)
         elif args.command == "skills":
             result, text = _handle_skills_command(args)
+        elif args.command == "workflow":
+            result, text = _handle_workflow_command(args)
         elif args.command == "demo":
             result, text = _handle_demo_command(args)
         else:

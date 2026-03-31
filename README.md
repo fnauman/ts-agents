@@ -40,30 +40,41 @@ separately and are not part of the published wheel.
 
 ## Choose Your Path
 
-### 1. Run a deterministic demo in under a minute
+### 1. Run a workflow in under a minute
 
-Use the scripted flows when you want a quick proof that the toolchain works,
-without requiring an LLM key.
+Use the workflow layer when you want reproducible CLI commands on bundled or
+custom data.
 
 ```bash
 uv sync
-uv run ts-agents demo window-classification --no-llm
-uv run ts-agents demo forecasting --no-llm
+uv run ts-agents workflow list
+uv run ts-agents workflow run inspect-series --input-json '{"series":[1,2,3,4]}'
+uv run ts-agents workflow run forecast-series --run-id Re200Rm200 --variable bx001_real --horizon 12
 ```
 
-### 2. Use the CLI on bundled or custom data
+### 2. Run a deterministic demo when you want the legacy demo path
 
-Use the CLI when you want reproducible commands, saved artifacts, and easy
-automation.
+Use the scripted demo aliases when you want the previous demo-oriented entry
+points without requiring an LLM key.
+
+```bash
+ts-agents demo window-classification --no-llm
+ts-agents demo forecasting --no-llm
+```
+
+### 3. Use the low-level CLI on bundled or custom data
+
+Use the low-level tool registry when you want direct access to individual
+analysis functions.
 
 ```bash
 ts-agents tool list --bundle demo
 ts-agents tool show forecast_theta_with_data
-ts-agents tool run stl_decompose_with_data --run Re200Rm200 --var bx001_real
+ts-agents tool run describe_series --input-json '{"series":[1,2,3,4]}'
 ts-agents demo window-classification --no-llm
 ```
 
-### 3. Launch the UI or prepare a hosted demo
+### 4. Launch the UI or prepare a hosted demo
 
 Use the Gradio app for interactive exploration, or the hosted entrypoint for a
 manual/public demo deployment. This is optional and secondary to the CLI.
@@ -110,8 +121,9 @@ Canonical design doc:
 
 ```bash
 uv sync
-uv run ts-agents demo window-classification --no-llm
-uv run ts-agents demo forecasting --no-llm
+uv run ts-agents workflow list
+uv run ts-agents workflow run inspect-series --input-json '{"series":[1,2,3,4]}'
+uv run ts-agents workflow run forecast-series --run-id Re200Rm200 --variable bx001_real --horizon 12
 ```
 
 LLM-backed demo/report mode requires `OPENAI_API_KEY`. Either export it
@@ -130,7 +142,9 @@ echo 'OPENAI_API_KEY=your-key' >> ~/.env
 uv run ts-agents demo window-classification
 ```
 
-The demo writes plots to `outputs/demo/` (e.g. `window_scores.png`).
+The workflow commands write artifacts under their `--output-dir`, for example
+`outputs/inspect/summary.json` or `outputs/forecast/forecast.csv`. The demo
+compatibility commands still write under `outputs/demo/`.
 
 ## Installation
 
@@ -305,6 +319,9 @@ ts-agents demo forecasting --no-llm
 ts-agents demo window-classification
 ts-agents demo forecasting
 ```
+
+`demo forecasting` is a compatibility alias over the `forecast-series`
+workflow core for one release cycle.
 
 Skill mapping for end-to-end demo runs:
 - `demo window-classification` -> `activity-recognition` skill

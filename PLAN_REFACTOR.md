@@ -985,6 +985,9 @@ Keep the refactor in a small number of related PRs.
 
 #### PR 1 — CLI contract and discovery slice
 
+Status:
+- merged
+
 Scope:
 - update repo messaging just enough to match the new CLI-first direction
 - add `tool show`, `tool search`, and `tool run`
@@ -1001,12 +1004,19 @@ Why this PR exists:
 
 #### PR 2 — Wrapper normalization and rendering cleanup
 
+Status:
+- merged
+
 Scope:
 - convert the remaining `*_with_data` wrappers away from success-looking error strings
 - separate structured payloads from human rendering across the remaining tool families
 - make artifact refs the default machine contract and keep inline/base64 only as a compatibility path
 
 #### PR 3 — Generic inputs and hero workflows
+
+Status:
+- in progress
+- issue: `#50`
 
 Scope:
 - add first-class `--input-json`, `--stdin`, and generic file-input handling
