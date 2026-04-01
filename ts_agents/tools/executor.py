@@ -1797,7 +1797,7 @@ class ToolExecutor:
 
             fallback_status = describe_sandbox_backend(fallback_backend)
             backend = self.backends.get(fallback_backend)
-            if backend is None or not fallback_status["available"]:
+            if backend is None or not fallback_status["available"] or not backend.is_available():
                 return ExecutionResult(
                     status=ExecutionStatus.FAILED,
                     error=ToolError(

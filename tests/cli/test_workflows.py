@@ -207,6 +207,96 @@ def test_workflow_run_activity_recognition_writes_expected_files(monkeypatch, ca
     assert str(output_dir / "report.md") in artifact_paths
 
 
+def test_workflow_run_activity_recognition_continues_when_plot_generation_fails(
+    monkeypatch,
+    capsys,
+    tmp_path,
+):
+    import ts_agents.core.windowing as windowing
+    import ts_agents.workflows.activity as activity_workflow
+
+    class FakeSelection:
+        best_window_size = 96
+        metric = "balanced_accuracy"
+
+        def to_dict(self):
+            return {
+                "method": "window_size_selection",
+                "best_window_size": 96,
+                "metric": "balanced_accuracy",
+                "scores_by_window": {32: 0.66, 96: 0.84},
+                "n_windows_by_window": {32: 180, 96: 120},
+                "details": {},
+            }
+
+    class FakeEval:
+        metric = "balanced_accuracy"
+        score = 0.84
+
+        def to_dict(self):
+            return {
+                "method": "windowed_classification",
+                "window_size": 96,
+                "stride": 48,
+                "classifier": "minirocket",
+                "metric": "balanced_accuracy",
+                "score": 0.84,
+                "n_windows": 120,
+                "class_counts": {"idle": 62, "walk": 58},
+                "classification": {
+                    "method": "minirocket",
+                    "accuracy": 0.86,
+                    "f1_score": 0.83,
+                    "confusion_matrix": [[26, 4], [5, 25]],
+                    "predictions": ["idle", "walk"],
+                },
+            }
+
+    def raise_plot_error(_payload):
+        raise ValueError("plot payload incomplete")
+
+    monkeypatch.setattr(windowing, "select_window_size", lambda *args, **kwargs: FakeSelection())
+    monkeypatch.setattr(windowing, "evaluate_windowed_classifier", lambda *args, **kwargs: FakeEval())
+    monkeypatch.setattr(activity_workflow, "_plot_window_selection", raise_plot_error)
+
+    csv_path = tmp_path / "stream.csv"
+    csv_path.write_text(
+        "x,y,z,label\n"
+        "0,0,0,idle\n"
+        "1,1,1,idle\n"
+        "2,2,2,walk\n"
+        "3,3,3,walk\n"
+    )
+
+    output_dir = tmp_path / "activity"
+    code = run(
+        [
+            "workflow",
+            "run",
+            "activity-recognition",
+            "--input",
+            str(csv_path),
+            "--label-col",
+            "label",
+            "--value-cols",
+            "x,y,z",
+            "--output-dir",
+            str(output_dir),
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["result"]["warnings"] == ["Skipping activity-recognition plots: plot payload incomplete"]
+    assert (output_dir / "window_selection.json").exists()
+    assert (output_dir / "eval.json").exists()
+    assert (output_dir / "report.md").exists()
+    assert not (output_dir / "window_scores.png").exists()
+    assert not (output_dir / "confusion_matrix.png").exists()
+
+
 def test_handle_workflow_command_uses_registry_runner(monkeypatch):
     import importlib
     import ts_agents.workflows as workflows

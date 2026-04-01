@@ -475,6 +475,27 @@ def test_tool_run_accepts_stdin_json(monkeypatch, capsys):
     assert payload["result"]["length"] == 4
 
 
+def test_tool_run_rejects_fallback_backend_without_allow_fallback(capsys):
+    code = run(
+        [
+            "tool",
+            "run",
+            "describe_series",
+            "--param",
+            "series=[1,2,3,4]",
+            "--fallback-backend",
+            "local",
+            "--json",
+        ]
+    )
+
+    assert code == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "validation_error"
+    assert "--fallback-backend requires --allow-fallback" in payload["error"]["message"]
+
+
 def test_workflow_parser_rejects_conflicting_primary_sources():
     parser = build_parser()
     with pytest.raises(SystemExit):

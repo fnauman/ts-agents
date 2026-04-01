@@ -313,7 +313,7 @@ def _add_tool_run_args(parser: argparse.ArgumentParser) -> None:
         "--fallback-backend",
         choices=["local", "subprocess", "docker", "daytona", "modal"],
         default=None,
-        help="Fallback backend when fallback is allowed (default: local)",
+        help="Fallback backend to use with --allow-fallback (default: local)",
     )
     _add_json_input_args(parser)
     _add_output_args(parser)
@@ -1492,7 +1492,8 @@ def _handle_run_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]:
     params = dict(input_params)
     params.update(_parse_param_entries(args.param, param_types))
     params = _apply_run_var_args(params, param_types, args.run_id, args.variable)
-    allow_fallback = getattr(args, "allow_fallback", False) or bool(getattr(args, "fallback_backend", None))
+    allow_fallback = getattr(args, "allow_fallback", False)
+    fallback_backend = getattr(args, "fallback_backend", None) or "local"
     args._ts_input_payload = {
         "params": params,
         "input_source": input_source,
@@ -1500,8 +1501,13 @@ def _handle_run_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]:
         "variable": args.variable,
         "sandbox": args.sandbox or os.environ.get("TS_AGENTS_SANDBOX_MODE") or "local",
         "allow_fallback": allow_fallback,
-        "fallback_backend": getattr(args, "fallback_backend", None) or "local",
+        "fallback_backend": fallback_backend,
     }
+    if getattr(args, "fallback_backend", None) and not allow_fallback:
+        raise ValueError(
+            "--fallback-backend requires --allow-fallback to take effect. "
+            "Pass --allow-fallback to opt in to backend fallback."
+        )
     _raise_missing_required_error(
         tool_name=args.tool,
         param_types=param_types,
@@ -1515,7 +1521,7 @@ def _handle_run_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]:
         user_approved=getattr(args, "approve", False),
         allow_network=getattr(args, "allow_network", False),
         allow_fallback=allow_fallback,
-        fallback_backend=getattr(args, "fallback_backend", None) or "local",
+        fallback_backend=fallback_backend,
     )
     execution = execute_tool(args.tool, params, context=context)
     args._ts_execution_result = execution

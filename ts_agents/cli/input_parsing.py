@@ -203,10 +203,18 @@ def load_labeled_stream_input(
             "Provide exactly one activity-recognition input source: --input, --input-json, or --stdin."
         )
 
-    if input_json or use_stdin:
+    if use_stdin:
+        return _load_labeled_stream_from_text(
+            sys.stdin.read(),
+            time_col=time_col,
+            value_cols=value_cols,
+            label_col=label_col,
+        )
+
+    if input_json:
         payload, source_type = load_json_value(
             input_json=input_json,
-            use_stdin=use_stdin,
+            use_stdin=False,
         )
         if source_type is None:
             raise RuntimeError("load_json_value returned no source type unexpectedly")
@@ -358,6 +366,52 @@ def _load_series_from_text(
         input_path="-",
         time_col=time_col,
         value_col=value_col,
+    )
+
+
+def _load_labeled_stream_from_text(
+    raw_text: str,
+    *,
+    time_col: Optional[str],
+    value_cols: Optional[list[str]],
+    label_col: str,
+) -> LabeledStreamInput:
+    stripped = raw_text.lstrip()
+    if not stripped:
+        raise ValueError("No input data was received from stdin.")
+
+    if stripped[0] in "[{":
+        try:
+            payload = json.loads(raw_text)
+        except json.JSONDecodeError:
+            payload = None
+        if payload is not None:
+            dataframe, label, _ = _dataframe_from_json_payload(
+                payload,
+                source_type="stdin_json",
+                input_path="stdin.json",
+            )
+            return _labeled_stream_input_from_dataframe(
+                dataframe,
+                source_type="stdin_json",
+                label=label,
+                input_path="-",
+                time_col=time_col,
+                value_cols=value_cols,
+                label_col=label_col,
+            )
+
+    import pandas as pd
+
+    df = pd.read_csv(StringIO(raw_text))
+    return _labeled_stream_input_from_dataframe(
+        df,
+        source_type="csv",
+        label="stdin.csv",
+        input_path="-",
+        time_col=time_col,
+        value_cols=value_cols,
+        label_col=label_col,
     )
 
 
@@ -526,7 +580,9 @@ def _labeled_stream_input_from_dataframe(
     labels = np.asarray(df[label_col].tolist(), dtype=object)
     if labels.size == 0:
         raise ValueError("Label column cannot be empty.")
-    if np.any(labels == None):  # noqa: E711
+    import pandas as pd
+
+    if bool(np.any(pd.isna(labels))):
         raise ValueError("Label column contains missing values.")
 
     values = np.asarray(df[resolved_value_cols].to_numpy(), dtype=np.float64)

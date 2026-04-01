@@ -100,6 +100,8 @@ def run_activity_recognition_workflow(
     warnings: List[str] = []
 
     if not skip_plots:
+        selection_fig = None
+        confusion_fig = None
         try:
             selection_fig = _plot_window_selection(selection_payload)
             artifacts.append(
@@ -120,13 +122,12 @@ def run_activity_recognition_workflow(
                     created_by=workflow_name,
                 )
             )
-
-            import matplotlib.pyplot as plt
-
-            plt.close(selection_fig)
-            plt.close(confusion_fig)
         except ImportError:
             warnings.append("matplotlib is not installed; skipping activity-recognition plots.")
+        except ValueError as exc:
+            warnings.append(f"Skipping activity-recognition plots: {exc}")
+        finally:
+            _close_plots(selection_fig, confusion_fig)
 
     report = _build_report(
         stream_input=stream_input,
@@ -257,6 +258,17 @@ def _plot_confusion_matrix(evaluation_payload: dict[str, Any]):
 
     fig.tight_layout()
     return fig
+
+
+def _close_plots(*figures: Any) -> None:
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        return
+
+    for figure in figures:
+        if figure is not None:
+            plt.close(figure)
 
 
 def _build_report(
