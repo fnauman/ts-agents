@@ -392,8 +392,8 @@ Tools run inside a sandbox. Pick one with `--sandbox <mode>` or set
 | **daytona** | Cloud sandbox | `pip install daytona` + `DAYTONA_API_KEY` ([Daytona docs](https://www.daytona.io/docs)); default bootstrap clones this repo + runs `pip install -e` |
 | **modal** | Serverless cloud | Source-checkout deployment path: `pip install modal`, run `modal token new` (opens browser auth) or set `MODAL_TOKEN_ID`/`MODAL_TOKEN_SECRET`, then from the repo root deploy with `modal deploy -m ts_agents.sandbox.modal_app --env main --name ts-agents-sandbox` |
 
-If the chosen backend is unavailable at runtime the executor falls back to
-**local** with a warning.
+If the chosen backend is unavailable at runtime, the executor fails with a
+typed error unless you pass `--allow-fallback`. See `SANDBOX.md` for details.
 
 For full details (env vars, resource limits, networking), see `SANDBOX.md`.
 
@@ -418,13 +418,17 @@ For full details (env vars, resource limits, networking), see `SANDBOX.md`.
 ## Repository Layout
 
 - `main.py` - Gradio app entrypoint
-- `ts_agents/cli/` - CLI parser, command handlers, output helpers
+- `ts_agents/cli/` - CLI parser, command handlers, input parsing, output helpers
+- `ts_agents/contracts.py` - shared data contracts (ToolPayload, CLIEnvelope, ArtifactRef)
 - `ts_agents/core/` - pure time-series algorithms
 - `ts_agents/tools/` - tool registry, wrappers, execution/sandbox routing
+- `ts_agents/workflows/` - first-class workflow implementations (inspect, forecast, activity)
 - `ts_agents/agents/` - simple and deep agent implementations
+- `ts_agents/evals/` - deterministic evaluation harness
 - `ts_agents/ui/` - Gradio tabs/components
 - `ts_agents/persistence/` - cache/session/experiment logging
 - `tests/` - unit and CLI tests
+- `benchmarks/` - checked-in benchmark snapshots and results
 - `data/` - sample datasets and data generation/download scripts
 - `skills/` - canonical skill definitions
 - `build_docker_sandbox.sh` + `Dockerfile.sandbox` - Docker sandbox build assets

@@ -56,16 +56,22 @@ uv run python -m pytest -q
 
 ## Repo map (where to look first)
 - `ts_agents/cli/main.py` — argparse CLI for `data`, `tool`, `workflow`, `sandbox`, `agent`, `skills`, and deprecated `run` / `demo` aliases
-- `main.py` — source-checkout wrapper for `ts-agents-ui`
-- `app.py` — source-checkout wrapper for `ts-agents-hosted`
-- `ts_agents/hosted_app.py` — hosted/manual Gradio profile configured through environment variables
-- `ts_agents/ui/` — Gradio UI (tabs + chat)
-- `ts_agents/agents/` — agent implementations (simple + deep)
+- `ts_agents/cli/input_parsing.py` — flexible input handling (CSV, JSON, stdin)
+- `ts_agents/cli/output.py` — structured output rendering and image extraction
+- `ts_agents/contracts.py` — shared data contracts (ArtifactRef, ToolPayload, CLIEnvelope, CLIError)
+- `ts_agents/workflows/` — first-class workflow implementations (inspect, forecast, activity)
 - `ts_agents/tools/` — tool registry + wrappers (LangChain + deep agent tools)
 - `ts_agents/core/` — pure analysis implementations (decomposition, forecasting, patterns, classification, spectral)
+- `ts_agents/evals/` — deterministic evaluation harness
+- `ts_agents/agents/` — agent implementations (simple + deep)
 - `ts_agents/persistence/` — session persistence + caching
 - `ts_agents/resources/` — packaged data, demo assets, and skill mirrors used by installed wheels
+- `ts_agents/ui/` — Gradio UI (tabs + chat)
+- `ts_agents/hosted_app.py` — hosted/manual Gradio profile configured through environment variables
+- `main.py` — source-checkout wrapper for `ts-agents-ui`
+- `app.py` — source-checkout wrapper for `ts-agents-hosted`
 - `skills/` — canonical skill definitions
+- `benchmarks/` — checked-in benchmark snapshots and results
 - `demo/` — source-checkout helper scripts, plots, and VHS tapes
 - `docs/` — Quarto docs site source
 - `tests/` — unit tests
