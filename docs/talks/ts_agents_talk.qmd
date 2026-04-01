@@ -122,7 +122,7 @@ Agents and UIs are optional front-ends.
 ```
 ┌──────────────────────────────────┐    ┌──────────────────────────────┐
 │  ts-agents CLI (contract)        │    │  Front-ends (swappable)      │
-│  workflow / tool / sandbox /      │    │                              │
+│  workflow / tool / sandbox /     │    │                              │
 │  skills / data / agent           │    │  • Claude Code / Codex CLI   │
 └──────────┬───────────────────────┘    │  • Custom agents (simple +   │
            │                            │    deep via LangChain)       │

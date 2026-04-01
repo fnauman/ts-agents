@@ -419,7 +419,7 @@ For full details (env vars, resource limits, networking), see `SANDBOX.md`.
 
 - `main.py` - Gradio app entrypoint
 - `ts_agents/cli/` - CLI parser, command handlers, input parsing, output helpers
-- `ts_agents/contracts.py` - shared data contracts (ToolPayload, CLIEnvelope, ArtifactRef)
+- `ts_agents/contracts.py` - shared data contracts (ArtifactRef, ToolPayload, CLIEnvelope, CLIError)
 - `ts_agents/core/` - pure time-series algorithms
 - `ts_agents/tools/` - tool registry, wrappers, execution/sandbox routing
 - `ts_agents/workflows/` - first-class workflow implementations (inspect, forecast, activity)
