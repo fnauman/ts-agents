@@ -243,7 +243,8 @@ def _execute_step(step: StepDefinition, state: dict[str, Any]) -> CommandExecuti
             else:
                 parse_failure = True
     else:
-        parse_failure = True
+        # Silent success means "no structured payload", not "malformed payload".
+        parse_failure = exit_code != 0
 
     error_code = ((payload or {}).get("error") or {}).get("code")
     invalid_tool_call = bool(error_code == "validation_error")

@@ -84,3 +84,24 @@ def test_refactor_benchmark_main_prints_output_paths(monkeypatch, tmp_path, caps
     payload = json.loads(capsys.readouterr().out)
     assert payload["output_dir"] == str(tmp_path)
     assert payload["results_path"] == str(tmp_path / "results.json")
+    assert payload["markdown_path"] == str(tmp_path / "summary.md")
+
+
+def test_execute_step_silent_success_is_not_parse_failure(monkeypatch):
+    import ts_agents.evals.refactor_benchmark as benchmark_mod
+
+    monkeypatch.setattr(benchmark_mod, "run_cli", lambda argv: 0)
+
+    step = benchmark_mod.StepDefinition(
+        label="silent_success",
+        argv_factory=lambda state: ["tool", "search", "forecast", "--json"],
+    )
+    state = {"attempts": []}
+
+    execution = benchmark_mod._execute_step(step, state)
+
+    assert execution.executed is True
+    assert execution.exit_code == 0
+    assert execution.stdout == ""
+    assert execution.parse_failure is False
+    assert execution.payload is None
