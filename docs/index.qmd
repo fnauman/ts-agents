@@ -2,23 +2,24 @@
 title: "ts-agents docs"
 ---
 
-`ts-agents` is a CLI-first toolkit for time-series analysis and agent automation.
-It wraps statistical forecasting methods, sandboxed code execution, and
-LLM-driven agents behind a single `ts-agents` command so you can go from raw
-data to evaluated forecasts without writing glue code.
+`ts-agents` is a CLI-first toolkit for time-series analysis and agent
+automation. It wraps statistical forecasting methods, sandboxed code
+execution, and LLM-driven agents behind a stable workflow/tool contract so you
+can go from raw data to evaluated artifacts without writing glue code.
 
 These docs capture the project's durable design choices so interfaces can evolve
 without rewriting the core toolchain.
 
 ## Get Started
 
-1. [Quickstart](quickstart.qmd) — install and run your first command in under a minute
-2. [CLI Examples](cli-examples.qmd) — practical CLI patterns by example
-3. [Walkthroughs](walkthroughs.qmd) — step-by-step guides for the built-in demos
+1. [Quickstart](quickstart.qmd) — install and run your first workflow in under a minute
+2. [CLI Examples](cli-examples.qmd) — practical workflow/tool patterns by example
+3. [Walkthroughs](walkthroughs.qmd) — step-by-step guides for the first-class workflows
 
 ## Learn More
 
 - [Skills Guide](skills-guide.qmd) — using, customizing, and creating skills
+- [Evaluation](evaluation.qmd) — benchmark evidence and rerun instructions
 - [Design](philosophy.qmd) — why the project is structured around a stable CLI contract
 - [Distribution](distribution.qmd) — packaging, release, and publishing workflow
 

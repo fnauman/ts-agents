@@ -4,24 +4,28 @@
 [![Python](https://img.shields.io/badge/python-3.11--3.13-3776AB)](#installation)
 [![License](https://img.shields.io/badge/license-MIT-2EA44F)](https://github.com/fnauman/ts-agents/blob/main/LICENSE)
 
-`ts-agents` provides time-series skills, tool contracts, and sandboxes for
+`ts-agents` provides time-series skills, workflow contracts, and sandboxes for
 agentic workflows.
 
 It is built around:
-- a stable CLI contract for discovery and execution (`ts-agents tool ...`)
+- a stable CLI contract for discovery and execution (`ts-agents workflow ...`, `ts-agents tool ...`)
 - inspectable artifacts instead of chat-only outputs (plots, JSON, reports)
 - reusable skills that encode time-series workflow guidance
 - optional sandboxes for safer, reproducible execution (`local`, `subprocess`, `docker`, `daytona`, `modal`)
 - optional adapters on top, including Gradio and built-in agent entrypoints
 
-It ships with two out-of-the-box demos:
-- `window-classification` (synthetic labeled-stream window-size selection + evaluation)
-- `forecasting` (baseline comparison and report artifacts)
+It ships with three first-class workflows:
+- `inspect-series` (quick diagnostics + summary/report artifacts)
+- `forecast-series` (baseline comparison + forecast/report artifacts)
+- `activity-recognition` (labeled-stream window-size selection + evaluation)
+
+Legacy compatibility aliases for `ts-agents demo ...` remain available for one
+release cycle and emit deprecation warnings.
 
 Source-checkout-only datasets such as `data/wisdm_subset.csv` are documented
 separately and are not part of the published wheel.
 
-**Start here:** [Quickstart](#quickstart) | [Choose your path](#choose-your-path) | [Docs site](https://fnauman.github.io/ts-agents/) | [Distribution guide](https://fnauman.github.io/ts-agents/distribution.html) | [Demo walkthroughs](https://fnauman.github.io/ts-agents/walkthroughs.html)
+**Start here:** [Quickstart](#quickstart) | [Choose your path](#choose-your-path) | [Docs site](https://fnauman.github.io/ts-agents/) | [Evaluation harness](https://fnauman.github.io/ts-agents/evaluation.html) | [Workflow walkthroughs](https://fnauman.github.io/ts-agents/walkthroughs.html)
 
 ![ts-agents demo](https://raw.githubusercontent.com/fnauman/ts-agents/main/demo/assets/demo.gif)
 
@@ -49,22 +53,12 @@ custom data.
 uv sync
 uv run ts-agents workflow list
 uv run ts-agents workflow run inspect-series --input-json '{"series":[1,2,3,4]}'
-uv run ts-agents workflow run forecast-series --run-id Re200Rm200 --variable bx001_real --horizon 12
+uv run ts-agents workflow run forecast-series --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' --horizon 3
+uv run python data/make_synthetic_labeled_stream.py --scenario gait --seconds 40 --seed 1337 --out data/demo_labeled_stream.csv
 uv run ts-agents workflow run activity-recognition --input data/demo_labeled_stream.csv --label-col label --value-cols x,y,z
 ```
 
-### 2. Run a deterministic demo when you want the legacy demo path
-
-Use the scripted demo aliases when you want the previous demo-oriented entry
-points without requiring an LLM key. `demo window-classification` now rides on
-the same workflow core as `workflow run activity-recognition`.
-
-```bash
-ts-agents demo window-classification --no-llm
-ts-agents demo forecasting --no-llm
-```
-
-### 3. Use the low-level CLI on bundled or custom data
+### 2. Use the low-level CLI on bundled or custom data
 
 Use the low-level tool registry when you want direct access to individual
 analysis functions.
@@ -77,7 +71,7 @@ ts-agents sandbox list
 ts-agents skills show forecasting
 ```
 
-### 4. Launch the UI or prepare a hosted demo
+### 3. Launch the UI or prepare a hosted demo
 
 Use the Gradio app for interactive exploration, or the hosted entrypoint for a
 manual/public demo deployment. This is optional and secondary to the CLI.
@@ -103,7 +97,7 @@ Use the underlying libraries directly when:
 - you do not need artifacts, tool routing, or sandboxed execution
 
 Use `ts-agents` when you want:
-- a stable CLI contract that works the same across demos, agents, and automation
+- a stable CLI contract that works the same across workflows, agents, and automation
 - artifact-first outputs (plots, JSON, markdown/report assets) instead of chat-only responses
 - reusable skills and tool bundles that encode workflow guidance
 - optional sandbox backends for isolation, deployment, and heavier workloads
@@ -126,11 +120,12 @@ Canonical design doc:
 uv sync
 uv run ts-agents workflow list
 uv run ts-agents workflow run inspect-series --input-json '{"series":[1,2,3,4]}'
-uv run ts-agents workflow run forecast-series --run-id Re200Rm200 --variable bx001_real --horizon 12
+uv run ts-agents workflow run forecast-series --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' --horizon 3
+uv run python data/make_synthetic_labeled_stream.py --scenario gait --seconds 40 --seed 1337 --out data/demo_labeled_stream.csv
 uv run ts-agents workflow run activity-recognition --input data/demo_labeled_stream.csv --label-col label --value-cols x,y,z
 ```
 
-LLM-backed demo/report mode requires `OPENAI_API_KEY`. Either export it
+LLM-backed agent/report mode requires `OPENAI_API_KEY`. Either export it
 directly or add it to `~/.env` (one `KEY=VALUE` per line; the app loads this
 file automatically and will not overwrite variables already in your shell):
 
@@ -143,12 +138,15 @@ echo 'OPENAI_API_KEY=your-key' >> ~/.env
 ```
 
 ```bash
-uv run ts-agents demo window-classification
+uv run ts-agents agent run "Use the forecasting skill to compare ARIMA and Theta for a short univariate series"
 ```
 
 The workflow commands write artifacts under their `--output-dir`, for example
-`outputs/inspect/summary.json` or `outputs/forecast/forecast.csv`. The demo
-compatibility commands still write under `outputs/demo/`.
+`outputs/inspect/summary.json` or `outputs/forecast/forecast.csv`.
+
+Compatibility note: `ts-agents run ...` and `ts-agents demo ...` still work for
+one release cycle, but they now emit deprecation warnings. Prefer
+`ts-agents tool run ...` and `ts-agents workflow run ...`.
 
 ## Installation
 
@@ -287,17 +285,25 @@ ts-agents tool list
 ts-agents tool list --bundle demo
 ```
 
+### Run workflows
+
+```bash
+ts-agents workflow list
+ts-agents workflow run inspect-series --input-json '{"series":[1,2,3,4]}'
+ts-agents workflow run forecast-series --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' --horizon 3
+```
+
 ### Run tools directly
 
 ```bash
-ts-agents run stl_decompose_with_data --run Re200Rm200 --var bx001_real
-ts-agents run forecast_theta_with_data --run Re200Rm200 --var bx001_real --param horizon=30
+ts-agents tool run stl_decompose_with_data --run Re200Rm200 --var bx001_real
+ts-agents tool run forecast_theta_with_data --run Re200Rm200 --var bx001_real --param horizon=30
 ```
 
 ### Save output and extract embedded images
 
 ```bash
-ts-agents run forecast_theta_with_data \
+ts-agents tool run forecast_theta_with_data \
   --run Re200Rm200 \
   --var bx001_real \
   --param horizon=30 \
@@ -312,24 +318,11 @@ ts-agents agent run "Find peaks in bx001_real for Re200Rm200"
 ts-agents agent run --type deep "Compare forecasting methods for bx001_real"
 ```
 
-### Demos
+### Compatibility aliases
 
-```bash
-# Scripted (no API key required)
-ts-agents demo window-classification --no-llm
-ts-agents demo forecasting --no-llm
-
-# LLM-backed report mode
-ts-agents demo window-classification
-ts-agents demo forecasting
-```
-
-`demo forecasting` is a compatibility alias over the `forecast-series`
-workflow core for one release cycle.
-
-Skill mapping for end-to-end demo runs:
-- `demo window-classification` -> `activity-recognition` skill
-- `demo forecasting` -> `forecasting` skill
+`ts-agents run ...` and `ts-agents demo ...` still work for one release cycle
+to avoid breaking existing automation, but both surfaces now emit deprecation
+warnings and are intentionally omitted from the recommended examples below.
 
 Note: the WISDM example under `data/wisdm_subset.csv` is a source-checkout
 workflow and is not bundled into the published wheel.
@@ -337,13 +330,13 @@ workflow and is not bundled into the published wheel.
 Example prompt for Claude Code:
 
 ```text
-Use the `time-series-activity-recognition` skill. Run `ts-agents demo window-classification --no-llm`, save outputs under `outputs/demo/`, and produce `outputs/reports/activity-recognition.qmd` plus `outputs/reports/activity-recognition.pdf`.
+Use the `time-series-activity-recognition` skill. Generate a synthetic labeled stream with `uv run python data/make_synthetic_labeled_stream.py --scenario gait --seconds 40 --seed 1337 --out data/demo_labeled_stream.csv`, run `ts-agents workflow run activity-recognition --input data/demo_labeled_stream.csv --label-col label --value-cols x,y,z --output-dir outputs/activity-recognition`, and produce `outputs/reports/activity-recognition.qmd` plus `outputs/reports/activity-recognition.pdf`.
 ```
 
 Example prompt for Codex:
 
 ```text
-Use the `forecasting` skill. Run `ts-agents demo forecasting --no-llm`, summarize the outputs, and generate `outputs/reports/forecasting-summary.qmd` plus `outputs/reports/forecasting-summary.pdf`.
+Use the `forecasting` skill. Run `ts-agents workflow run forecast-series --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' --horizon 3 --output-dir outputs/forecasting`, summarize the artifacts, and generate `outputs/reports/forecasting-summary.qmd` plus `outputs/reports/forecasting-summary.pdf`.
 ```
 
 For polished deliverables, generate a Quarto report and render to PDF:
@@ -407,7 +400,8 @@ For full details (env vars, resource limits, networking), see `SANDBOX.md`.
 ## Guides
 
 - Quickstart: `docs/quickstart.qmd`
-- Demo walkthroughs: `docs/walkthroughs.qmd`
+- Workflow walkthroughs: `docs/walkthroughs.qmd`
+- Evaluation harness: `docs/evaluation.qmd`
 - Demo scripts: `demo/README.md`
 - Data generation and licensing notes: `data/README.md`
 - Docs home: `docs/index.qmd`

@@ -67,8 +67,9 @@ Re = 200 and magnetic Reynolds number Rm = 200. `ds` is the (integer) time step.
 |------|------|------|------|--------------------|
 | **`short_real.csv`** | 2 (Re200Rm200, Re175Rm175) | 10 | <1 KB | yes |
 
-This file is used as the default test dataset for the **forecasting demo**
-(`uv run ts-agents demo forecasting --no-llm`).
+This file is used as the default bundled forecast example dataset for
+low-level tool and workflow examples such as
+`uv run ts-agents tool run forecast_theta_with_data --run Re200Rm200 --var bx001_real --param horizon=12`.
 
 ## `m4_monthly_mini.csv` — M4 Monthly workflow subset
 

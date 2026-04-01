@@ -133,6 +133,21 @@ def test_demo_forecasting_default_methods_are_stable_for_tiny_data():
     assert args.methods == "arima,theta"
 
 
+def test_demo_alias_emits_deprecation_warning(monkeypatch, capsys):
+    import importlib
+
+    cli_main = importlib.import_module("ts_agents.cli.main")
+
+    monkeypatch.setattr(cli_main, "_handle_demo_command", lambda args: ({"ok": True}, "demo result"))
+
+    code = cli_main.run(["demo", "forecasting", "--no-llm"])
+
+    assert code == 0
+    captured = capsys.readouterr()
+    assert "demo result" in captured.out
+    assert "`ts-agents demo` is a legacy compatibility surface" in captured.err
+
+
 def test_demo_window_default_scenario_is_stairs():
     from ts_agents.cli.main import build_parser
 

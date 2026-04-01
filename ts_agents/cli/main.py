@@ -638,10 +638,10 @@ def _add_tool_subcommands(subparsers: argparse._SubParsersAction) -> None:
 def _add_run_subcommands(subparsers: argparse._SubParsersAction) -> None:
     run_parser = subparsers.add_parser(
         "run",
-        help="Compatibility alias for 'tool run'",
+        help="Deprecated compatibility alias for 'tool run'",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "Compatibility alias for 'ts-agents tool run'.\n\n"
+            "Deprecated compatibility alias for 'ts-agents tool run'. Prefer 'ts-agents tool run' in new scripts.\n\n"
             "Examples:\n"
             "  uv run ts-agents tool run forecast_theta_with_data --run Re200Rm200 --var bx001_real --param horizon=12\n"
             "  uv run ts-agents tool run describe_series --input-json '{\"series\": [1,2,3,4]}'\n"
@@ -1044,9 +1044,10 @@ def _resolve_required_runtime_path(path: str) -> Path:
 def _add_demo_subcommands(subparsers: argparse._SubParsersAction) -> None:
     demo_parser = subparsers.add_parser(
         "demo",
-        help="Run curated demo workflows",
+        help="Deprecated compatibility demos layered over the workflow surface",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
+            "Deprecated compatibility surface. Prefer 'ts-agents workflow run ...' for new automation.\n\n"
             "Examples:\n"
             "  uv run ts-agents demo window-classification --no-llm\n"
             "  uv run ts-agents demo forecasting --no-llm\n"
@@ -2370,12 +2371,27 @@ def _handle_demo_command(args: argparse.Namespace) -> Tuple[Any, str]:
     raise ValueError(f"Unknown demo command: {args.demo_command}")
 
 
+def _emit_deprecation_warning(args: argparse.Namespace) -> None:
+    if args.command == "run":
+        print(
+            "Warning: `ts-agents run` is deprecated; prefer `ts-agents tool run`.",
+            file=sys.stderr,
+        )
+        return
+    if args.command == "demo":
+        print(
+            "Warning: `ts-agents demo` is a legacy compatibility surface; prefer `ts-agents workflow run` for new automation.",
+            file=sys.stderr,
+        )
+
+
 def run(argv: Optional[List[str]] = None) -> int:
     from ts_agents.config import load_user_env
 
     load_user_env()
     parser = build_parser()
     args = parser.parse_args(argv)
+    _emit_deprecation_warning(args)
 
     try:
         if getattr(args, "extract_images", None) and not getattr(args, "save", None):

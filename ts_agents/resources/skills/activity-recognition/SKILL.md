@@ -1,13 +1,13 @@
 ---
 name: time-series-activity-recognition
 description: >
-  End-to-end demo workflow for labeled-stream activity recognition: generate or download data,
+  End-to-end workflow for labeled-stream activity recognition: prepare or download data,
   run window-size selection, evaluate a windowed classifier, and produce plots + a short report.
-  Use when you need a reproducible CLI demo or evaluation artifact.
+  Use when you need a reproducible CLI workflow artifact or evaluation bundle.
 compatibility: "Designed for ts-agents CLI. Also usable by coding agents that can run shell commands."
 metadata:
   domain: time-series
-  tasks: [classification, activity-recognition, windowing, demo, evaluation]
+  tasks: [classification, activity-recognition, windowing, evaluation]
   ts_agents:
     tool_category: classification
     preferred_workflow: activity-recognition
@@ -15,10 +15,10 @@ metadata:
     artifact_checklist: [window_selection.json, eval.json, report.md]
 ---
 
-# Activity recognition demo (labeled stream + window-size selection)
+# Activity recognition workflow (labeled stream + window-size selection)
 
 ## When to use
-Use when you need a reproducible end-to-end activity-recognition demo artifact (dataset, window-size search, evaluation metrics, plots, and short report).
+Use when you need a reproducible end-to-end activity-recognition workflow artifact (dataset, window-size search, evaluation metrics, plots, and short report).
 
 ## Goal
 Given a CSV with columns:
@@ -32,48 +32,53 @@ produce:
 - a short report (Markdown)
 
 ## Minimal artifact checklist
-- `data/demo_labeled_stream.csv`
-- `outputs/demo/window_selection.json`
-- `outputs/demo/eval.json`
-- `outputs/demo/window_scores.png`
-- `outputs/demo/confusion_matrix.png`
-- `outputs/demo/report.md`
+- `<output-dir>/window_selection.json`
+- `<output-dir>/eval.json`
+- `<output-dir>/window_scores.png`
+- `<output-dir>/confusion_matrix.png`
+- `<output-dir>/report.md`
 
 ## Workflow
 1) Prepare a labeled-stream CSV (synthetic default or real data).
-2) Run window-size selection.
-3) Evaluate a windowed classifier at the chosen size.
-4) Save plots and a short markdown report.
+2) Run the `activity-recognition` workflow.
+3) Save plots and a short markdown report.
 
 ## Fast path: synthetic dataset (no downloads)
-Run from repo root. Default uses the LLM demo (requires `OPENAI_API_KEY`):
+Run from repo root:
 
 ```bash
-export OPENAI_API_KEY=your-key
-uv run ts-agents demo window-classification
+uv run python data/make_synthetic_labeled_stream.py \
+  --scenario gait --seconds 40 --seed 1337 \
+  --out data/demo_labeled_stream.csv
+uv run ts-agents workflow run activity-recognition \
+  --input data/demo_labeled_stream.csv \
+  --label-col label \
+  --value-cols x,y,z \
+  --output-dir outputs/activity-recognition
 ```
 
 This:
 1. generates `data/demo_labeled_stream.csv`
-2. selects a window size + evaluates via LLM tool calls
-3. writes plots into `outputs/demo/`
-4. writes a short report to `outputs/demo/report.md`
+2. selects a window size and evaluates the chosen classifier
+3. writes plots into `outputs/activity-recognition/`
+4. writes a short report to `outputs/activity-recognition/report.md`
 
-## Scripted fallback (no API key)
-If you’re running inside a coding agent or CLI without an API key:
-
-```bash
-uv run ts-agents demo window-classification --no-llm
-```
-
-This writes the same artifact set without calling an LLM.
-
-In a source checkout, you can also run the legacy script if you only need the
-dataset, JSON outputs, and PNG plots:
+## Customize the workflow
 
 ```bash
-bash demo/run_demo.sh
+uv run ts-agents workflow run activity-recognition \
+  --input data/demo_labeled_stream.csv \
+  --label-col label \
+  --value-cols x,y,z \
+  --window-sizes 32,64,128 \
+  --classifier minirocket \
+  --metric balanced_accuracy \
+  --output-dir outputs/activity-recognition
 ```
+
+Use the lower-level `tool run select_window_size_from_csv` and
+`tool run evaluate_windowed_classifier_from_csv` only when you need more manual
+control than the workflow surface provides.
 
 ## Real data option: WISDM (UCI, CC BY 4.0)
 If you want a real-world dataset:
@@ -90,14 +95,18 @@ python data/make_demo_labeled_stream_wisdm.py \
 Then rerun:
 
 ```bash
-uv run ts-agents demo window-classification --no-llm --no-generate --csv-path data/demo_labeled_stream.csv
+uv run ts-agents workflow run activity-recognition \
+  --input data/demo_labeled_stream.csv \
+  --label-col label \
+  --value-cols x,y,z \
+  --output-dir outputs/activity-recognition-wisdm
 ```
 
-## What to say in the demo (15–30 seconds)
-- “We have a long labeled sensor stream; window size matters.”
-- “We search a small set of candidate windows.”
-- “We pick the best by balanced accuracy (better under class imbalance).”
-- “We evaluate and output confusion matrix + plots for a quick report.”
+## What to say in the demo (15-30 seconds)
+- "We have a long labeled sensor stream; window size matters."
+- "We search a small set of candidate windows."
+- "We pick the best by balanced accuracy (better under class imbalance)."
+- "We evaluate and output confusion matrix + plots for a quick report."
 
 ## Guardrails / common failure fixes
 - If `n_windows` is very small: reduce `window_size`, reduce `stride`, or increase dataset length.
@@ -108,10 +117,10 @@ uv run ts-agents demo window-classification --no-llm --no-generate --csv-path da
 - 1 plot: `window_scores.png`
 - 1 plot: `confusion_matrix.png`
 - 1 short table: best window + balanced accuracy
-- 1 command block: `uv run ts-agents demo window-classification --no-llm`
+- 1 command block: `uv run ts-agents workflow run activity-recognition --input <CSV> --label-col label --value-cols x,y,z`
 
 ## Report generation standard (Quarto PDF)
-For polished deliverables, convert demo outputs into a Quarto report:
+For polished deliverables, convert workflow outputs into a Quarto report:
 
 1. Create/update `outputs/reports/activity-recognition.qmd` with:
    - dataset summary

@@ -496,6 +496,21 @@ def test_tool_run_rejects_fallback_backend_without_allow_fallback(capsys):
     assert "--fallback-backend requires --allow-fallback" in payload["error"]["message"]
 
 
+def test_run_alias_emits_deprecation_warning(monkeypatch, capsys):
+    import importlib
+
+    cli_main = importlib.import_module("ts_agents.cli.main")
+
+    monkeypatch.setattr(cli_main, "_handle_run_command", lambda args: ({"ok": True}, "compat result"))
+
+    code = cli_main.run(["run", "describe_series", "--param", "series=[1,2,3]"])
+
+    assert code == 0
+    captured = capsys.readouterr()
+    assert "compat result" in captured.out
+    assert "`ts-agents run` is deprecated" in captured.err
+
+
 def test_workflow_parser_rejects_conflicting_primary_sources():
     parser = build_parser()
     with pytest.raises(SystemExit):

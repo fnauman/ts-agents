@@ -47,7 +47,7 @@ Core tools:
 
 CLI example:
 ```bash
-uv run ts-agents run select_window_size_from_csv \
+uv run ts-agents tool run select_window_size_from_csv \
   --param csv_path=data/labeled_stream.csv \
   --param value_columns=value \
   --param label_column=label \
@@ -56,7 +56,7 @@ uv run ts-agents run select_window_size_from_csv \
   --param metric=balanced_accuracy \
   --param classifier=minirocket
 
-uv run ts-agents run evaluate_windowed_classifier_from_csv \
+uv run ts-agents tool run evaluate_windowed_classifier_from_csv \
   --param csv_path=data/labeled_stream.csv \
   --param value_columns=value \
   --param label_column=label \

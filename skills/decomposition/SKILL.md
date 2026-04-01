@@ -34,14 +34,14 @@ Use decomposition when you need to:
 ### 0) Decide (or estimate) the seasonal period
 If the user didn’t specify a period:
 ```bash
-uv run ts-agents run detect_periodicity_with_data --run <RUN_ID> --var <VARIABLE> --param n_top=3
+uv run ts-agents tool run detect_periodicity_with_data --run <RUN_ID> --var <VARIABLE> --param n_top=3
 ```
 
 Use the most plausible period as `period` for STL/Holt-Winters.
 
 ### 1) Run STL (default)
 ```bash
-uv run ts-agents run stl_decompose_with_data --run <RUN_ID> --var <VARIABLE> --param period=<PERIOD> --param robust=true
+uv run ts-agents tool run stl_decompose_with_data --run <RUN_ID> --var <VARIABLE> --param period=<PERIOD> --param robust=true
 ```
 
 Notes:
@@ -50,12 +50,12 @@ Notes:
 ### 2) Run MSTL (multiple seasonalities)
 If you have multiple periods (e.g., `[24, 168]`):
 ```bash
-uv run ts-agents run mstl_decompose_with_data --run <RUN_ID> --var <VARIABLE> --param periods=[24,168]
+uv run ts-agents tool run mstl_decompose_with_data --run <RUN_ID> --var <VARIABLE> --param periods=[24,168]
 ```
 
 ### 3) Run Holt-Winters decomposition (additive/multiplicative)
 ```bash
-uv run ts-agents run holt_winters_decompose_with_data --run <RUN_ID> --var <VARIABLE> --param period=<PERIOD> --param trend=add --param seasonal=add
+uv run ts-agents tool run holt_winters_decompose_with_data --run <RUN_ID> --var <VARIABLE> --param period=<PERIOD> --param trend=add --param seasonal=add
 ```
 
 ## Tool discovery (future-proofing)

@@ -103,12 +103,11 @@ Add richer GUI interactions (artifact browser + job monitor + review UX) — but
 
 ```bash
 uv sync
-uv run ts-agents demo forecasting --no-llm
+uv run ts-agents workflow list
 uv run ts-agents tool list
-uv run ts-agents run forecast_theta_with_data \
-  --run Re200Rm200 \
-  --var bx001_real \
-  --param horizon=30
+uv run ts-agents workflow run forecast-series \
+  --input-json '{"series":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]}' \
+  --horizon 5
 ```
 :::
 ::::
@@ -191,7 +190,7 @@ CLI as the primary interface + wrappers for agent frameworks.
 uv run ts-agents tool list --bundle demo
 
 # run a tool with stable args
-uv run ts-agents run \
+uv run ts-agents tool run \
   stl_decompose_with_data \
   --run Re200Rm200 \
   --var bx001_real
@@ -460,7 +459,7 @@ Hackable batteries-included beats reinventing the harness.
 
 ```bash
 # chain tools via artifacts
-uv run ts-agents run forecast_theta_with_data \
+uv run ts-agents tool run forecast_theta_with_data \
   --run Re200Rm200 \
   --var bx001_real \
   --param horizon=30 \
@@ -535,8 +534,10 @@ Repo + docs: **[github.com/fnauman/ts-agents](https://github.com/fnauman/ts-agen
 #### Suggested live demo prompts
 
 ```bash
-# scripted demo (no API key)
-uv run ts-agents demo forecasting --no-llm
+# workflow-first demo (no API key)
+uv run ts-agents workflow run forecast-series \
+  --input-json '{"series":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]}' \
+  --horizon 5
 
 # agent run (requires OPENAI_API_KEY)
 uv run ts-agents agent run \

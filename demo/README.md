@@ -1,7 +1,9 @@
-# Demos
+# Legacy Demo Scripts and Aliases
 
-Three self-contained terminal demos, each with a shell script (runnable
-directly) and a VHS tape file (for recording GIFs).
+These shell scripts and VHS tapes preserve the original demo-oriented
+compatibility surface. Prefer `ts-agents workflow run ...` in new automation;
+use this directory when you need the legacy demo wrappers or want to record the
+historical terminal flows.
 
 | Demo | Script | Tape | Output dir |
 |------|--------|------|------------|
@@ -11,7 +13,7 @@ directly) and a VHS tape file (for recording GIFs).
 
 ---
 
-## Activity recognition — synthetic (original demo)
+## Activity recognition — synthetic (legacy demo)
 
 A *30–60 second terminal walkthrough* showing:
 
@@ -20,7 +22,7 @@ A *30–60 second terminal walkthrough* showing:
 3. evaluating a windowed classifier
 4. producing a simple plot + confusion matrix
 
-## Quick demo (synthetic, no downloads)
+## Compatibility alias (synthetic, no downloads)
 
 From the repo root:
 
@@ -38,7 +40,7 @@ Outputs will be written under:
 - `outputs/demo/confusion_matrix.png`
 - `outputs/demo/report.md`
 
-### Scripted fallback (no API key)
+### Deprecated alias without an API key
 
 ```bash
 uv run ts-agents demo window-classification --no-llm
@@ -76,7 +78,7 @@ Outputs (under `outputs/demo_wisdm/`):
 
 ---
 
-## Forecasting comparison
+## Forecasting comparison (legacy demo)
 
 Compares forecasting methods on the MHD shearing-box dataset (`data/short_real.csv`).
 
@@ -84,7 +86,7 @@ Compares forecasting methods on the MHD shearing-box dataset (`data/short_real.c
 bash demo/run_demo_forecasting.sh
 ```
 
-Or via the CLI directly:
+Or via the deprecated compatibility alias:
 
 ```bash
 uv run ts-agents demo forecasting --no-llm

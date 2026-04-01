@@ -1,0 +1,73 @@
+---
+title: "Evaluation"
+---
+
+`ts-agents` now includes a deterministic internal benchmark that compares the
+raw tool surface against the structured discovery, skills, and workflow layers.
+The goal is not to simulate a frontier model; it is to make the repo's own
+agent-facing contract measurable and easy to rerun.
+
+## What the benchmark covers
+
+The harness in `ts_agents.evals.refactor_benchmark` compares four assist levels:
+
+1. `plain_model` — no runnable repo contract
+2. `plain_tools` — direct tool calls with no discovery or workflow guidance
+3. `structured_discovery` — `tool search` / `tool show` before execution
+4. `skills_workflows` — `skills show` plus `workflow run`
+
+It runs three representative tasks:
+
+- inspect an unknown univariate series
+- compare forecasting baselines on a deterministic series
+- perform labeled-stream window-size selection and evaluation
+
+Metrics:
+
+- task success rate
+- parse / schema failure rate
+- invalid tool calls
+- artifact completeness
+- latency
+- retries / recovery
+
+## Latest checked-in snapshot
+
+Rerun command:
+
+```bash
+uv run python -m ts_agents.evals.refactor_benchmark \
+  --output-dir benchmarks/results/latest
+```
+
+Checked-in outputs:
+
+- `benchmarks/results/latest/results.json`
+- `benchmarks/results/latest/summary.md`
+
+Results from the current snapshot:
+
+| Assist level | Success rate | Parse failure rate | Invalid tool calls | Avg artifact completeness | Avg duration (ms) | Retries | Recovery rate |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `plain_model` | 0.00 | 1.00 | 0 | 0.00 | 0.0 | 0 | 0.00 |
+| `plain_tools` | 0.67 | 0.00 | 1 | 0.00 | 298.0 | 1 | 0.33 |
+| `structured_discovery` | 1.00 | 0.00 | 0 | 0.00 | 62.3 | 0 | 0.00 |
+| `skills_workflows` | 1.00 | 0.00 | 0 | 1.00 | 114.9 | 0 | 0.00 |
+
+## How to read it
+
+- `plain_model` fails every scenario because it produces no machine-runnable contract.
+- `plain_tools` can recover sometimes, but it still guesses wrong once and produces no artifact bundles.
+- `structured_discovery` reaches full task success, but it still leaves artifact completeness at `0.00` because raw tool calls do not write the workflow bundle.
+- `skills_workflows` reaches full task success and full artifact completeness, which is the main proof that the repo's structured surface improves agent outcomes.
+
+## Why this matters
+
+This benchmark closes the loop on the refactor:
+
+- workflows make artifact production deterministic
+- `skills show` exposes the actionable policy layer
+- deprecated compatibility aliases remain available without being the recommended path
+
+If you change the workflow contract, skill metadata, or tool discovery surface,
+rerun the benchmark and update the checked-in snapshot.

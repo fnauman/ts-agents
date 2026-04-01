@@ -14,6 +14,8 @@ website:
         menu:
           - href: cli-examples.qmd
             text: CLI Examples
+          - href: evaluation.qmd
+            text: Evaluation
           - href: walkthroughs.qmd
             text: Walkthroughs
           - href: skills-guide.qmd

@@ -1,0 +1,38 @@
+{
+  "category": "forecasting",
+  "methods": [
+    "arima",
+    "theta"
+  ],
+  "metrics": {
+    "arima": {
+      "mae": 0.026377327180939148,
+      "rmse": 0.031722983195547755,
+      "mape": 0.14527930816007792
+    },
+    "theta": {
+      "mae": 0.12077709536571461,
+      "rmse": 0.16213179546593925,
+      "mape": 0.6324061552771607
+    }
+  },
+  "rankings": {
+    "rmse": [
+      "arima",
+      "theta"
+    ],
+    "mae": [
+      "arima",
+      "theta"
+    ],
+    "mape": [
+      "arima",
+      "theta"
+    ]
+  },
+  "recommendation": "## Forecasting Method Comparison\n\n**Recommended: ARIMA** (RMSE: 0.0317)\n\n### Accuracy Metrics:\n- **arima**: MAE=0.0264, RMSE=0.0317, MAPE=0.1%\n- **theta**: MAE=0.1208, RMSE=0.1621, MAPE=0.6%\n\n### Method Notes:\n- **ARIMA**: Best for non-seasonal or differenced series\n- **Theta**: Simple but effective, won M3 competition",
+  "computation_times": {
+    "arima": 0.06125330924987793,
+    "theta": 0.0016918182373046875
+  }
+}

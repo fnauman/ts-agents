@@ -277,10 +277,10 @@ def main() -> int:
     print(f"Wrote {len(out_df):,} rows to {out_path}")
     print("Labels:", out_df["label"].value_counts().to_dict())
     print()
-    print("Next: run window-size selection, e.g.")
-    print("  uv run ts-agents run select_window_size_from_csv \\")
-    print(f"    --param csv_path={out_path} --param value_columns=x,y,z --param label_column=label \\")
-    print("    --param window_sizes=32,64,96,128,160 --param metric=balanced_accuracy --param classifier=minirocket")
+    print("Next: run the activity-recognition workflow, e.g.")
+    print("  uv run ts-agents workflow run activity-recognition \\")
+    print(f"    --input {out_path} --label-col label --value-cols x,y,z \\")
+    print("    --window-sizes 32,64,96,128,160 --classifier minirocket --metric balanced_accuracy")
     return 0
 
 
