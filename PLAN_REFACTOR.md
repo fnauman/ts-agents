@@ -1026,7 +1026,7 @@ Scope:
 #### PR 4 — Activity workflow, sandboxes, and structured skills
 
 Status:
-- in progress
+- merged
 - issue: `#52`
 
 Scope:
@@ -1034,10 +1034,17 @@ Scope:
 - add `sandbox list` and `sandbox doctor` plus explicit fallback semantics
 - add `skills show` and structured skill export / richer skill metadata
 
-#### Optional PR 5 — Evaluation harness
+#### PR 5 — Evaluation harness and migration/docs closure
+
+Status:
+- in progress
+- issue: `#54`
 
 Scope:
-- add the internal benchmark / proof-of-uplift harness if it starts to crowd PR 4
+- add the internal benchmark / proof-of-uplift harness
+- publish rerun guidance and a checked-in result snapshot
+- move docs and skills to the `workflow run` / `tool run` grammar
+- keep `run` / `demo` as deprecated compatibility aliases for one release cycle
 
 Do not add more algorithms or more agent-framework complexity before steps 1–6 are done.
 

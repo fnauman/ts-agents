@@ -1,0 +1,42 @@
+{
+  "workflow": "inspect-series",
+  "source": {
+    "source_type": "inline_json",
+    "path": null
+  },
+  "series_length": 20,
+  "stats": {
+    "method": "descriptive",
+    "length": 20,
+    "mean": 10.54161,
+    "std": 5.747571177454003,
+    "min": 1.1199,
+    "max": 19.864,
+    "rms": 12.00666963949621,
+    "median": 10.29195,
+    "skewness": 0.03086339709484599,
+    "kurtosis": -1.248262576385814
+  },
+  "periodicity": {
+    "method": "fft",
+    "dominant_period": 20.0,
+    "dominant_frequency": 0.05,
+    "confidence": 0.6240129732185997,
+    "top_periods": [
+      20.0,
+      10.0,
+      6.666666666666666
+    ]
+  },
+  "autocorrelation": {
+    "max_lag": 8,
+    "requested_max_lag": 8,
+    "lag_1": 0.8529497484069996
+  },
+  "recommended_next_steps": [
+    "Run forecast-series with a horizon aligned to the detected period (~20.0).",
+    "Inspect decomposition or changepoints because the series shows strong short-lag dependence.",
+    "Treat periodicity findings as low-confidence because the series is short."
+  ],
+  "output_dir": "benchmarks/results/latest/artifacts/skills_workflows/inspect_unknown_series"
+}

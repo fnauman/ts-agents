@@ -36,7 +36,7 @@ Then proceed with the selected `run_id` + `variable`.
 ### 2) Descriptive statistics (always start here)
 Run:
 ```bash
-uv run ts-agents run describe_series_with_data --run <RUN_ID> --var <VARIABLE>
+uv run ts-agents tool run describe_series_with_data --run <RUN_ID> --var <VARIABLE>
 ```
 
 Report at least: length, mean, std, min/max, skew/kurtosis (if available), and whether NaNs appear.
@@ -44,7 +44,7 @@ Report at least: length, mean, std, min/max, skew/kurtosis (if available), and w
 ### 3) Autocorrelation (look for memory + seasonality)
 Run:
 ```bash
-uv run ts-agents run compute_autocorrelation_with_data --run <RUN_ID> --var <VARIABLE> --param max_lag=200
+uv run ts-agents tool run compute_autocorrelation_with_data --run <RUN_ID> --var <VARIABLE> --param max_lag=200
 ```
 
 Interpretation heuristics:
@@ -55,7 +55,7 @@ Interpretation heuristics:
 ### 4) Periodicity / dominant period (FFT-based quick check)
 Run:
 ```bash
-uv run ts-agents run detect_periodicity_with_data --run <RUN_ID> --var <VARIABLE> --param n_top=5
+uv run ts-agents tool run detect_periodicity_with_data --run <RUN_ID> --var <VARIABLE> --param n_top=5
 ```
 
 Use the top detected period(s) to:
@@ -65,7 +65,7 @@ Use the top detected period(s) to:
 ### 5) Spectrum / PSD (when frequency content matters)
 Run:
 ```bash
-uv run ts-agents run compute_psd_with_data --run <RUN_ID> --var <VARIABLE> --param sampling_rate=1.0
+uv run ts-agents tool run compute_psd_with_data --run <RUN_ID> --var <VARIABLE> --param sampling_rate=1.0
 ```
 
 Use PSD when:

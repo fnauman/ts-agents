@@ -30,24 +30,40 @@ uv sync
 These commands work immediately — no API key needed.
 
 ```bash
-# Activity-recognition demo: window selection + classifier evaluation
-uv run ts-agents demo window-classification --no-llm
+# Inspect a short inline series and write summary artifacts
+uv run ts-agents workflow run inspect-series \
+  --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' \
+  --output-dir outputs/inspect
 
-# Forecasting demo: compare ARIMA vs Theta
-uv run ts-agents demo forecasting --no-llm
+# Compare forecasting baselines on a deterministic inline series
+uv run ts-agents workflow run forecast-series \
+  --input-json '{"series":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]}' \
+  --horizon 5 \
+  --output-dir outputs/forecast
+
+# Generate a labeled stream and run the activity-recognition workflow
+uv run python data/make_synthetic_labeled_stream.py \
+  --scenario gait --seconds 40 --seed 1337 \
+  --out data/demo_labeled_stream.csv
+uv run ts-agents workflow run activity-recognition \
+  --input data/demo_labeled_stream.csv \
+  --label-col label \
+  --value-cols x,y,z \
+  --output-dir outputs/activity
 ```
 
-Check `outputs/demo/` for plots, metrics, and a Markdown report.
+Check `outputs/inspect/`, `outputs/forecast/`, and `outputs/activity/` for
+JSON, plots, CSVs, and Markdown reports.
 
 ## Try a single tool
 
 ```bash
 # STL decomposition on a built-in test series
-uv run ts-agents run stl_decompose_with_data \
+uv run ts-agents tool run stl_decompose_with_data \
   --run Re200Rm200 --var bx001_real
 
-# Save output and extract embedded plots as PNGs
-uv run ts-agents run forecast_theta_with_data \
+# Save output and extract compatibility plots as PNGs
+uv run ts-agents tool run forecast_theta_with_data \
   --run Re200Rm200 --var bx001_real \
   --param horizon=12 \
   --save outputs/theta.txt \
@@ -60,7 +76,8 @@ Export an API key to unlock agent-generated narrative reports:
 
 ```bash
 export OPENAI_API_KEY="sk-..."
-uv run ts-agents demo forecasting
+uv run ts-agents agent run \
+  "Use the forecasting skill to compare ARIMA and Theta for a short univariate series"
 ```
 
 Or run the built-in agent directly:
@@ -69,8 +86,13 @@ Or run the built-in agent directly:
 uv run ts-agents agent run "Forecast bx001_real for Re200Rm200 with horizon 12"
 ```
 
+Compatibility note: `ts-agents run ...` and `ts-agents demo ...` remain
+available for one release cycle, but they now emit deprecation warnings. Prefer
+`ts-agents tool run ...` and `ts-agents workflow run ...`.
+
 ## Next steps
 
 - [CLI Examples](cli-examples.qmd) — full command reference by task
-- [Walkthroughs](walkthroughs.qmd) — step-by-step demo guides
+- [Walkthroughs](walkthroughs.qmd) — step-by-step workflow guides
+- [Evaluation](evaluation.qmd) — internal benchmark and rerun instructions
 - [Skills Guide](skills-guide.qmd) — reusable workflows and PDF report generation

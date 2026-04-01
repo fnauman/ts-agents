@@ -1,83 +1,190 @@
 ---
-title: "Demo Walkthroughs"
+title: "Workflow Walkthroughs"
 ---
 
-Step-by-step guides for the three built-in demos.
-Every command works out of the box with `--no-llm`; add an `OPENAI_API_KEY` to unlock LLM-generated reports.
+Step-by-step guides for the three first-class workflows.
+The legacy `demo` aliases still exist for one release cycle, but this page uses
+the workflow/tool grammar that new automation should prefer.
 
-## Activity Recognition (synthetic data) {#synth}
+## Inspect a series {#inspect}
 
-### 1. Generate data and run the demo
+### 1. Run the workflow
 
 ```bash
-uv run ts-agents demo window-classification --no-llm
+uv run ts-agents workflow run inspect-series \
+  --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' \
+  --output-dir outputs/inspect
 ```
 
 This single command:
 
-1. Generates a synthetic labeled-stream CSV (`data/demo_labeled_stream.csv`)
-2. Sweeps candidate window sizes and scores each with a windowed classifier
-3. Evaluates the best window on a held-out test split
-4. Writes plots and a Markdown report
+1. computes descriptive statistics
+2. estimates periodicity and autocorrelation
+3. writes a structured JSON summary
+4. writes a Markdown report and an autocorrelation plot
 
 ### 2. Interpret the outputs
 
-All artifacts land in `outputs/demo/` by default.
+All artifacts land in `outputs/inspect/` by default.
 
 | Artifact | What it tells you |
 |----------|-------------------|
-| `window_selection.json` | Per-window scores and the chosen `best_window_size` |
-| `window_scores.png` | Visual: score vs window size |
-| `eval.json` | Final metrics — accuracy, F1, confusion matrix, class counts |
-| `confusion_matrix.png` | Heatmap of predicted vs true labels |
-| `report.md` | One-page Markdown summary (classifier, best window, scores) |
+| `summary.json` | Stats, periodicity, autocorrelation, and recommended next steps |
+| `autocorrelation.png` | Visual lag structure for the inspected series |
+| `report.md` | Markdown summary of the diagnostic run |
 
 ### 3. Customize the run
 
 ```bash
-# Different synthetic scenario (gait, stairs, industrial)
-uv run ts-agents demo window-classification --no-llm --scenario gait
+# Use a bundled series instead of inline JSON
+uv run ts-agents workflow run inspect-series \
+  --run-id Re200Rm200 \
+  --variable bx001_real \
+  --output-dir outputs/inspect-re200
 
-# Narrower window sweep with a specific classifier and metric
-uv run ts-agents demo window-classification --no-llm \
-  --window-sizes 32,64,128 \
-  --classifier minirocket \
-  --metric balanced_accuracy
+# Increase the autocorrelation horizon
+uv run ts-agents workflow run inspect-series \
+  --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' \
+  --max-lag 12 \
+  --output-dir outputs/inspect-maxlag
 ```
 
 Key flags:
 
 | Flag | Default | Options |
 |------|---------|---------|
-| `--scenario` | `stairs` | `gait`, `stairs`, `industrial` |
-| `--window-sizes` | `32,64,96,128,160` | Comma-separated integers |
-| `--classifier` | `auto` | `auto`, `minirocket`, `rocket`, `knn` |
-| `--metric` | `balanced_accuracy` | `accuracy`, `balanced_accuracy`, `f1_macro` |
-| `--output-dir` | `outputs/demo` | Any path |
-
-### 4. LLM-backed variant
-
-Drop the `--no-llm` flag. The agent calls the same tools but writes a richer narrative report.
-
-```bash
-export OPENAI_API_KEY="sk-..."
-uv run ts-agents demo window-classification
-```
+| `--run-id` / `--variable` | off | bundled dataset lookup |
+| `--input-json` | off | inline JSON or JSON file path |
+| `--max-lag` | auto | any positive integer |
+| `--output-dir` | workflow-specific temp path | any path |
 
 ---
 
-## Activity Recognition (WISDM data) {#wisdm}
+## Forecasting comparison {#forecasting}
+
+### 1. Run the workflow
+
+```bash
+uv run ts-agents workflow run forecast-series \
+  --input-json '{"series":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]}' \
+  --horizon 5 \
+  --output-dir outputs/forecast
+```
+
+Compares forecasting methods on a deterministic inline series and writes
+comparison artifacts.
+
+### 2. Interpret the outputs
+
+Artifacts land in `outputs/forecast/` by default.
+
+| Artifact | What it tells you |
+|----------|-------------------|
+| `forecast_comparison.json` | Per-method RMSE, MAE, MAPE and the best method |
+| `forecast_comparison.png` | Overlay plot of each method's forecast vs actuals |
+| `forecast.json` | The selected best-model forecast in JSON form |
+| `forecast.csv` | The selected best-model forecast as CSV |
+| `report.md` | Markdown table with metrics and a recommendation |
+
+Example report snippet:
+
+```
+Compared Methods: arima, theta | Best Method (RMSE): arima
+arima: RMSE=0.0000, MAE=0.0000, MAPE=0.00%
+theta: RMSE=0.0148, MAE=0.0134, MAPE=0.07%
+Recommendation: ARIMA (RMSE: 0.0000)
+```
+
+### 3. Customize the run
+
+```bash
+# More methods and a longer horizon
+uv run ts-agents workflow run forecast-series \
+  --input-json '{"series":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]}' \
+  --methods arima,ets,theta \
+  --horizon 8 \
+  --output-dir outputs/forecast-longer
+```
+
+Key flags:
+
+| Flag | Default | Options |
+|------|---------|---------|
+| `--methods` | `arima,theta` | `arima`, `ets`, `theta` (comma-separated) |
+| `--horizon` | `1` | Any positive integer |
+| `--run-id` / `--variable` | off | bundled dataset lookup |
+| `--output-dir` | workflow-specific temp path | Any path |
+
+---
+
+## Activity recognition (synthetic data) {#synth}
+
+### 1. Generate data and run the workflow
+
+```bash
+uv run python data/make_synthetic_labeled_stream.py \
+  --scenario gait --seconds 40 --seed 1337 \
+  --out data/demo_labeled_stream.csv
+uv run ts-agents workflow run activity-recognition \
+  --input data/demo_labeled_stream.csv \
+  --label-col label \
+  --value-cols x,y,z \
+  --output-dir outputs/activity
+```
+
+This workflow:
+
+1. reads a labeled-stream CSV
+2. sweeps candidate window sizes
+3. evaluates the best window on a held-out split
+4. writes plots, JSON metrics, and a Markdown report
+
+### 2. Interpret the outputs
+
+All artifacts land in `outputs/activity/` by default.
+
+| Artifact | What it tells you |
+|----------|-------------------|
+| `window_selection.json` | Per-window scores and the chosen `best_window_size` |
+| `window_scores.png` | Visual score vs window size |
+| `eval.json` | Final metrics, confusion matrix, class counts |
+| `confusion_matrix.png` | Heatmap of predicted vs true labels |
+| `report.md` | Markdown summary of the workflow run |
+
+### 3. Customize the run
+
+```bash
+# Different synthetic scenario
+uv run python data/make_synthetic_labeled_stream.py \
+  --scenario industrial --seconds 40 --seed 1337 \
+  --out data/demo_labeled_stream_industrial.csv
+
+# Narrower sweep with an explicit classifier and metric
+uv run ts-agents workflow run activity-recognition \
+  --input data/demo_labeled_stream_industrial.csv \
+  --label-col label \
+  --value-cols x,y,z \
+  --window-sizes 32,64,128 \
+  --classifier minirocket \
+  --metric balanced_accuracy \
+  --output-dir outputs/activity-industrial
+```
+
+Key flags:
+
+| Flag | Default | Options |
+|------|---------|---------|
+| `--window-sizes` | `32,64,96,128,160` | Comma-separated integers |
+| `--classifier` | `auto` | `auto`, `minirocket`, `rocket`, `knn` |
+| `--metric` | `balanced_accuracy` | `accuracy`, `balanced_accuracy`, `f1_macro` |
+| `--output-dir` | workflow-specific temp path | Any path |
+
+---
+
+## Activity recognition (WISDM data) {#wisdm}
 
 This WISDM walkthrough is a **source-checkout workflow**. It uses the repo-root
 dataset `data/wisdm_subset.csv`, which is not bundled into the published wheel.
-
-### Quick start
-
-```bash
-bash demo/run_demo_wisdm.sh
-```
-
-The script runs window-size selection, picks the best window, evaluates, and generates plots — all under `outputs/demo_wisdm/`.
 
 ### Build a custom WISDM stream
 
@@ -92,71 +199,15 @@ python data/make_demo_labeled_stream_wisdm.py \
   --out data/demo_labeled_stream.csv
 ```
 
-Then run the demo on that CSV:
+Then run the workflow on that CSV:
 
 ```bash
-uv run ts-agents demo window-classification --no-llm \
-  --csv-path data/demo_labeled_stream.csv
+uv run ts-agents workflow run activity-recognition \
+  --input data/demo_labeled_stream.csv \
+  --label-col label \
+  --value-cols x,y,z \
+  --output-dir outputs/activity-wisdm
 ```
 
-Output artifacts are the same as the synthetic demo: `window_selection.json`, `window_scores.png`, `eval.json`, `confusion_matrix.png`, and `report.md`.
-
----
-
-## Forecasting Comparison {#forecasting}
-
-### 1. Run the demo
-
-```bash
-uv run ts-agents demo forecasting --no-llm
-```
-
-Compares forecasting methods on a built-in test series, writes metrics and a plot.
-
-### 2. Interpret the outputs
-
-Artifacts land in `outputs/demo/` by default.
-
-| Artifact | What it tells you |
-|----------|-------------------|
-| `forecast_comparison.json` | Per-method RMSE, MAE, MAPE and the best method |
-| `forecast_comparison.png` | Overlay plot of each method's forecast vs actuals |
-| `forecasting_report.md` | Markdown table with metrics and a recommendation |
-
-Example report snippet:
-
-```
-Run ID: Re200Rm200 | Variable: bx001_real | Horizon: 1
-Compared Methods: arima, theta | Best Method (RMSE): theta
-arima: RMSE=0.0294, MAE=0.0294, MAPE=18.36%
-theta: RMSE=0.0108, MAE=0.0108, MAPE=6.74%
-Recommendation: THETA (RMSE: 0.0108)
-```
-
-### 3. Customize the run
-
-```bash
-# More methods, longer horizon, full dataset
-uv run ts-agents demo forecasting --no-llm \
-  --methods arima,ets,theta \
-  --horizon 12 \
-  --full-data
-```
-
-Key flags:
-
-| Flag | Default | Options |
-|------|---------|---------|
-| `--methods` | `arima,theta` | `arima`, `ets`, `theta` (comma-separated) |
-| `--horizon` | `1` | Any positive integer |
-| `--full-data` | off | Use the full dataset instead of the test subset |
-| `--output-dir` | `outputs/demo` | Any path |
-
-### 4. LLM-backed report generation
-
-```bash
-export OPENAI_API_KEY="sk-..."
-uv run ts-agents demo forecasting
-```
-
-The LLM reads the comparison JSON and writes a narrative report with context and recommendations.
+Output artifacts are the same as the synthetic walkthrough: `window_selection.json`,
+`window_scores.png`, `eval.json`, `confusion_matrix.png`, and `report.md`.

@@ -2,7 +2,8 @@
 title: "Using and Customizing Skills"
 ---
 
-Skills are reusable workflow definitions that tell an AI agent *how* to use `ts-agents` tools for a specific task.
+Skills are reusable workflow definitions that tell an AI agent *how* to use
+`ts-agents` workflows and tools for a specific task.
 Each skill is a Markdown file (`SKILL.md`) with YAML frontmatter describing the workflow, required tools, and step-by-step instructions.
 
 ## The 5 canonical skills
@@ -39,11 +40,14 @@ The agent reads the `SKILL.md`, discovers the required tools, and executes the w
 
 ### Plot-producing tools
 
-Most `_with_data` tools embed base64-encoded PNG plots in their output.
-Use `--save` to write the text output to disk and `--extract-images` to pull embedded plots out as separate PNG files.
+First-class workflows write artifact files directly under `--output-dir`; that
+is the canonical machine-facing contract. The lower-level `*_with_data` tools
+still support inline/base64 image payloads as a compatibility path. Use
+`--save` plus `--extract-images` only when you explicitly need to unwrap those
+legacy text outputs.
 
 ```bash
-uv run ts-agents run stl_decompose_with_data \
+uv run ts-agents tool run stl_decompose_with_data \
   --run Re200Rm200 --var bx001_real \
   --save outputs/stl.txt \
   --extract-images outputs/assets
@@ -106,15 +110,15 @@ plots land as PNGs in `outputs/<run>/assets/`.
 ### 1. Diagnostics
 
 ```bash
-uv run ts-agents run describe_series_with_data \
+uv run ts-agents tool run describe_series_with_data \
   --run $RUN --var $VAR --save outputs/$RUN/describe.txt
 
-uv run ts-agents run compute_autocorrelation_with_data \
+uv run ts-agents tool run compute_autocorrelation_with_data \
   --run $RUN --var $VAR \
   --save outputs/$RUN/acf.txt \
   --extract-images outputs/$RUN/assets
 
-uv run ts-agents run compute_psd_with_data \
+uv run ts-agents tool run compute_psd_with_data \
   --run $RUN --var $VAR \
   --save outputs/$RUN/psd.txt \
   --extract-images outputs/$RUN/assets
@@ -123,7 +127,7 @@ uv run ts-agents run compute_psd_with_data \
 ### 2. Decomposition
 
 ```bash
-uv run ts-agents run stl_decompose_with_data \
+uv run ts-agents tool run stl_decompose_with_data \
   --run $RUN --var $VAR \
   --save outputs/$RUN/stl.txt \
   --extract-images outputs/$RUN/assets
@@ -133,17 +137,17 @@ uv run ts-agents run stl_decompose_with_data \
 ### 3. Pattern detection
 
 ```bash
-uv run ts-agents run detect_peaks_with_data \
+uv run ts-agents tool run detect_peaks_with_data \
   --run $RUN --var $VAR \
   --save outputs/$RUN/peaks.txt \
   --extract-images outputs/$RUN/assets
 
-uv run ts-agents run segment_changepoint_with_data \
+uv run ts-agents tool run segment_changepoint_with_data \
   --run $RUN --var $VAR \
   --save outputs/$RUN/changepoints.txt \
   --extract-images outputs/$RUN/assets
 
-uv run ts-agents run analyze_matrix_profile_with_data \
+uv run ts-agents tool run analyze_matrix_profile_with_data \
   --run $RUN --var $VAR \
   --save outputs/$RUN/mp.txt \
   --extract-images outputs/$RUN/assets
@@ -152,17 +156,17 @@ uv run ts-agents run analyze_matrix_profile_with_data \
 ### 4. Forecasting
 
 ```bash
-uv run ts-agents run forecast_theta_with_data \
+uv run ts-agents tool run forecast_theta_with_data \
   --run $RUN --var $VAR --param horizon=30 \
   --save outputs/$RUN/theta.txt \
   --extract-images outputs/$RUN/assets
 
-uv run ts-agents run forecast_ets_with_data \
+uv run ts-agents tool run forecast_ets_with_data \
   --run $RUN --var $VAR --param horizon=30 \
   --save outputs/$RUN/ets.txt \
   --extract-images outputs/$RUN/assets
 
-uv run ts-agents run forecast_arima_with_data \
+uv run ts-agents tool run forecast_arima_with_data \
   --run $RUN --var $VAR --param horizon=30 \
   --save outputs/$RUN/arima.txt \
   --extract-images outputs/$RUN/assets

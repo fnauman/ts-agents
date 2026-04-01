@@ -13,7 +13,7 @@ ts-agents supports multiple sandbox backends for tool execution:
 ```bash
 uv run ts-agents sandbox list
 uv run ts-agents sandbox doctor docker
-uv run ts-agents run describe_series --param series=[1,2,3,4] --sandbox subprocess
+uv run ts-agents tool run describe_series --input-json '{"series":[1,2,3,4]}' --sandbox subprocess
 ```
 
 Set a default backend:
@@ -69,7 +69,7 @@ This uses `Dockerfile.sandbox`.
 Run with docker sandbox:
 
 ```bash
-uv run ts-agents run describe_series --param series=[1,2,3,4] --sandbox docker
+uv run ts-agents tool run describe_series --input-json '{"series":[1,2,3,4]}' --sandbox docker
 ```
 
 Useful env vars:
@@ -105,7 +105,7 @@ export TS_AGENTS_SANDBOX_MODE=daytona
 `pip install -e` there before tool execution. The default snapshot is
 `daytonaio/sandbox:0.4.3`; override with `TS_AGENTS_DAYTONA_SNAPSHOT` if needed.
 
-Then run any `ts-agents run ... --sandbox daytona` command.
+Then run any `ts-agents tool run ... --sandbox daytona` command.
 
 ## Modal
 
@@ -144,7 +144,7 @@ export TS_AGENTS_SANDBOX_MODE=modal
 export MODAL_ENVIRONMENT=main
 export TS_AGENTS_MODAL_APP=ts-agents-sandbox
 export TS_AGENTS_MODAL_FUNCTION=run_tool
-uv run ts-agents run describe_series --param series=[1,2,3,4] --sandbox modal
+uv run ts-agents tool run describe_series --input-json '{"series":[1,2,3,4]}' --sandbox modal
 ```
 
 If you see:
@@ -163,7 +163,7 @@ Run these after auth and deployment setup to verify end-to-end execution.
 Daytona smoke test:
 
 ```bash
-uv run ts-agents run stl_decompose_with_data \
+uv run ts-agents tool run stl_decompose_with_data \
   --run Re200Rm200 \
   --var bx001_real \
   --sandbox daytona
@@ -175,7 +175,7 @@ Modal smoke test:
 # First deploy once after auth, from the repo root:
 uv run modal deploy -m ts_agents.sandbox.modal_app --env main --name ts-agents-sandbox
 
-uv run ts-agents run stl_decompose_with_data \
+uv run ts-agents tool run stl_decompose_with_data \
   --run Re200Rm200 \
   --var bx001_real \
   --sandbox modal

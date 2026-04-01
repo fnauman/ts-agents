@@ -1,10 +1,12 @@
-# Demos
+# Legacy Demo Aliases
 
-CLI demo workflows plus packaged helper assets.
+Packaged helper assets for the deprecated `ts-agents demo ...` compatibility
+surface.
 
-In the published wheel, use the `ts-agents demo ...` commands below. The
-repo-root shell scripts from `demo/` are source-checkout-only and are not
-bundled here.
+Prefer the workflow/tool grammar from the main docs in new automation. This
+README exists to document the compatibility aliases that remain for one release
+cycle. The repo-root shell scripts from `demo/` are source-checkout-only and
+are not bundled here.
 
 | Demo | Primary command | Tape | Output dir |
 |------|-----------------|------|------------|
@@ -14,7 +16,7 @@ bundled here.
 
 ---
 
-## Activity recognition — synthetic (original demo)
+## Activity recognition — synthetic (legacy demo)
 
 A *30–60 second terminal walkthrough* showing:
 
@@ -23,7 +25,7 @@ A *30–60 second terminal walkthrough* showing:
 3. evaluating a windowed classifier
 4. producing a simple plot + confusion matrix
 
-## Quick demo (synthetic, no downloads)
+## Compatibility alias (synthetic, no downloads)
 
 From an installed package or source checkout:
 
@@ -41,7 +43,7 @@ Outputs will be written under:
 - `outputs/demo/confusion_matrix.png`
 - `outputs/demo/report.md`
 
-### Scripted fallback (no API key)
+### Deprecated alias without an API key
 
 ```bash
 ts-agents demo window-classification --no-llm
@@ -77,7 +79,7 @@ Outputs (under `outputs/demo_wisdm/`):
 
 ---
 
-## Forecasting comparison
+## Forecasting comparison (legacy demo)
 
 Compares forecasting methods on the MHD shearing-box dataset (`data/short_real.csv`).
 

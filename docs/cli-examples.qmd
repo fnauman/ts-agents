@@ -2,7 +2,8 @@
 title: "CLI Quick Reference"
 ---
 
-Practical patterns for the `ts-agents` CLI. Not exhaustive — just the commands you'll reach for most often.
+Practical patterns for the `ts-agents` CLI. Not exhaustive, but centered on the
+current workflow/tool grammar rather than the deprecated compatibility aliases.
 
 ## Data discovery
 
@@ -43,22 +44,52 @@ uv run ts-agents tool list --category forecasting --json
 
 Common bundles: `minimal` (5 tools), `standard` (15), `full` (25+), `demo`, `demo_windowing`, `demo_forecasting`.
 
+## Workflow discovery and execution
+
+```bash
+# List first-class workflows
+uv run ts-agents workflow list
+uv run ts-agents workflow list --json
+
+# Inspect a short series
+uv run ts-agents workflow run inspect-series \
+  --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' \
+  --output-dir outputs/inspect
+
+# Forecast a deterministic inline series
+uv run ts-agents workflow run forecast-series \
+  --input-json '{"series":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]}' \
+  --horizon 5 \
+  --output-dir outputs/forecast
+
+# Run labeled-stream activity recognition
+uv run python data/make_synthetic_labeled_stream.py \
+  --scenario gait --seconds 40 --seed 1337 \
+  --out data/demo_labeled_stream.csv
+uv run ts-agents workflow run activity-recognition \
+  --input data/demo_labeled_stream.csv \
+  --label-col label \
+  --value-cols x,y,z \
+  --output-dir outputs/activity
+```
+
 ## Running tools directly
 
-Use `ts-agents run <tool>` to call any tool from the command line.
+Use `ts-agents tool run <tool>` to call any individual tool from the command
+line.
 
 ```bash
 # STL decomposition
-uv run ts-agents run stl_decompose_with_data \
+uv run ts-agents tool run stl_decompose_with_data \
   --run Re200Rm200 --var bx001_real
 
 # Theta forecast with a custom horizon
-uv run ts-agents run forecast_theta_with_data \
+uv run ts-agents tool run forecast_theta_with_data \
   --run Re200Rm200 --var bx001_real \
   --param horizon=30
 
 # Window-size selection with multiple params
-uv run ts-agents run select_window_size_from_csv \
+uv run ts-agents tool run select_window_size_from_csv \
   --param csv_path=data/demo_labeled_stream.csv \
   --param value_columns=x,y,z \
   --param label_column=label \
@@ -81,10 +112,12 @@ Key flags:
 
 ## Saving output and extracting images
 
-Tools can embed images as base64 payloads. Use `--save` and `--extract-images` to capture everything:
+Workflow commands already write artifact files under `--output-dir`. Use the
+lower-level `tool run` compatibility path below when you specifically want to
+unwrap embedded image payloads from a `*_with_data` tool response:
 
 ```bash
-uv run ts-agents run forecast_theta_with_data \
+uv run ts-agents tool run forecast_theta_with_data \
   --run Re200Rm200 --var bx001_real \
   --param horizon=30 \
   --save outputs/Re200Rm200/theta.txt \
@@ -124,14 +157,14 @@ Control where tool code executes with `--sandbox`:
 
 ```bash
 # Default — in-process, no isolation
-uv run ts-agents run stl_decompose_with_data --run Re200Rm200 --var bx001_real
+uv run ts-agents tool run stl_decompose_with_data --run Re200Rm200 --var bx001_real
 
 # Separate Python process
-uv run ts-agents run stl_decompose_with_data --run Re200Rm200 --var bx001_real \
+uv run ts-agents tool run stl_decompose_with_data --run Re200Rm200 --var bx001_real \
   --sandbox subprocess
 
 # Docker container (requires: ./build_docker_sandbox.sh)
-uv run ts-agents run stl_decompose_with_data --run Re200Rm200 --var bx001_real \
+uv run ts-agents tool run stl_decompose_with_data --run Re200Rm200 --var bx001_real \
   --sandbox docker
 ```
 
@@ -144,3 +177,9 @@ uv run ts-agents run stl_decompose_with_data --run Re200Rm200 --var bx001_real \
 | `modal` | Serverless cloud | Source-checkout deploy path: `pip install modal` + `modal token new` (opens browser) or `MODAL_TOKEN_ID`/`MODAL_TOKEN_SECRET`; from the repo root deploy with `modal deploy -m ts_agents.sandbox.modal_app --env main --name ts-agents-sandbox`; optional stream/file flags: `TS_AGENTS_MODAL_STREAM`, `TS_AGENTS_MODAL_LOG_FILE` |
 
 You can also set the default via the `TS_AGENTS_SANDBOX_MODE` environment variable.
+
+## Compatibility note
+
+`ts-agents run ...` and `ts-agents demo ...` still work for one release cycle
+to avoid breaking existing scripts, but both surfaces now emit deprecation
+warnings. Use `tool run` and `workflow run` in new automation and docs.

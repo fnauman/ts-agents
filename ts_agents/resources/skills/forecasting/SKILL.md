@@ -54,38 +54,38 @@ If the season length is unknown and seasonality matters, estimate it first.
 ## Workflow
 ### 0) Estimate seasonality when needed
 ```bash
-uv run ts-agents run detect_periodicity_with_data --run <RUN_ID> --var <VARIABLE> --param n_top=3
+uv run ts-agents tool run detect_periodicity_with_data --run <RUN_ID> --var <VARIABLE> --param n_top=3
 ```
 
 ### 1) Start with a baseline
 If the series is seasonal and you know the period:
 ```bash
-uv run ts-agents run forecast_seasonal_naive_with_data \
+uv run ts-agents tool run forecast_seasonal_naive_with_data \
   --run <RUN_ID> --var <VARIABLE> \
   --param horizon=50 --param season_length=<PERIOD>
 ```
 
 If you do not know the period yet, or need a stronger fast baseline:
 ```bash
-uv run ts-agents run forecast_theta_with_data \
+uv run ts-agents tool run forecast_theta_with_data \
   --run <RUN_ID> --var <VARIABLE> \
   --param horizon=50 --param season_length=<PERIOD>
 ```
 
 ### 2) Add ETS or ARIMA when accuracy matters
 ```bash
-uv run ts-agents run forecast_ets_with_data \
+uv run ts-agents tool run forecast_ets_with_data \
   --run <RUN_ID> --var <VARIABLE> \
   --param horizon=50 --param season_length=<PERIOD>
 
-uv run ts-agents run forecast_arima_with_data \
+uv run ts-agents tool run forecast_arima_with_data \
   --run <RUN_ID> --var <VARIABLE> \
   --param horizon=50 --param season_length=<PERIOD>
 ```
 
 ### 3) Compare explicitly instead of relying on defaults
 ```bash
-uv run ts-agents run compare_forecasts_with_data \
+uv run ts-agents tool run compare_forecasts_with_data \
   --run <RUN_ID> --var <VARIABLE> \
   --param horizon=50 \
   --param models=seasonal_naive,theta,ets,arima \
@@ -99,7 +99,7 @@ Notes:
 
 ### 4) Use an ensemble only after individual comparisons
 ```bash
-uv run ts-agents run forecast_ensemble_with_data \
+uv run ts-agents tool run forecast_ensemble_with_data \
   --run <RUN_ID> --var <VARIABLE> \
   --param horizon=50 \
   --param models=seasonal_naive,theta,ets,arima \

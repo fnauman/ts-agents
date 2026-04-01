@@ -1,7 +1,7 @@
 # AGENTS.md
 
 This repo is a CLI-first time-series analysis toolkit with:
-- **Stable CLI entrypoints** (`ts-agents`, demos, skills, sandboxes)
+- **Stable CLI entrypoints** (`ts-agents workflow ...`, `ts-agents tool ...`, skills, sandboxes, plus deprecated `run` / `demo` aliases)
 - **Optional Gradio front ends** (`ts-agents-ui`, `ts-agents-hosted`, plus the root wrappers)
 - **Canonical skills + packaged resources** for agent workflows and installed wheels
 
@@ -55,7 +55,7 @@ uv run python -m pytest -q
 - Hosted profile settings are env-var driven: `HOST`, `PORT`, `GRADIO_SHARE`, `TS_AGENTS_ENABLE_AGENT`, `TS_AGENTS_AGENT_TYPE`, `TS_AGENTS_PERSIST_SESSIONS`, `TS_AGENTS_UI_TITLE`
 
 ## Repo map (where to look first)
-- `ts_agents/cli/main.py` — argparse CLI for `data`, `tool`, `run`, `agent`, `skills`, and `demo`
+- `ts_agents/cli/main.py` — argparse CLI for `data`, `tool`, `workflow`, `sandbox`, `agent`, `skills`, and deprecated `run` / `demo` aliases
 - `main.py` — source-checkout wrapper for `ts-agents-ui`
 - `app.py` — source-checkout wrapper for `ts-agents-hosted`
 - `ts_agents/hosted_app.py` — hosted/manual Gradio profile configured through environment variables
