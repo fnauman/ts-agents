@@ -10,6 +10,9 @@ metadata:
   tasks: [classification, activity-recognition, windowing, demo, evaluation]
   ts_agents:
     tool_category: classification
+    preferred_workflow: activity-recognition
+    preferred_tools: [select_window_size_from_csv, evaluate_windowed_classifier_from_csv]
+    artifact_checklist: [window_selection.json, eval.json, report.md]
 ---
 
 # Activity recognition demo (labeled stream + window-size selection)

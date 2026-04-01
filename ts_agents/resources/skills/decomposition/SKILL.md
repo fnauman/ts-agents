@@ -10,6 +10,7 @@ metadata:
   ts_agents:
     tool_category: decomposition
     prefers_with_data_tools: true
+    preferred_tools: [detect_periodicity_with_data, stl_decompose_with_data, mstl_decompose_with_data, holt_winters_decompose_with_data]
   claude_code:
     allowed-tools: [Bash, Read, Write, Edit, Glob, Grep]
     disable-model-invocation: false

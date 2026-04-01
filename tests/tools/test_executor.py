@@ -14,6 +14,8 @@ from ts_agents.tools.executor import (
     ExecutionStatus,
     LocalBackend,
     SandboxMode,
+    ToolErrorCode,
+    ToolExecutor,
     _persist_docker_artifacts,
     _persist_subprocess_artifacts,
 )
@@ -26,6 +28,9 @@ def test_execution_context_coerces_string():
 
     ctx = ExecutionContext(sandbox_mode="LOCAL")
     assert ctx.sandbox_mode == SandboxMode.LOCAL
+
+    ctx = ExecutionContext(sandbox_mode="docker", fallback_backend="local")
+    assert ctx.fallback_backend == SandboxMode.LOCAL
 
 
 def test_execution_context_daytona_bootstrap_defaults():
@@ -195,3 +200,139 @@ def test_local_backend_formats_tool_payload_with_artifacts():
     assert "Detected 3 peaks." in result.formatted_output
     assert "Artifacts:" in result.formatted_output
     assert "/tmp/peaks.png" in result.formatted_output
+
+
+def test_tool_executor_returns_backend_unavailable_without_fallback(monkeypatch):
+    import ts_agents.tools.executor as executor_mod
+
+    executor = ToolExecutor(default_backend=SandboxMode.LOCAL)
+
+    def fake_describe(mode):
+        if mode == SandboxMode.DOCKER:
+            return {
+                "backend": "docker",
+                "available": False,
+                "reason": "Docker CLI not found.",
+                "suggested_fix": "Install Docker or run with --sandbox local.",
+                "requirements": [],
+                "details": {},
+                "description": "Containerized execution through Docker.",
+            }
+        return {
+            "backend": mode.value,
+            "available": True,
+            "reason": None,
+            "suggested_fix": None,
+            "requirements": [],
+            "details": {},
+            "description": "backend",
+        }
+
+    monkeypatch.setattr(executor_mod, "describe_sandbox_backend", fake_describe)
+    monkeypatch.setattr(executor.backends[SandboxMode.DOCKER], "is_available", lambda: False)
+
+    result = executor.execute(
+        "describe_series",
+        {"series": [1, 2, 3]},
+        context=ExecutionContext(sandbox_mode="docker"),
+    )
+
+    assert result.success is False
+    assert result.error is not None
+    assert result.error.code == ToolErrorCode.BACKEND_UNAVAILABLE
+    assert result.metadata["backend_requested"] == "docker"
+    assert result.metadata["backend_actual"] is None
+    assert result.metadata["fallback_allowed"] is False
+
+
+def test_tool_executor_can_fallback_to_local_when_allowed(monkeypatch):
+    import ts_agents.tools.executor as executor_mod
+
+    executor = ToolExecutor(default_backend=SandboxMode.LOCAL)
+
+    def fake_describe(mode):
+        if mode == SandboxMode.DOCKER:
+            return {
+                "backend": "docker",
+                "available": False,
+                "reason": "Docker CLI not found.",
+                "suggested_fix": "Install Docker or run with --sandbox local.",
+                "requirements": [],
+                "details": {},
+                "description": "Containerized execution through Docker.",
+            }
+        return {
+            "backend": mode.value,
+            "available": True,
+            "reason": None,
+            "suggested_fix": None,
+            "requirements": [],
+            "details": {},
+            "description": "backend",
+        }
+
+    monkeypatch.setattr(executor_mod, "describe_sandbox_backend", fake_describe)
+    monkeypatch.setattr(executor.backends[SandboxMode.DOCKER], "is_available", lambda: False)
+
+    result = executor.execute(
+        "describe_series",
+        {"series": [1, 2, 3]},
+        context=ExecutionContext(
+            sandbox_mode="docker",
+            allow_fallback=True,
+            fallback_backend="local",
+        ),
+    )
+
+    assert result.success is True
+    assert result.metadata["backend_requested"] == "docker"
+    assert result.metadata["backend_actual"] == "local"
+    assert result.metadata["fallback_used"] is True
+    assert result.metadata["fallback_allowed"] is True
+
+
+def test_tool_executor_rejects_unavailable_fallback_backend(monkeypatch):
+    import ts_agents.tools.executor as executor_mod
+
+    executor = ToolExecutor(default_backend=SandboxMode.LOCAL)
+
+    def fake_describe(mode):
+        if mode == SandboxMode.DOCKER:
+            return {
+                "backend": "docker",
+                "available": False,
+                "reason": "Docker CLI not found.",
+                "suggested_fix": "Install Docker or run with --sandbox local.",
+                "requirements": [],
+                "details": {},
+                "description": "Containerized execution through Docker.",
+            }
+        return {
+            "backend": mode.value,
+            "available": True,
+            "reason": None,
+            "suggested_fix": None,
+            "requirements": [],
+            "details": {},
+            "description": "backend",
+        }
+
+    monkeypatch.setattr(executor_mod, "describe_sandbox_backend", fake_describe)
+    monkeypatch.setattr(executor.backends[SandboxMode.DOCKER], "is_available", lambda: False)
+    monkeypatch.setattr(executor.backends[SandboxMode.LOCAL], "is_available", lambda: False)
+
+    result = executor.execute(
+        "describe_series",
+        {"series": [1, 2, 3]},
+        context=ExecutionContext(
+            sandbox_mode="docker",
+            allow_fallback=True,
+            fallback_backend="local",
+        ),
+    )
+
+    assert result.success is False
+    assert result.error is not None
+    assert result.error.code == ToolErrorCode.BACKEND_UNAVAILABLE
+    assert result.metadata["backend_actual"] is None
+    assert result.metadata["fallback_used"] is False

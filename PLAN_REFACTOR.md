@@ -1015,7 +1015,7 @@ Scope:
 #### PR 3 — Generic inputs and hero workflows
 
 Status:
-- in progress
+- merged
 - issue: `#50`
 
 Scope:
@@ -1024,6 +1024,10 @@ Scope:
 - keep `demo` as a compatibility alias to the new workflow layer where appropriate
 
 #### PR 4 — Activity workflow, sandboxes, and structured skills
+
+Status:
+- in progress
+- issue: `#52`
 
 Scope:
 - add `activity-recognition`
