@@ -30,3 +30,6 @@ data/raw/*
 # Quarto docs build artifacts
 docs/_site/
 .quarto/
+
+# Plan docs
+.plans/
