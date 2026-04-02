@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import base64
 from dataclasses import asdict
 import os
 from pathlib import Path
 import shutil
+import tempfile
 from typing import Any, Dict, Optional
+import uuid
 
 import numpy as np
 
@@ -25,12 +28,13 @@ from ts_agents.tools.executor import (
     DaytonaBackend,
     describe_sandbox_backend,
 )
-from ts_agents.tools.results import format_result
+from ts_agents.tools.results import format_result, serialize_result
 
 from . import get_workflow
 
 _WORKFLOW_PREFIX = "workflow:"
 _SANDBOX_ARTIFACT_DIR_ENV = "TS_AGENTS_TOOL_ARTIFACT_DIR"
+_STAGED_WORKFLOW_ARTIFACTS_KEY = "_ts_agents_staged_workflow_artifacts"
 
 
 def _workflow_target_name(workflow_name: str) -> str:
@@ -87,19 +91,73 @@ def _run_serialized_workflow(
     workflow_input: Dict[str, Any],
     runner_kwargs: Dict[str, Any],
     use_sandbox_artifact_dir: bool = False,
+    sandbox_artifact_dir: Optional[str] = None,
+    bundle_sandbox_artifacts: bool = False,
 ) -> Any:
     workflow = get_workflow(workflow_name)
     resolved_kwargs = dict(runner_kwargs or {})
+    staged_output_dir: Optional[Path] = None
     if use_sandbox_artifact_dir:
-        artifact_root = os.environ.get(_SANDBOX_ARTIFACT_DIR_ENV)
+        artifact_root = sandbox_artifact_dir or os.environ.get(_SANDBOX_ARTIFACT_DIR_ENV)
         if not artifact_root:
             raise RuntimeError(
+                "sandbox_artifact_dir or "
                 f"{_SANDBOX_ARTIFACT_DIR_ENV} is required when use_sandbox_artifact_dir=true."
             )
-        resolved_kwargs["output_dir"] = str(Path(artifact_root) / workflow_name)
+        staged_output_dir = Path(artifact_root) / workflow_name
+        resolved_kwargs["output_dir"] = str(staged_output_dir)
 
     resolved_input = _deserialize_workflow_input(workflow_input)
-    return workflow.runner(resolved_input, **resolved_kwargs)
+    result = workflow.runner(resolved_input, **resolved_kwargs)
+    if staged_output_dir is not None and bundle_sandbox_artifacts:
+        return _attach_staged_workflow_artifacts(result, staged_output_dir)
+    return result
+
+
+def _attach_staged_workflow_artifacts(
+    result: Any,
+    output_dir: Path,
+) -> Any:
+    payload = serialize_result(result)
+    if not isinstance(payload, dict):
+        return payload
+
+    staged_files = []
+    if output_dir.exists():
+        for file_path in sorted(output_dir.rglob("*")):
+            if not file_path.is_file():
+                continue
+            staged_files.append(
+                {
+                    "source_path": str(file_path.resolve()),
+                    "relative_path": file_path.relative_to(output_dir).as_posix(),
+                    "content_base64": base64.b64encode(file_path.read_bytes()).decode("ascii"),
+                }
+            )
+
+    if staged_files:
+        payload[_STAGED_WORKFLOW_ARTIFACTS_KEY] = staged_files
+    return payload
+
+
+def _use_staged_workflow_artifact_dir(backend: SandboxMode) -> bool:
+    return backend in {SandboxMode.DOCKER, SandboxMode.DAYTONA, SandboxMode.MODAL}
+
+
+def _bundle_staged_workflow_artifacts(backend: SandboxMode) -> bool:
+    return backend in {SandboxMode.DAYTONA, SandboxMode.MODAL}
+
+
+def _sandbox_workflow_artifact_dir(
+    backend: SandboxMode,
+) -> Optional[str]:
+    if backend == SandboxMode.DOCKER:
+        return "/io/artifacts"
+    if backend == SandboxMode.DAYTONA:
+        return ".ts_agents_io/artifacts"
+    if backend == SandboxMode.MODAL:
+        return f"/tmp/ts_agents_workflow_artifacts/{uuid.uuid4().hex[:8]}"
+    return None
 
 
 def execute_serialized_workflow_request(
@@ -259,7 +317,9 @@ class WorkflowExecutor:
             "workflow_name": workflow_name,
             "workflow_input": _serialize_workflow_input(workflow_input),
             "runner_kwargs": dict(runner_kwargs or {}),
-            "use_sandbox_artifact_dir": actual_backend == SandboxMode.DOCKER,
+            "use_sandbox_artifact_dir": _use_staged_workflow_artifact_dir(actual_backend),
+            "sandbox_artifact_dir": _sandbox_workflow_artifact_dir(actual_backend),
+            "bundle_sandbox_artifacts": _bundle_staged_workflow_artifacts(actual_backend),
         }
         requested_output_dir = request_payload["runner_kwargs"].get("output_dir")
 
@@ -282,6 +342,8 @@ class WorkflowExecutor:
 
         if result.success and actual_backend == SandboxMode.DOCKER and requested_output_dir:
             _rewrite_docker_workflow_output_paths(result, requested_output_dir)
+        elif result.success and actual_backend in {SandboxMode.DAYTONA, SandboxMode.MODAL}:
+            _materialize_remote_workflow_output_paths(result, requested_output_dir)
 
         return result
 
@@ -310,6 +372,60 @@ def _rewrite_docker_workflow_output_paths(
         destination = destination_dir / source.name
         shutil.copy2(source, destination)
         artifact["path"] = str(destination)
+
+    data = payload.get("data")
+    if isinstance(data, dict):
+        data["output_dir"] = str(destination_dir)
+
+    result.formatted_output = format_result(payload)
+
+
+def _materialize_remote_workflow_output_paths(
+    result: ExecutionResult,
+    requested_output_dir: Optional[str],
+) -> None:
+    payload = result.result
+    if not isinstance(payload, dict):
+        return
+
+    staged_files = payload.pop(_STAGED_WORKFLOW_ARTIFACTS_KEY, None)
+    if not isinstance(staged_files, list):
+        return
+
+    if requested_output_dir:
+        destination_dir = Path(requested_output_dir).resolve()
+    else:
+        destination_dir = Path(
+            tempfile.mkdtemp(prefix="ts_agents_workflow_output_")
+        ).resolve()
+    destination_dir.mkdir(parents=True, exist_ok=True)
+
+    rewritten_paths: Dict[str, Path] = {}
+    for staged_file in staged_files:
+        if not isinstance(staged_file, dict):
+            continue
+        relative_path = staged_file.get("relative_path")
+        content_base64 = staged_file.get("content_base64")
+        source_path = staged_file.get("source_path")
+        if not isinstance(relative_path, str) or not isinstance(content_base64, str):
+            continue
+        destination = destination_dir / Path(relative_path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(base64.b64decode(content_base64.encode("ascii")))
+        if isinstance(source_path, str):
+            rewritten_paths[source_path] = destination
+
+    artifacts = payload.get("artifacts")
+    if isinstance(artifacts, list):
+        for artifact in artifacts:
+            if not isinstance(artifact, dict):
+                continue
+            source_path = artifact.get("path")
+            if not isinstance(source_path, str):
+                continue
+            destination = rewritten_paths.get(source_path)
+            if destination is not None:
+                artifact["path"] = str(destination)
 
     data = payload.get("data")
     if isinstance(data, dict):

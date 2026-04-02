@@ -1,3 +1,4 @@
+import base64
 import argparse
 import io
 import json
@@ -176,6 +177,168 @@ def test_workflow_executor_skips_host_availability_gate_for_docker(monkeypatch):
 
     assert result.success is True
     assert backend_calls["tool_name"] == "workflow:forecast-series"
+
+
+def test_run_serialized_workflow_bundles_remote_artifacts(monkeypatch, tmp_path):
+    import ts_agents.workflows.executor as workflow_executor_mod
+
+    def fake_runner(series_input, *, output_dir, **_kwargs):
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        summary_path = output_path / "summary.json"
+        summary_path.write_text('{"ok": true}')
+        return {
+            "kind": "workflow",
+            "summary": "ok",
+            "status": "ok",
+            "data": {"output_dir": str(output_path.resolve())},
+            "artifacts": [
+                {
+                    "kind": "json",
+                    "path": str(summary_path.resolve()),
+                    "mime_type": "application/json",
+                    "description": "summary",
+                    "created_by": "inspect-series",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(
+        workflow_executor_mod,
+        "get_workflow",
+        lambda name: SimpleNamespace(runner=fake_runner),
+    )
+
+    payload = workflow_executor_mod._run_serialized_workflow(
+        workflow_name="inspect-series",
+        workflow_input=workflow_executor_mod._serialize_workflow_input(
+            SeriesInput(
+                series=np.array([1.0, 2.0, 3.0]),
+                source_type="inline_json",
+                label="series",
+            )
+        ),
+        runner_kwargs={"output_dir": "ignored"},
+        use_sandbox_artifact_dir=True,
+        sandbox_artifact_dir=str(tmp_path / "remote_artifacts"),
+        bundle_sandbox_artifacts=True,
+    )
+
+    staged_files = payload[workflow_executor_mod._STAGED_WORKFLOW_ARTIFACTS_KEY]
+    assert len(staged_files) == 1
+    assert staged_files[0]["relative_path"] == "summary.json"
+    assert (
+        base64.b64decode(staged_files[0]["content_base64"].encode("ascii")).decode("utf-8")
+        == '{"ok": true}'
+    )
+
+
+def test_workflow_executor_materializes_remote_artifacts_to_requested_output_dir(monkeypatch, tmp_path):
+    import ts_agents.workflows.executor as workflow_executor_mod
+    from ts_agents.tools.executor import ExecutionContext, ExecutionResult, ExecutionStatus, SandboxMode
+
+    backend_calls = {}
+    output_dir = tmp_path / "inspect_daytona"
+    remote_output_dir = "/remote/.ts_agents_io/artifacts/inspect-series"
+
+    class FakeDaytonaBackend:
+        def is_available(self):
+            return True
+
+        def execute(self, tool_name, func, params, context):
+            backend_calls["tool_name"] = tool_name
+            backend_calls["params"] = params
+            backend_calls["context"] = context
+            return ExecutionResult(
+                status=ExecutionStatus.SUCCESS,
+                result={
+                    "kind": "workflow",
+                    "summary": "ok",
+                    "status": "ok",
+                    "data": {"output_dir": remote_output_dir},
+                    "artifacts": [
+                        {
+                            "kind": "json",
+                            "path": f"{remote_output_dir}/summary.json",
+                            "mime_type": "application/json",
+                            "description": "summary",
+                            "created_by": "inspect-series",
+                        },
+                        {
+                            "kind": "markdown",
+                            "path": f"{remote_output_dir}/report.md",
+                            "mime_type": "text/markdown",
+                            "description": "report",
+                            "created_by": "inspect-series",
+                        },
+                    ],
+                    workflow_executor_mod._STAGED_WORKFLOW_ARTIFACTS_KEY: [
+                        {
+                            "source_path": f"{remote_output_dir}/summary.json",
+                            "relative_path": "summary.json",
+                            "content_base64": base64.b64encode(b'{"ok": true}').decode("ascii"),
+                        },
+                        {
+                            "source_path": f"{remote_output_dir}/report.md",
+                            "relative_path": "report.md",
+                            "content_base64": base64.b64encode(b"# report").decode("ascii"),
+                        },
+                    ],
+                },
+                formatted_output="ok",
+                metadata={"backend": "daytona"},
+            )
+
+    executor = workflow_executor_mod.WorkflowExecutor()
+    executor.backends[SandboxMode.DAYTONA] = FakeDaytonaBackend()
+
+    monkeypatch.setattr(
+        workflow_executor_mod,
+        "get_workflow",
+        lambda name: SimpleNamespace(
+            availability=lambda: {
+                "status": "available",
+                "available": True,
+                "missing_dependencies": [],
+                "required_extras": [],
+                "optional_features": [],
+                "install_hint": None,
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        workflow_executor_mod,
+        "describe_sandbox_backend",
+        lambda mode: {
+            "backend": mode.value,
+            "available": True,
+            "reason": None,
+            "suggested_fix": None,
+            "requirements": [],
+            "details": {},
+            "description": "backend",
+        },
+    )
+
+    result = executor.execute(
+        "inspect-series",
+        SeriesInput(series=np.array([1.0, 2.0, 3.0]), source_type="inline_json", label="series"),
+        {"output_dir": str(output_dir), "skip_plots": True},
+        context=ExecutionContext(sandbox_mode="daytona"),
+    )
+
+    assert result.success is True
+    assert backend_calls["tool_name"] == "workflow:inspect-series"
+    assert backend_calls["params"]["use_sandbox_artifact_dir"] is True
+    assert backend_calls["params"]["bundle_sandbox_artifacts"] is True
+    assert backend_calls["params"]["sandbox_artifact_dir"] == ".ts_agents_io/artifacts"
+    assert workflow_executor_mod._STAGED_WORKFLOW_ARTIFACTS_KEY not in result.result
+    assert result.result["data"]["output_dir"] == str(output_dir.resolve())
+    assert (output_dir / "summary.json").read_text() == '{"ok": true}'
+    assert (output_dir / "report.md").read_text() == "# report"
+    artifact_paths = {artifact["path"] for artifact in result.result["artifacts"]}
+    assert str((output_dir / "summary.json").resolve()) in artifact_paths
+    assert str((output_dir / "report.md").resolve()) in artifact_paths
 
 
 def test_activity_workflow_availability_is_degraded_without_aeon(monkeypatch):
