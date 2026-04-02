@@ -6,7 +6,7 @@ from typing import Any, Iterable, List, Optional
 import warnings
 
 from ts_agents.cli.input_parsing import SeriesInput
-from ts_agents.cli.output import to_jsonable
+from ts_agents.cli.output import dump_json, to_jsonable
 from ts_agents.contracts import ToolPayload
 
 from .common import ensure_output_dir, write_dataframe_artifact, write_json_artifact, write_plot_artifact, write_text_artifact
@@ -44,15 +44,40 @@ def run_forecast_series_workflow(
         )
 
     comparison_payload = to_jsonable(comparison)
+    valid_methods = _valid_methods(selected_methods, comparison_payload)
+    failed_methods = _failed_methods(selected_methods, comparison_payload)
+    if not valid_methods:
+        _raise_all_methods_failed(selected_methods, comparison_payload)
+
     rankings = comparison_payload.get("rankings") or {}
     rmse_ranking = rankings.get("rmse") or []
     best_method = rmse_ranking[0] if rmse_ranking else None
+    if best_method is None:
+        best_method = valid_methods[0]
 
     forecast_rows = _build_forecast_rows(
         series_input=series_input,
         method=best_method,
         horizon=horizon,
     )
+    warnings_list: List[str] = []
+    quality_flags = _forecast_quality_flags(
+        selected_methods=selected_methods,
+        valid_methods=valid_methods,
+        failed_methods=failed_methods,
+        comparison_payload=comparison_payload,
+    )
+    if not rmse_ranking:
+        quality_flags.append("ranking_unavailable")
+    if failed_methods:
+        warnings_list.append(
+            "Some forecast methods failed: "
+            + ", ".join(
+                f"{method} ({_method_failure_message(method, comparison_payload)})"
+                for method in failed_methods
+            )
+        )
+
     summary_data = {
         "workflow": workflow_name,
         "source": series_input.provenance.get("series_ref", {}),
@@ -60,6 +85,9 @@ def run_forecast_series_workflow(
         "validation_size": int(validation_size or horizon),
         "methods": selected_methods,
         "best_method": best_method,
+        "valid_methods": valid_methods,
+        "failed_methods": failed_methods,
+        "quality_flags": quality_flags,
         "metrics": comparison_payload.get("metrics", {}),
         "rankings": comparison_payload.get("rankings", {}),
         "recommendation": comparison_payload.get("recommendation"),
@@ -87,8 +115,6 @@ def run_forecast_series_workflow(
             created_by=workflow_name,
         ),
     ]
-    warnings_list: List[str] = []
-
     if not skip_plots:
         try:
             fig = plot_forecast_comparison(comparison, series_input.series)
@@ -105,6 +131,7 @@ def run_forecast_series_workflow(
             plt.close(fig)
         except ImportError:
             warnings_list.append("matplotlib is not installed; skipping forecast comparison plot.")
+            quality_flags.append("plot_skipped")
 
     report = _build_report(
         series_input=series_input,
@@ -137,6 +164,7 @@ def run_forecast_series_workflow(
     return ToolPayload(
         kind="workflow",
         summary=summary,
+        status="degraded" if warnings_list or quality_flags else "ok",
         data=summary_data,
         artifacts=artifacts,
         warnings=warnings_list,
@@ -159,6 +187,138 @@ def _normalize_methods(methods: Optional[Iterable[str]]) -> List[str]:
             f"Supported: {', '.join(sorted(_SUPPORTED_METHODS))}."
         )
     return normalized
+
+
+def _failed_methods(
+    selected_methods: List[str],
+    comparison_payload: dict[str, Any],
+) -> List[str]:
+    return [
+        method
+        for method in selected_methods
+        if _method_failure_message(method, comparison_payload) is not None
+    ]
+
+
+def _valid_methods(
+    selected_methods: List[str],
+    comparison_payload: dict[str, Any],
+) -> List[str]:
+    return [
+        method
+        for method in selected_methods
+        if _method_failure_message(method, comparison_payload) is None
+    ]
+
+
+def _method_metric_entry(
+    method: str,
+    comparison_payload: dict[str, Any],
+) -> Any:
+    metrics = comparison_payload.get("metrics") or {}
+    return metrics.get(method)
+
+
+def _method_failure_message(
+    method: str,
+    comparison_payload: dict[str, Any],
+) -> Optional[str]:
+    metric_entry = _method_metric_entry(method, comparison_payload)
+    if not isinstance(metric_entry, dict):
+        return "missing metrics for method"
+    error = metric_entry.get("error")
+    if error is None:
+        return None
+    return str(error)
+
+
+def _method_failure_type(
+    method: str,
+    comparison_payload: dict[str, Any],
+) -> Optional[str]:
+    metric_entry = _method_metric_entry(method, comparison_payload)
+    if not isinstance(metric_entry, dict):
+        return "MissingMetricsError"
+    error = metric_entry.get("error")
+    if error is None:
+        return None
+    error_type = metric_entry.get("error_type")
+    return str(error_type) if error_type else None
+
+
+def _forecast_quality_flags(
+    *,
+    selected_methods: List[str],
+    valid_methods: List[str],
+    failed_methods: List[str],
+    comparison_payload: dict[str, Any],
+) -> List[str]:
+    flags: List[str] = []
+    if failed_methods:
+        flags.append("partial_method_failure")
+    if len(valid_methods) == 1 and len(selected_methods) > 1:
+        flags.append("only_one_valid_method")
+    if any(
+        _method_failure_message(method, comparison_payload) == "missing metrics for method"
+        for method in failed_methods
+    ):
+        flags.append("missing_method_metrics")
+    return flags
+
+
+def _raise_all_methods_failed(
+    selected_methods: List[str],
+    comparison_payload: dict[str, Any],
+) -> None:
+    failure_messages = {
+        method: _method_failure_message(method, comparison_payload) or "unknown error"
+        for method in selected_methods
+    }
+    message = (
+        "All forecast methods failed: "
+        + "; ".join(f"{method}: {error}" for method, error in failure_messages.items())
+    )
+    failure_types = {
+        method: _method_failure_type(method, comparison_payload)
+        for method in selected_methods
+    }
+    if all(
+        _is_dependency_failure(
+            error_type=failure_types[method],
+            message=failure_messages[method],
+        )
+        for method in selected_methods
+    ):
+        raise ImportError(message)
+    raise RuntimeError(message)
+
+
+def _is_dependency_failure(*, error_type: Optional[str], message: Any) -> bool:
+    if error_type in {"ImportError", "ModuleNotFoundError"}:
+        return True
+
+    if not isinstance(message, str):
+        return False
+
+    lowered = message.lower()
+    dependency_markers = (
+        "optional dependencies",
+        "dependency",
+        "dependencies",
+        "no module named",
+        "module not found",
+        "modulenotfounderror",
+        "importerror",
+    )
+    install_markers = (
+        "pip install",
+        "install via",
+        "install with",
+    )
+    return any(marker in lowered for marker in dependency_markers) or (
+        any(marker in lowered for marker in install_markers)
+        and ("require" in lowered or "missing" in lowered)
+    )
 
 
 def _build_forecast_rows(
@@ -300,7 +460,7 @@ def _render_report_with_llm(
         f"source: {source_label}\n"
         f"horizon: {horizon}\n"
         f"methods: {methods}\n"
-        f"comparison_json: {comparison_payload}"
+        f"comparison_json: {dump_json(comparison_payload, indent=None)}"
     )
     response = llm.invoke(prompt)
     content = response.content

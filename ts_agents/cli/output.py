@@ -5,7 +5,9 @@ from __future__ import annotations
 import base64
 import binascii
 from dataclasses import asdict, is_dataclass
+from datetime import date, datetime
 import json
+import math
 from pathlib import Path
 import re
 from typing import Any, List, Optional, Tuple
@@ -17,19 +19,71 @@ from ts_agents.contracts import ArtifactRef, ToolPayload
 IMAGE_DATA_PATTERN = re.compile(r"\[IMAGE_DATA:([A-Za-z0-9+/=]+)\]")
 
 
+def _jsonable_float(value: float) -> Optional[float]:
+    return value if math.isfinite(value) else None
+
+
+def _jsonable_float_key(value: float) -> float | str:
+    if math.isfinite(value):
+        return value
+    if math.isnan(value):
+        return "NaN"
+    if value > 0:
+        return "Infinity"
+    return "-Infinity"
+
+
+def _jsonable_key(key: Any) -> Any:
+    if key is None or isinstance(key, (str, int, bool)):
+        return key
+
+    if isinstance(key, float):
+        return _jsonable_float_key(key)
+
+    if isinstance(key, (np.integer, np.bool_)):
+        return key.item()
+
+    if isinstance(key, np.floating):
+        return _jsonable_float_key(float(key.item()))
+
+    if isinstance(key, Path):
+        return str(key)
+
+    return str(key)
+
+
+def _jsonable_sort_key(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
 def to_jsonable(value: Any) -> Any:
     """Convert Python objects to JSON-serializable structures."""
     if value is None:
         return None
 
-    if isinstance(value, (str, int, float, bool)):
+    if isinstance(value, bool):
         return value
 
-    if isinstance(value, (np.integer, np.floating)):
+    if isinstance(value, (str, int)):
+        return value
+
+    if isinstance(value, float):
+        return _jsonable_float(value)
+
+    if isinstance(value, (np.integer, np.bool_)):
         return value.item()
 
+    if isinstance(value, np.floating):
+        return _jsonable_float(float(value.item()))
+
     if isinstance(value, np.ndarray):
-        return value.tolist()
+        return to_jsonable(value.tolist())
+
+    if isinstance(value, Path):
+        return str(value)
+
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
 
     if hasattr(value, "to_dict") and callable(value.to_dict):
         return to_jsonable(value.to_dict())
@@ -38,15 +92,23 @@ def to_jsonable(value: Any) -> Any:
         return {k: to_jsonable(v) for k, v in asdict(value).items()}
 
     if isinstance(value, dict):
-        return {k: to_jsonable(v) for k, v in value.items()}
+        return {_jsonable_key(k): to_jsonable(v) for k, v in value.items()}
 
     if isinstance(value, (list, tuple)):
         return [to_jsonable(v) for v in value]
 
+    if isinstance(value, set):
+        return sorted((to_jsonable(v) for v in value), key=_jsonable_sort_key)
+
     if hasattr(value, "__dict__"):
         return {k: to_jsonable(v) for k, v in value.__dict__.items() if not k.startswith("_")}
 
-    return value
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+def dump_json(value: Any, *, indent: Optional[int] = 2) -> str:
+    """Serialize a value as strict JSON."""
+    return json.dumps(to_jsonable(value), indent=indent, allow_nan=False)
 
 
 def format_human(value: Any) -> str:
@@ -176,8 +238,7 @@ def render_output(
 ) -> str:
     """Render output for printing or saving."""
     if json_output:
-        payload = to_jsonable(result)
-        return json.dumps(payload, indent=2, default=str)
+        return dump_json(result)
 
     if text_output is not None:
         return text_output

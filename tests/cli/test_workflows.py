@@ -1,6 +1,7 @@
 import argparse
 import io
 import json
+from pathlib import Path
 import sys
 from types import SimpleNamespace
 
@@ -15,6 +16,7 @@ def test_workflow_list_json_returns_envelope(capsys):
 
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
+    assert payload["schema_version"] == "1.0"
     assert payload["ok"] is True
     assert payload["command"] == "workflow list"
     workflow_names = [workflow["name"] for workflow in payload["result"]["workflows"]]
@@ -119,6 +121,249 @@ def test_workflow_run_forecast_series_writes_expected_files(monkeypatch, capsys,
     assert str(output_dir / "report.md") in artifact_paths
 
 
+def test_workflow_run_forecast_series_reports_degraded_when_some_methods_fail(
+    monkeypatch,
+    capsys,
+    tmp_path,
+):
+    import ts_agents.core.comparison as comparison_mod
+    import ts_agents.workflows.forecast as forecast_workflow
+
+    csv_path = tmp_path / "series.csv"
+    csv_path.write_text("ds,y\n2024-01-01,1.0\n2024-01-02,1.1\n2024-01-03,1.2\n2024-01-04,1.3\n")
+
+    def fake_compare_forecasting_methods(series, horizon, methods, validation_size=None):
+        return ComparisonResult(
+            category="forecasting",
+            methods=["theta"],
+            results={},
+            metrics={
+                "arima": {
+                    "error": 'Statistical forecasting requires optional dependencies. Install with: pip install "ts-agents[forecasting]"'
+                },
+                "theta": {"mae": 0.1, "rmse": 0.1, "mape": 4.0},
+            },
+            rankings={"rmse": ["theta"], "mae": ["theta"], "mape": ["theta"]},
+            recommendation="theta is the best baseline.",
+            computation_times={"theta": 0.01},
+        )
+
+    monkeypatch.setattr(comparison_mod, "compare_forecasting_methods", fake_compare_forecasting_methods)
+    monkeypatch.setattr(
+        forecast_workflow,
+        "_forecast_with_method",
+        lambda series, method, horizon: SimpleNamespace(forecast=np.array([1.4, 1.5])),
+    )
+
+    output_dir = tmp_path / "forecast"
+    code = run(
+        [
+            "workflow",
+            "run",
+            "forecast-series",
+            "--input",
+            str(csv_path),
+            "--time-col",
+            "ds",
+            "--value-col",
+            "y",
+            "--horizon",
+            "2",
+            "--methods",
+            "arima,theta",
+            "--skip-plots",
+            "--output-dir",
+            str(output_dir),
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["result"]["status"] == "degraded"
+    assert payload["result"]["data"]["valid_methods"] == ["theta"]
+    assert payload["result"]["data"]["failed_methods"] == ["arima"]
+    assert "partial_method_failure" in payload["result"]["data"]["quality_flags"]
+    assert "only_one_valid_method" in payload["result"]["data"]["quality_flags"]
+    assert payload["result"]["data"]["best_method"] == "theta"
+
+
+def test_workflow_run_forecast_series_treats_missing_metrics_as_failed_method(
+    monkeypatch,
+    capsys,
+    tmp_path,
+):
+    import ts_agents.core.comparison as comparison_mod
+    import ts_agents.workflows.forecast as forecast_workflow
+
+    csv_path = tmp_path / "series.csv"
+    csv_path.write_text("ds,y\n2024-01-01,1.0\n2024-01-02,1.1\n2024-01-03,1.2\n2024-01-04,1.3\n")
+
+    def fake_compare_forecasting_methods(series, horizon, methods, validation_size=None):
+        return ComparisonResult(
+            category="forecasting",
+            methods=["theta"],
+            results={},
+            metrics={
+                "theta": {"mae": 0.1, "rmse": 0.1, "mape": 4.0},
+            },
+            rankings={"rmse": ["theta"], "mae": ["theta"], "mape": ["theta"]},
+            recommendation="theta is the best baseline.",
+            computation_times={"theta": 0.01},
+        )
+
+    monkeypatch.setattr(comparison_mod, "compare_forecasting_methods", fake_compare_forecasting_methods)
+    monkeypatch.setattr(
+        forecast_workflow,
+        "_forecast_with_method",
+        lambda series, method, horizon: SimpleNamespace(forecast=np.array([1.4, 1.5])),
+    )
+
+    output_dir = tmp_path / "forecast"
+    code = run(
+        [
+            "workflow",
+            "run",
+            "forecast-series",
+            "--input",
+            str(csv_path),
+            "--time-col",
+            "ds",
+            "--value-col",
+            "y",
+            "--horizon",
+            "2",
+            "--methods",
+            "arima,theta",
+            "--skip-plots",
+            "--output-dir",
+            str(output_dir),
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["result"]["status"] == "degraded"
+    assert payload["result"]["data"]["valid_methods"] == ["theta"]
+    assert payload["result"]["data"]["failed_methods"] == ["arima"]
+    assert "missing_method_metrics" in payload["result"]["data"]["quality_flags"]
+
+
+def test_workflow_run_forecast_series_fails_when_all_methods_fail(monkeypatch, capsys, tmp_path):
+    import ts_agents.core.comparison as comparison_mod
+
+    csv_path = tmp_path / "series.csv"
+    csv_path.write_text("ds,y\n2024-01-01,1.0\n2024-01-02,1.1\n2024-01-03,1.2\n2024-01-04,1.3\n")
+
+    def fake_compare_forecasting_methods(series, horizon, methods, validation_size=None):
+        return ComparisonResult(
+            category="forecasting",
+            methods=[],
+            results={},
+            metrics={
+                "arima": {
+                    "error": 'Statistical forecasting requires optional dependencies. Install with: pip install "ts-agents[forecasting]"'
+                },
+                "theta": {
+                    "error": 'Statistical forecasting requires optional dependencies. Install with: pip install "ts-agents[forecasting]"'
+                },
+            },
+            rankings={},
+            recommendation="Unable to generate recommendation - no valid results.",
+            computation_times={},
+        )
+
+    monkeypatch.setattr(comparison_mod, "compare_forecasting_methods", fake_compare_forecasting_methods)
+
+    output_dir = tmp_path / "forecast"
+    code = run(
+        [
+            "workflow",
+            "run",
+            "forecast-series",
+            "--input",
+            str(csv_path),
+            "--time-col",
+            "ds",
+            "--value-col",
+            "y",
+            "--horizon",
+            "2",
+            "--skip-plots",
+            "--output-dir",
+            str(output_dir),
+            "--json",
+        ]
+    )
+
+    assert code == 3
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "dependency_error"
+    assert "All forecast methods failed" in payload["error"]["message"]
+    assert not (output_dir / "forecast.json").exists()
+
+
+def test_workflow_run_forecast_series_classifies_importerror_by_error_type(
+    monkeypatch,
+    capsys,
+    tmp_path,
+):
+    import ts_agents.core.comparison as comparison_mod
+
+    csv_path = tmp_path / "series.csv"
+    csv_path.write_text("ds,y\n2024-01-01,1.0\n2024-01-02,1.1\n2024-01-03,1.2\n2024-01-04,1.3\n")
+
+    def fake_compare_forecasting_methods(series, horizon, methods, validation_size=None):
+        return ComparisonResult(
+            category="forecasting",
+            methods=[],
+            results={},
+            metrics={
+                "arima": {
+                    "error": "backend package unavailable",
+                    "error_type": "ImportError",
+                },
+                "theta": {
+                    "error": "backend package unavailable",
+                    "error_type": "ModuleNotFoundError",
+                },
+            },
+            rankings={},
+            recommendation="Unable to generate recommendation - no valid results.",
+            computation_times={},
+        )
+
+    monkeypatch.setattr(comparison_mod, "compare_forecasting_methods", fake_compare_forecasting_methods)
+
+    output_dir = tmp_path / "forecast"
+    code = run(
+        [
+            "workflow",
+            "run",
+            "forecast-series",
+            "--input",
+            str(csv_path),
+            "--time-col",
+            "ds",
+            "--value-col",
+            "y",
+            "--horizon",
+            "2",
+            "--skip-plots",
+            "--output-dir",
+            str(output_dir),
+            "--json",
+        ]
+    )
+
+    assert code == 3
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "dependency_error"
+
+
 def test_workflow_run_activity_recognition_writes_expected_files(monkeypatch, capsys, tmp_path):
     import ts_agents.core.windowing as windowing
 
@@ -205,6 +450,115 @@ def test_workflow_run_activity_recognition_writes_expected_files(monkeypatch, ca
     assert str(output_dir / "window_selection.json") in artifact_paths
     assert str(output_dir / "eval.json") in artifact_paths
     assert str(output_dir / "report.md") in artifact_paths
+
+
+def test_workflow_run_activity_recognition_sanitizes_nan_scores_and_surfaces_quality_flags(
+    monkeypatch,
+    capsys,
+    tmp_path,
+):
+    import ts_agents.core.windowing as windowing
+
+    class FakeSelection:
+        best_window_size = 96
+        metric = "balanced_accuracy"
+
+        def to_dict(self):
+            return {
+                "method": "window_size_selection",
+                "best_window_size": 96,
+                "metric": "balanced_accuracy",
+                "scores_by_window": {32: float("nan"), 96: 1.0},
+                "n_windows_by_window": {32: 7, 96: 12},
+                "details": {},
+            }
+
+    class FakeEval:
+        metric = "balanced_accuracy"
+        score = 1.0
+
+        def to_dict(self):
+            return {
+                "method": "windowed_classification",
+                "window_size": 96,
+                "stride": 48,
+                "classifier": "minirocket",
+                "metric": "balanced_accuracy",
+                "score": 1.0,
+                "n_windows": 12,
+                "class_counts": {"idle": 8, "walk": 4, "jog": 3},
+                "classification": {
+                    "method": "minirocket",
+                    "accuracy": 1.0,
+                    "f1_score": 1.0,
+                    "confusion_matrix": [[8, 0, 0], [0, 0, 0], [0, 0, 0]],
+                    "predictions": ["idle"],
+                },
+            }
+
+    monkeypatch.setattr(windowing, "select_window_size", lambda *args, **kwargs: FakeSelection())
+    monkeypatch.setattr(windowing, "evaluate_windowed_classifier", lambda *args, **kwargs: FakeEval())
+
+    csv_path = tmp_path / "stream.csv"
+    csv_path.write_text(
+        "x,y,z,label\n"
+        "0,0,0,idle\n"
+        "1,1,1,idle\n"
+        "2,2,2,walk\n"
+        "3,3,3,walk\n"
+    )
+
+    output_dir = tmp_path / "activity"
+    code = run(
+        [
+            "workflow",
+            "run",
+            "activity-recognition",
+            "--input",
+            str(csv_path),
+            "--label-col",
+            "label",
+            "--value-cols",
+            "x,y,z",
+            "--window-sizes",
+            "32,96",
+            "--skip-plots",
+            "--output-dir",
+            str(output_dir),
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    stdout = capsys.readouterr().out
+    assert "NaN" not in stdout
+    payload = json.loads(
+        stdout,
+        parse_constant=lambda constant: (_ for _ in ()).throw(AssertionError(constant)),
+    )
+    assert payload["result"]["status"] == "degraded"
+    flags = set(payload["result"]["data"]["quality_flags"])
+    assert "nan_window_scores" in flags
+    assert "too_few_windows" in flags
+    assert "single_class_test_split" in flags
+    assert "metric_not_comparable" in flags
+    assert "perfect_metrics" in flags
+    assert payload["result"]["data"]["window_selection"]["scores_by_window"]["32"] is None
+
+
+def test_activity_window_selection_plot_ignores_null_scores():
+    import ts_agents.workflows.activity as activity_workflow
+
+    fig = activity_workflow._plot_window_selection(
+        {
+            "best_window_size": 96,
+            "metric": "balanced_accuracy",
+            "scores_by_window": {"32": None, "96": 0.84},
+        }
+    )
+
+    assert fig is not None
+    activity_workflow._close_plots(fig)
 
 
 def test_workflow_run_activity_recognition_continues_when_plot_generation_fails(
@@ -361,3 +715,32 @@ def test_handle_workflow_command_uses_registry_runner(monkeypatch):
         "output_dir": "outputs/custom",
         "skip_plots": True,
     }
+
+
+def test_workflow_run_inspect_series_returns_absolute_paths_for_relative_output_dir(
+    capsys,
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.chdir(tmp_path)
+
+    code = run(
+        [
+            "workflow",
+            "run",
+            "inspect-series",
+            "--input-json",
+            '{"series":[1,2,3,4,5]}',
+            "--output-dir",
+            "outputs/inspect",
+            "--skip-plots",
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    expected_output_dir = str((tmp_path / "outputs" / "inspect").resolve())
+    assert payload["result"]["data"]["output_dir"] == expected_output_dir
+    for artifact in payload["result"]["artifacts"]:
+        assert Path(artifact["path"]).is_absolute()

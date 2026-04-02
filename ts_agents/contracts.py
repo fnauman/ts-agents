@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+CLI_SCHEMA_VERSION = "1.0"
+
 
 @dataclass
 class ArtifactRef:
@@ -23,6 +25,7 @@ class ToolPayload:
 
     kind: str
     summary: str
+    status: str = "ok"
     data: Dict[str, Any] = field(default_factory=dict)
     artifacts: List[ArtifactRef] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
@@ -56,6 +59,7 @@ class CLIEnvelope:
 
     ok: bool
     command: str
+    schema_version: str = CLI_SCHEMA_VERSION
     name: Optional[str] = None
     input: Dict[str, Any] = field(default_factory=dict)
     result: Any = None

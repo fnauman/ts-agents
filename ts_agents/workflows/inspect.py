@@ -110,6 +110,7 @@ def run_inspect_series_workflow(
     return ToolPayload(
         kind="workflow",
         summary=summary,
+        status="degraded" if warnings else "ok",
         data=summary_data,
         artifacts=artifacts,
         warnings=warnings,

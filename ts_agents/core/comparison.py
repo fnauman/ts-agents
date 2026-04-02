@@ -298,7 +298,10 @@ def compare_forecasting_methods(
             }
 
         except Exception as e:
-            metrics[method] = {"error": str(e)}
+            metrics[method] = {
+                "error": str(e),
+                "error_type": type(e).__name__,
+            }
 
     # Compute rankings (lower is better for error metrics)
     rankings = _compute_rankings(metrics, lower_is_better=["mae", "rmse", "mape"])

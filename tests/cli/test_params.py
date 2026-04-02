@@ -374,6 +374,7 @@ def test_tool_show_json_returns_envelope(capsys):
 
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
+    assert payload["schema_version"] == "1.0"
     assert payload["ok"] is True
     assert payload["command"] == "tool show"
     assert payload["name"] == "forecast_theta_with_data"
@@ -646,3 +647,23 @@ def test_tool_run_json_dependency_error_is_typed(monkeypatch, capsys):
     assert payload["command"] == "tool run"
     assert payload["name"] == "forecast_theta_with_data"
     assert payload["error"]["code"] == "dependency_error"
+
+
+def test_tool_run_parse_failure_with_json_returns_typed_envelope(capsys):
+    code = run(["tool", "run", "describe_series", "--badflag", "--json"])
+
+    assert code == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["schema_version"] == "1.0"
+    assert payload["command"] == "tool run"
+    assert payload["name"] == "describe_series"
+    assert payload["error"]["code"] == "usage_error"
+    assert "unrecognized arguments: --badflag" in payload["error"]["message"]
+    assert payload["input"]["argv"] == [
+        "tool",
+        "run",
+        "describe_series",
+        "--badflag",
+        "--json",
+    ]
