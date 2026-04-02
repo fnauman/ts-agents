@@ -42,6 +42,10 @@ def is_workflow_target(tool_name: str) -> bool:
     return tool_name.startswith(_WORKFLOW_PREFIX)
 
 
+def _enforce_host_availability_for_backend(backend: SandboxMode) -> bool:
+    return backend in {SandboxMode.LOCAL, SandboxMode.SUBPROCESS}
+
+
 def _serialize_workflow_input(workflow_input: Any) -> Dict[str, Any]:
     if isinstance(workflow_input, SeriesInput):
         payload = asdict(workflow_input)
@@ -155,25 +159,6 @@ class WorkflowExecutor:
                 },
             )
 
-        availability = workflow.availability()
-        if not availability.get("available", True):
-            return ExecutionResult(
-                status=ExecutionStatus.FAILED,
-                error=ToolError(
-                    code=ToolErrorCode.DEPENDENCY_ERROR,
-                    message=availability.get("install_hint")
-                    or f"Workflow '{workflow_name}' is unavailable in the current environment.",
-                    recoverable=False,
-                    tool_name=workflow_name,
-                    details={"availability": availability},
-                ),
-                metadata={
-                    "workflow_name": workflow_name,
-                    "backend_requested": getattr(context.sandbox_mode, "value", str(context.sandbox_mode)),
-                    "backend_actual": None,
-                },
-            )
-
         requested_backend = context.sandbox_mode
         actual_backend = context.sandbox_mode
         requested_status = describe_sandbox_backend(requested_backend)
@@ -243,6 +228,32 @@ class WorkflowExecutor:
                 )
 
             actual_backend = fallback_backend
+
+        availability = workflow.availability()
+        if (
+            _enforce_host_availability_for_backend(actual_backend)
+            and not availability.get("available", True)
+        ):
+            return ExecutionResult(
+                status=ExecutionStatus.FAILED,
+                error=ToolError(
+                    code=ToolErrorCode.DEPENDENCY_ERROR,
+                    message=availability.get("install_hint")
+                    or f"Workflow '{workflow_name}' is unavailable in the current environment.",
+                    recoverable=False,
+                    tool_name=workflow_name,
+                    details={"availability": availability},
+                ),
+                metadata={
+                    "workflow_name": workflow_name,
+                    "backend_requested": requested_backend.value,
+                    "backend_actual": actual_backend.value,
+                    "fallback_allowed": context.allow_fallback,
+                    "fallback_backend": fallback_backend.value if context.allow_fallback else None,
+                    "fallback_used": actual_backend != requested_backend,
+                    "availability": availability,
+                },
+            )
 
         request_payload = {
             "workflow_name": workflow_name,

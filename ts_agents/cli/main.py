@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 import shlex
 import sys
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NoReturn, Optional, Tuple
 
 from ts_agents.contracts import CLIEnvelope, CLIError, CLIExecution
 from ts_agents.tools.executor import ToolError, ToolErrorCode
@@ -251,7 +251,7 @@ def _raise_missing_required_error(
     )
 
 
-def _raise_unknown_tool_error(tool_name: str) -> None:
+def _raise_unknown_tool_error(tool_name: str) -> NoReturn:
     from ts_agents.tools.registry import ToolRegistry
 
     tool_names = [tool.name for tool in ToolRegistry.list_all()]
@@ -268,7 +268,7 @@ def _raise_unknown_tool_error(tool_name: str) -> None:
     )
 
 
-def _raise_unknown_workflow_error(workflow_name: str) -> None:
+def _raise_unknown_workflow_error(workflow_name: str) -> NoReturn:
     from ts_agents.workflows import list_workflows
 
     workflow_names = [workflow.name for workflow in list_workflows()]
@@ -277,8 +277,7 @@ def _raise_unknown_workflow_error(workflow_name: str) -> None:
     raise ValueError(
         f"Workflow '{workflow_name}' not found.{hint}\n"
         f"Tip: inspect workflows with:\n"
-        f"  uv run ts-agents workflow list\n"
-        f"  uv run ts-agents workflow show inspect-series --json"
+        f"  uv run ts-agents workflow list"
     )
 
 

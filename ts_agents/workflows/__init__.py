@@ -211,13 +211,18 @@ def _forecast_workflow_availability() -> Dict[str, Any]:
 
 
 def _activity_workflow_availability() -> Dict[str, Any]:
-    missing_dependencies = [
-        module_name
-        for module_name in ("aeon", "sklearn")
-        if not _module_available(module_name)
-    ]
+    has_aeon = _module_available("aeon")
+    has_sklearn = _module_available("sklearn")
+    missing_dependencies = [] if has_sklearn else ["scikit-learn"]
     has_matplotlib = _module_available("matplotlib")
     optional_features = [
+        _optional_feature(
+            name="rocket_backends",
+            available=has_aeon,
+            required_extras=["classification"],
+            missing_dependencies=[] if has_aeon else ["aeon"],
+            note="aeon enables ROCKET-family classifier backends; sklearn fallback remains available without it.",
+        ),
         _optional_feature(
             name="plots",
             available=has_matplotlib,
@@ -226,9 +231,10 @@ def _activity_workflow_availability() -> Dict[str, Any]:
             note="Window-score and confusion-matrix plots require matplotlib.",
         )
     ]
-    available = not missing_dependencies
+    available = has_sklearn
+    status = "available" if has_aeon and available else "degraded" if available else "unavailable"
     return {
-        "status": "available" if available else "unavailable",
+        "status": status,
         "available": available,
         "missing_dependencies": missing_dependencies,
         "required_extras": ["classification"],

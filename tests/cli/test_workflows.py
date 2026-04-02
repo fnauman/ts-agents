@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import numpy as np
 
 from ts_agents.cli.main import run
+from ts_agents.cli.input_parsing import SeriesInput
 from ts_agents.core.comparison import ComparisonResult
 
 
@@ -44,6 +45,15 @@ def test_workflow_show_json_returns_machine_metadata(capsys):
     assert "availability" in result
     assert "supported_methods" in result["capabilities"]
     assert "seasonal_naive" in result["capabilities"]["supported_methods"]
+
+
+def test_unknown_workflow_error_uses_generic_hint(capsys):
+    code = run(["workflow", "show", "forecast-seriez"])
+
+    assert code == 2
+    err = capsys.readouterr().err
+    assert "workflow list" in err
+    assert "workflow show inspect-series --json" not in err
 
 
 def test_workflow_run_inspect_series_accepts_stdin_json(monkeypatch, capsys, tmp_path):
@@ -103,6 +113,88 @@ def test_workflow_run_inspect_series_supports_subprocess_sandbox(capsys, tmp_pat
     assert payload["result"]["data"]["output_dir"] == str(output_dir.resolve())
     assert (output_dir / "summary.json").exists()
     assert (output_dir / "report.md").exists()
+
+
+def test_workflow_executor_skips_host_availability_gate_for_docker(monkeypatch):
+    import ts_agents.workflows.executor as workflow_executor_mod
+    from ts_agents.tools.executor import ExecutionContext, ExecutionResult, ExecutionStatus, SandboxMode
+
+    backend_calls = {}
+
+    class FakeDockerBackend:
+        def is_available(self):
+            return True
+
+        def execute(self, tool_name, func, params, context):
+            backend_calls["tool_name"] = tool_name
+            backend_calls["params"] = params
+            backend_calls["context"] = context
+            return ExecutionResult(
+                status=ExecutionStatus.SUCCESS,
+                result={"kind": "workflow", "data": {}, "artifacts": []},
+                formatted_output="ok",
+                metadata={"backend": "docker"},
+            )
+
+    executor = workflow_executor_mod.WorkflowExecutor()
+    executor.backends[SandboxMode.DOCKER] = FakeDockerBackend()
+
+    monkeypatch.setattr(
+        workflow_executor_mod,
+        "get_workflow",
+        lambda name: SimpleNamespace(
+            availability=lambda: {
+                "status": "unavailable",
+                "available": False,
+                "missing_dependencies": ["statsforecast"],
+                "required_extras": ["forecasting"],
+                "optional_features": [],
+                "install_hint": "host is missing forecasting deps",
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        workflow_executor_mod,
+        "describe_sandbox_backend",
+        lambda mode: {
+            "backend": mode.value,
+            "available": True,
+            "reason": None,
+            "suggested_fix": None,
+            "requirements": [],
+            "details": {},
+            "description": "backend",
+        },
+    )
+
+    result = executor.execute(
+        "forecast-series",
+        SeriesInput(series=np.array([1.0, 2.0, 3.0]), source_type="inline_json", label="series"),
+        {"output_dir": "outputs/forecast", "horizon": 2, "methods": ["arima"]},
+        context=ExecutionContext(sandbox_mode="docker"),
+    )
+
+    assert result.success is True
+    assert backend_calls["tool_name"] == "workflow:forecast-series"
+
+
+def test_activity_workflow_availability_is_degraded_without_aeon(monkeypatch):
+    import ts_agents.workflows as workflows_mod
+
+    monkeypatch.setattr(
+        workflows_mod,
+        "_module_available",
+        lambda module_name: module_name in {"sklearn", "matplotlib"},
+    )
+
+    availability = workflows_mod.get_workflow("activity-recognition").availability()
+
+    assert availability["available"] is True
+    assert availability["status"] == "degraded"
+    rocket_feature = next(
+        feature for feature in availability["optional_features"] if feature["name"] == "rocket_backends"
+    )
+    assert rocket_feature["available"] is False
 
 
 def test_workflow_run_forecast_series_writes_expected_files(monkeypatch, capsys, tmp_path):
