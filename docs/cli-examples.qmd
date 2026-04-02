@@ -92,7 +92,8 @@ uv run ts-agents tool run stl_decompose_with_data \
 # Theta forecast with a custom horizon
 uv run ts-agents tool run forecast_theta_with_data \
   --run Re200Rm200 --var bx001_real \
-  --param horizon=30
+  --param horizon=30 \
+  --json
 
 # Window-size selection with multiple params
 uv run ts-agents tool run select_window_size_from_csv \
@@ -116,21 +117,24 @@ Key flags:
 | `--json` | JSON output |
 | `--approve` | Approve very-high-cost tools |
 
-## Saving output and extracting images
+## Saving output and legacy image extraction
 
 Workflow commands already write artifact files under `--output-dir`. Use the
-lower-level `tool run` compatibility path below when you specifically want to
-unwrap embedded image payloads from a `*_with_data` tool response:
+lower-level `tool run` path below when you want a machine-readable record of a
+plot-producing tool response:
 
 ```bash
-uv run ts-agents tool run forecast_theta_with_data \
+uv run ts-agents tool run stl_decompose_with_data \
   --run Re200Rm200 --var bx001_real \
-  --param horizon=30 \
-  --save outputs/Re200Rm200/theta.txt \
-  --extract-images outputs/Re200Rm200/assets
+  --json \
+  --save outputs/Re200Rm200/stl.json
 ```
 
-This writes the text output to `theta.txt` and any embedded plots to `assets/` as PNGs.
+Read the saved tool JSON and use `artifacts[*].path` for the generated PNG
+paths. `--extract-images` only unwraps legacy `[IMAGE_DATA:...]` tokens from
+older compatibility outputs. Forecasting `forecast_*_with_data` wrappers no
+longer embed plots; use `workflow run forecast-series --output-dir ...` when
+you want forecast PNG/CSV/report artifacts.
 
 ## Agent mode
 

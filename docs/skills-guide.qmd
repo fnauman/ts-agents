@@ -42,15 +42,16 @@ The agent reads the `SKILL.md`, discovers the required tools, and executes the w
 
 First-class workflows write artifact files directly under `--output-dir`; that
 is the canonical machine-facing contract. The lower-level `*_with_data` tools
-still support inline/base64 image payloads as a compatibility path. Use
-`--save` plus `--extract-images` only when you explicitly need to unwrap those
-legacy text outputs.
+now expose artifact refs for the tools below. Save them with `--json` when you
+want a machine-readable record of the tool output and artifact paths.
+`--extract-images` remains available only for legacy text outputs that still
+contain embedded `[IMAGE_DATA:...]` tokens.
 
 ```bash
 uv run ts-agents tool run stl_decompose_with_data \
   --run Re200Rm200 --var bx001_real \
-  --save outputs/stl.txt \
-  --extract-images outputs/assets
+  --json \
+  --save outputs/stl.json
 ```
 
 The table below lists every tool that produces a plot, organized by analysis phase:
@@ -70,14 +71,19 @@ The table below lists every tool that produces a plot, organized by analysis pha
 | **Patterns** | `find_discords_with_data` | Series with highlighted anomaly |
 | **Patterns** | `segment_fluss_with_data` | Series with segment boundaries |
 | **Patterns** | `analyze_recurrence_with_data` | 2D recurrence plot |
-| **Forecasting** | `forecast_arima_with_data` | History vs forecast with confidence intervals |
-| **Forecasting** | `forecast_ets_with_data` | History vs forecast |
-| **Forecasting** | `forecast_theta_with_data` | History vs forecast |
-| **Forecasting** | `forecast_ensemble_with_data` | History vs ensemble forecast |
+
+Forecasting `forecast_arima_with_data`, `forecast_ets_with_data`,
+`forecast_theta_with_data`, `forecast_seasonal_naive_with_data`,
+`forecast_ensemble_with_data`, and `compare_forecasts_with_data` are now
+data-only compatibility wrappers. Use `workflow run forecast-series --output-dir ...`
+when you want forecast plots, CSVs, and Markdown reports as
+artifacts.
 
 ### PDF reports via a comprehensive analysis skill
 
-A skill can orchestrate many plot-producing tools, extract all images, compose a Quarto document, and render to PDF — all in one workflow. Here is a complete `SKILL.md` example:
+A skill can orchestrate many plot-producing tools, save their structured output,
+compose a Quarto document, and render to PDF — all in one workflow. Here is a
+complete `SKILL.md` example:
 
 ````markdown
 ---
@@ -99,29 +105,34 @@ tools:
 
 ## Objective
 
-Produce a single PDF report with plots from every analysis phase.
+Produce a single PDF report with diagnostic/decomposition/pattern plots plus
+saved forecast summaries.
 
 ## Workflow
 
 For the given `--run` and `--var`, execute each phase below.
-Use `--save` and `--extract-images` on every tool call so that
-plots land as PNGs in `outputs/<run>/assets/`.
+Save each tool response as JSON so you can read both the structured data and
+any `artifacts[*].path` entries. Save the forecasting tool outputs as JSON and
+summarize them in the report instead of expecting forecast PNGs from the
+compatibility wrappers.
 
 ### 1. Diagnostics
 
 ```bash
 uv run ts-agents tool run describe_series_with_data \
-  --run $RUN --var $VAR --save outputs/$RUN/describe.txt
+  --run $RUN --var $VAR \
+  --json \
+  --save outputs/$RUN/describe.json
 
 uv run ts-agents tool run compute_autocorrelation_with_data \
   --run $RUN --var $VAR \
-  --save outputs/$RUN/acf.txt \
-  --extract-images outputs/$RUN/assets
+  --json \
+  --save outputs/$RUN/acf.json
 
 uv run ts-agents tool run compute_psd_with_data \
   --run $RUN --var $VAR \
-  --save outputs/$RUN/psd.txt \
-  --extract-images outputs/$RUN/assets
+  --json \
+  --save outputs/$RUN/psd.json
 ```
 
 ### 2. Decomposition
@@ -129,8 +140,8 @@ uv run ts-agents tool run compute_psd_with_data \
 ```bash
 uv run ts-agents tool run stl_decompose_with_data \
   --run $RUN --var $VAR \
-  --save outputs/$RUN/stl.txt \
-  --extract-images outputs/$RUN/assets
+  --json \
+  --save outputs/$RUN/stl.json
 
 ```
 
@@ -139,18 +150,18 @@ uv run ts-agents tool run stl_decompose_with_data \
 ```bash
 uv run ts-agents tool run detect_peaks_with_data \
   --run $RUN --var $VAR \
-  --save outputs/$RUN/peaks.txt \
-  --extract-images outputs/$RUN/assets
+  --json \
+  --save outputs/$RUN/peaks.json
 
 uv run ts-agents tool run segment_changepoint_with_data \
   --run $RUN --var $VAR \
-  --save outputs/$RUN/changepoints.txt \
-  --extract-images outputs/$RUN/assets
+  --json \
+  --save outputs/$RUN/changepoints.json
 
 uv run ts-agents tool run analyze_matrix_profile_with_data \
   --run $RUN --var $VAR \
-  --save outputs/$RUN/mp.txt \
-  --extract-images outputs/$RUN/assets
+  --json \
+  --save outputs/$RUN/mp.json
 ```
 
 ### 4. Forecasting
@@ -158,18 +169,18 @@ uv run ts-agents tool run analyze_matrix_profile_with_data \
 ```bash
 uv run ts-agents tool run forecast_theta_with_data \
   --run $RUN --var $VAR --param horizon=30 \
-  --save outputs/$RUN/theta.txt \
-  --extract-images outputs/$RUN/assets
+  --json \
+  --save outputs/$RUN/theta.json
 
 uv run ts-agents tool run forecast_ets_with_data \
   --run $RUN --var $VAR --param horizon=30 \
-  --save outputs/$RUN/ets.txt \
-  --extract-images outputs/$RUN/assets
+  --json \
+  --save outputs/$RUN/ets.json
 
 uv run ts-agents tool run forecast_arima_with_data \
   --run $RUN --var $VAR --param horizon=30 \
-  --save outputs/$RUN/arima.txt \
-  --extract-images outputs/$RUN/assets
+  --json \
+  --save outputs/$RUN/arima.json
 ```
 
 ### 5. Compose the Quarto document
@@ -183,23 +194,24 @@ format: pdf
 ---
 
 ## Diagnostics
-(paste key stats from describe.txt)
+(paste key stats from describe.json)
 
-![ACF](assets/acf_image_1.png)
-![PSD](assets/psd_image_1.png)
+![ACF](<path from acf.json -> artifacts[0].path>)
+![PSD](<path from psd.json -> artifacts[0].path>)
 
 ## Decomposition
-![STL](assets/stl_image_1.png)
+![STL](<path from stl.json -> artifacts[0].path>)
 
 ## Patterns
-![Peaks](assets/peaks_image_1.png)
-![Changepoints](assets/changepoints_image_1.png)
-![Matrix Profile](assets/mp_image_1.png)
+![Peaks](<path from peaks.json -> artifacts[0].path>)
+![Changepoints](<path from changepoints.json -> artifacts[0].path>)
+![Matrix Profile](<path from mp.json -> artifacts[0].path>)
 
 ## Forecasting
-![Theta](assets/theta_image_1.png)
-![ETS](assets/ets_image_1.png)
-![ARIMA](assets/arima_image_1.png)
+Summarize `theta.json`, `ets.json`, and `arima.json`:
+- horizon and forecast length
+- point forecast values
+- intervals / uncertainty fields when present
 
 ## Summary
 (synthesize findings across all phases)
@@ -215,7 +227,8 @@ cd outputs/$RUN && quarto render report.qmd --to pdf
 
 - If any tool fails, log the error and continue with remaining tools.
 - If the series has fewer than 50 points, skip forecasting and warn the user.
-- Always verify that `assets/` contains the expected PNGs before composing the QMD.
+- Always verify that the saved JSON files contain the expected `artifacts[*].path` entries before composing the QMD.
+- Treat the saved forecast JSON files as the forecasting source of truth; do not expect `--extract-images` output from the forecast wrappers.
 ````
 
 ### Example prompts
@@ -224,11 +237,11 @@ These prompts ask an agent to run the comprehensive workflow:
 
 > Run a full analysis of Re200Rm200 / bx001_real: diagnostics, STL decomposition,
 > peak detection, changepoint segmentation, matrix profile, and Theta + ARIMA forecasts
-> with horizon 30. Save all plots and render a PDF report.
+> with horizon 30. Save the diagnostic/decomposition/pattern plots, summarize the forecast JSON outputs, and render a PDF report.
 
 > I need a comprehensive PDF report for every variable in the Re200Rm200 run.
 > For each variable: compute ACF, PSD, STL decomposition, detect peaks, and
-> forecast 20 steps with ETS. Compile all plots into a single Quarto PDF.
+> forecast 20 steps with ETS. Compile the plots plus the saved forecast summaries into a single Quarto PDF.
 
 ### Requesting deeper analysis
 
