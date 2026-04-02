@@ -233,6 +233,47 @@ def test_run_serialized_workflow_bundles_remote_artifacts(monkeypatch, tmp_path)
     )
 
 
+def test_run_serialized_workflow_warns_when_artifact_bundle_limits_are_exceeded(monkeypatch, tmp_path):
+    import ts_agents.workflows.executor as workflow_executor_mod
+
+    def fake_runner(series_input, *, output_dir, **_kwargs):
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        (output_path / "summary.json").write_text("123456")
+        return {
+            "kind": "workflow",
+            "summary": "ok",
+            "status": "ok",
+            "data": {"output_dir": str(output_path.resolve())},
+            "artifacts": [],
+        }
+
+    monkeypatch.setattr(
+        workflow_executor_mod,
+        "get_workflow",
+        lambda name: SimpleNamespace(runner=fake_runner),
+    )
+    monkeypatch.setenv(workflow_executor_mod._WORKFLOW_ARTIFACT_MAX_FILE_BYTES_ENV, "4")
+
+    payload = workflow_executor_mod._run_serialized_workflow(
+        workflow_name="inspect-series",
+        workflow_input=workflow_executor_mod._serialize_workflow_input(
+            SeriesInput(
+                series=np.array([1.0, 2.0, 3.0]),
+                source_type="inline_json",
+                label="series",
+            )
+        ),
+        runner_kwargs={"output_dir": "ignored"},
+        use_sandbox_artifact_dir=True,
+        sandbox_artifact_dir=str(tmp_path / "remote_artifacts"),
+        bundle_sandbox_artifacts=True,
+    )
+
+    assert workflow_executor_mod._STAGED_WORKFLOW_ARTIFACTS_KEY not in payload
+    assert "Skipped remote artifact staging" in payload["warnings"][0]
+
+
 def test_workflow_executor_materializes_remote_artifacts_to_requested_output_dir(monkeypatch, tmp_path):
     import ts_agents.workflows.executor as workflow_executor_mod
     from ts_agents.tools.executor import ExecutionContext, ExecutionResult, ExecutionStatus, SandboxMode
@@ -331,7 +372,7 @@ def test_workflow_executor_materializes_remote_artifacts_to_requested_output_dir
     assert backend_calls["tool_name"] == "workflow:inspect-series"
     assert backend_calls["params"]["use_sandbox_artifact_dir"] is True
     assert backend_calls["params"]["bundle_sandbox_artifacts"] is True
-    assert backend_calls["params"]["sandbox_artifact_dir"] == ".ts_agents_io/artifacts"
+    assert backend_calls["params"]["sandbox_artifact_dir"].startswith(".ts_agents_io/artifacts/")
     assert workflow_executor_mod._STAGED_WORKFLOW_ARTIFACTS_KEY not in result.result
     assert result.result["data"]["output_dir"] == str(output_dir.resolve())
     assert (output_dir / "summary.json").read_text() == '{"ok": true}'
@@ -339,6 +380,121 @@ def test_workflow_executor_materializes_remote_artifacts_to_requested_output_dir
     artifact_paths = {artifact["path"] for artifact in result.result["artifacts"]}
     assert str((output_dir / "summary.json").resolve()) in artifact_paths
     assert str((output_dir / "report.md").resolve()) in artifact_paths
+
+
+def test_materialize_remote_artifacts_rejects_paths_outside_output_dir(tmp_path):
+    import ts_agents.workflows.executor as workflow_executor_mod
+    from ts_agents.tools.executor import ExecutionResult, ExecutionStatus
+
+    requested_output_dir = tmp_path / "inspect_remote"
+    escaped_path = tmp_path / "escaped.txt"
+    result = ExecutionResult(
+        status=ExecutionStatus.SUCCESS,
+        result={
+            "kind": "workflow",
+            "summary": "ok",
+            "status": "ok",
+            "data": {"output_dir": "/remote/output"},
+            "artifacts": [
+                {
+                    "kind": "json",
+                    "path": "/remote/output/summary.json",
+                    "mime_type": "application/json",
+                }
+            ],
+            workflow_executor_mod._STAGED_WORKFLOW_ARTIFACTS_KEY: [
+                {
+                    "source_path": "/remote/output/summary.json",
+                    "relative_path": "../../escaped.txt",
+                    "content_base64": base64.b64encode(b"oops").decode("ascii"),
+                }
+            ],
+        },
+        formatted_output="ok",
+    )
+
+    workflow_executor_mod._materialize_remote_workflow_output_paths(
+        result,
+        str(requested_output_dir),
+    )
+
+    assert not escaped_path.exists()
+    assert not requested_output_dir.exists()
+    assert result.result["data"]["output_dir"] == "/remote/output"
+    assert result.result["artifacts"][0]["path"] == "/remote/output/summary.json"
+    assert any("escapes the output directory" in warning for warning in result.result["warnings"])
+    assert any("remains inaccessible on the host" in warning for warning in result.result["warnings"])
+
+
+def test_materialize_remote_artifacts_warns_when_artifact_path_was_not_staged(tmp_path):
+    import ts_agents.workflows.executor as workflow_executor_mod
+    from ts_agents.tools.executor import ExecutionResult, ExecutionStatus
+
+    output_dir = tmp_path / "inspect_remote"
+    remote_output_dir = "/remote/output"
+    result = ExecutionResult(
+        status=ExecutionStatus.SUCCESS,
+        result={
+            "kind": "workflow",
+            "summary": "ok",
+            "status": "ok",
+            "data": {"output_dir": remote_output_dir},
+            "artifacts": [
+                {
+                    "kind": "json",
+                    "path": f"{remote_output_dir}/summary.json",
+                    "mime_type": "application/json",
+                },
+                {
+                    "kind": "markdown",
+                    "path": f"{remote_output_dir}/report.md",
+                    "mime_type": "text/markdown",
+                },
+            ],
+            workflow_executor_mod._STAGED_WORKFLOW_ARTIFACTS_KEY: [
+                {
+                    "source_path": f"{remote_output_dir}/summary.json",
+                    "relative_path": "summary.json",
+                    "content_base64": base64.b64encode(b'{"ok": true}').decode("ascii"),
+                }
+            ],
+        },
+        formatted_output="ok",
+    )
+
+    workflow_executor_mod._materialize_remote_workflow_output_paths(result, str(output_dir))
+
+    assert result.result["data"]["output_dir"] == str(output_dir.resolve())
+    assert result.result["artifacts"][0]["path"] == str((output_dir / "summary.json").resolve())
+    assert result.result["artifacts"][1]["path"] == f"{remote_output_dir}/report.md"
+    assert any(
+        "report.md' was not staged and remains inaccessible on the host" in warning
+        for warning in result.result["warnings"]
+    )
+
+
+def test_materialize_remote_artifacts_ignores_empty_staged_bundles(tmp_path):
+    import ts_agents.workflows.executor as workflow_executor_mod
+    from ts_agents.tools.executor import ExecutionResult, ExecutionStatus
+
+    output_dir = tmp_path / "inspect_remote"
+    result = ExecutionResult(
+        status=ExecutionStatus.SUCCESS,
+        result={
+            "kind": "workflow",
+            "summary": "ok",
+            "status": "ok",
+            "data": {"output_dir": "/remote/output"},
+            "artifacts": [],
+            workflow_executor_mod._STAGED_WORKFLOW_ARTIFACTS_KEY: [],
+        },
+        formatted_output="ok",
+    )
+
+    workflow_executor_mod._materialize_remote_workflow_output_paths(result, str(output_dir))
+
+    assert not output_dir.exists()
+    assert result.result["data"]["output_dir"] == "/remote/output"
 
 
 def test_activity_workflow_availability_is_degraded_without_aeon(monkeypatch):
