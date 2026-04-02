@@ -1,3 +1,4 @@
+import json
 import numpy as np
 import pytest
 
@@ -41,6 +42,17 @@ def test_dump_json_emits_strict_json_for_non_finite_values():
     rendered = dump_json({"scores": {"32": float("nan"), "64": 0.5}})
     assert '"32": null' in rendered
     assert "NaN" not in rendered
+
+
+def test_dump_json_sanitizes_non_finite_float_keys():
+    rendered = dump_json({float("nan"): "nan", float("inf"): "inf", -float("inf"): "ninf"})
+    payload = json.loads(rendered)
+    assert payload == {"NaN": "nan", "Infinity": "inf", "-Infinity": "ninf"}
+
+
+def test_to_jsonable_sorts_sets_deterministically():
+    payload = to_jsonable({"items": {3, 1, 2}})
+    assert payload == {"items": [1, 2, 3]}
 
 
 def test_to_jsonable_raises_for_unsupported_objects():

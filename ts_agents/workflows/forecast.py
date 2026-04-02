@@ -65,6 +65,7 @@ def run_forecast_series_workflow(
         selected_methods=selected_methods,
         valid_methods=valid_methods,
         failed_methods=failed_methods,
+        comparison_payload=comparison_payload,
     )
     if not rmse_ranking:
         quality_flags.append("ranking_unavailable")
@@ -72,7 +73,7 @@ def run_forecast_series_workflow(
         warnings_list.append(
             "Some forecast methods failed: "
             + ", ".join(
-                f"{method} ({(comparison_payload.get('metrics') or {}).get(method, {}).get('error', 'unknown error')})"
+                f"{method} ({_method_failure_message(method, comparison_payload)})"
                 for method in failed_methods
             )
         )
@@ -192,11 +193,10 @@ def _failed_methods(
     selected_methods: List[str],
     comparison_payload: dict[str, Any],
 ) -> List[str]:
-    metrics = comparison_payload.get("metrics") or {}
     return [
         method
         for method in selected_methods
-        if isinstance(metrics.get(method), dict) and "error" in metrics[method]
+        if _method_failure_message(method, comparison_payload) is not None
     ]
 
 
@@ -204,12 +204,46 @@ def _valid_methods(
     selected_methods: List[str],
     comparison_payload: dict[str, Any],
 ) -> List[str]:
-    metrics = comparison_payload.get("metrics") or {}
     return [
         method
         for method in selected_methods
-        if isinstance(metrics.get(method), dict) and "error" not in metrics[method]
+        if _method_failure_message(method, comparison_payload) is None
     ]
+
+
+def _method_metric_entry(
+    method: str,
+    comparison_payload: dict[str, Any],
+) -> Any:
+    metrics = comparison_payload.get("metrics") or {}
+    return metrics.get(method)
+
+
+def _method_failure_message(
+    method: str,
+    comparison_payload: dict[str, Any],
+) -> Optional[str]:
+    metric_entry = _method_metric_entry(method, comparison_payload)
+    if not isinstance(metric_entry, dict):
+        return "missing metrics for method"
+    error = metric_entry.get("error")
+    if error is None:
+        return None
+    return str(error)
+
+
+def _method_failure_type(
+    method: str,
+    comparison_payload: dict[str, Any],
+) -> Optional[str]:
+    metric_entry = _method_metric_entry(method, comparison_payload)
+    if not isinstance(metric_entry, dict):
+        return "MissingMetricsError"
+    error = metric_entry.get("error")
+    if error is None:
+        return None
+    error_type = metric_entry.get("error_type")
+    return str(error_type) if error_type else None
 
 
 def _forecast_quality_flags(
@@ -217,12 +251,18 @@ def _forecast_quality_flags(
     selected_methods: List[str],
     valid_methods: List[str],
     failed_methods: List[str],
+    comparison_payload: dict[str, Any],
 ) -> List[str]:
     flags: List[str] = []
     if failed_methods:
         flags.append("partial_method_failure")
     if len(valid_methods) == 1 and len(selected_methods) > 1:
         flags.append("only_one_valid_method")
+    if any(
+        _method_failure_message(method, comparison_payload) == "missing metrics for method"
+        for method in failed_methods
+    ):
+        flags.append("missing_method_metrics")
     return flags
 
 
@@ -230,25 +270,55 @@ def _raise_all_methods_failed(
     selected_methods: List[str],
     comparison_payload: dict[str, Any],
 ) -> None:
-    metrics = comparison_payload.get("metrics") or {}
     failure_messages = {
-        method: metrics.get(method, {}).get("error", "unknown error")
+        method: _method_failure_message(method, comparison_payload) or "unknown error"
         for method in selected_methods
     }
     message = (
         "All forecast methods failed: "
         + "; ".join(f"{method}: {error}" for method, error in failure_messages.items())
     )
-    if all(_looks_like_dependency_failure(error) for error in failure_messages.values()):
+    failure_types = {
+        method: _method_failure_type(method, comparison_payload)
+        for method in selected_methods
+    }
+    if all(
+        _is_dependency_failure(
+            error_type=failure_types[method],
+            message=failure_messages[method],
+        )
+        for method in selected_methods
+    ):
         raise ImportError(message)
     raise RuntimeError(message)
 
 
-def _looks_like_dependency_failure(message: Any) -> bool:
+def _is_dependency_failure(*, error_type: Optional[str], message: Any) -> bool:
+    if error_type in {"ImportError", "ModuleNotFoundError"}:
+        return True
+
     if not isinstance(message, str):
         return False
+
     lowered = message.lower()
-    return "optional dependencies" in lowered or "install with" in lowered
+    dependency_markers = (
+        "optional dependencies",
+        "dependency",
+        "dependencies",
+        "no module named",
+        "module not found",
+        "modulenotfounderror",
+        "importerror",
+    )
+    install_markers = (
+        "pip install",
+        "install via",
+        "install with",
+    )
+    return any(marker in lowered for marker in dependency_markers) or (
+        any(marker in lowered for marker in install_markers)
+        and ("require" in lowered or "missing" in lowered)
+    )
 
 
 def _build_forecast_rows(

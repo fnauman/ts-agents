@@ -23,20 +23,37 @@ def _jsonable_float(value: float) -> Optional[float]:
     return value if math.isfinite(value) else None
 
 
+def _jsonable_float_key(value: float) -> float | str:
+    if math.isfinite(value):
+        return value
+    if math.isnan(value):
+        return "NaN"
+    if value > 0:
+        return "Infinity"
+    return "-Infinity"
+
+
 def _jsonable_key(key: Any) -> Any:
-    if key is None or isinstance(key, (str, int, float, bool)):
+    if key is None or isinstance(key, (str, int, bool)):
         return key
+
+    if isinstance(key, float):
+        return _jsonable_float_key(key)
 
     if isinstance(key, (np.integer, np.bool_)):
         return key.item()
 
     if isinstance(key, np.floating):
-        return _jsonable_float(float(key.item()))
+        return _jsonable_float_key(float(key.item()))
 
     if isinstance(key, Path):
         return str(key)
 
     return str(key)
+
+
+def _jsonable_sort_key(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
 def to_jsonable(value: Any) -> Any:
@@ -77,8 +94,11 @@ def to_jsonable(value: Any) -> Any:
     if isinstance(value, dict):
         return {_jsonable_key(k): to_jsonable(v) for k, v in value.items()}
 
-    if isinstance(value, (list, tuple, set)):
+    if isinstance(value, (list, tuple)):
         return [to_jsonable(v) for v in value]
+
+    if isinstance(value, set):
+        return sorted((to_jsonable(v) for v in value), key=_jsonable_sort_key)
 
     if hasattr(value, "__dict__"):
         return {k: to_jsonable(v) for k, v in value.__dict__.items() if not k.startswith("_")}
