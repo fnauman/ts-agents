@@ -198,6 +198,35 @@ class TestForecastingComparison:
             # Should have error metrics
             assert "mae" in metrics or "rmse" in metrics
 
+    def test_compare_forecasting_methods_supports_seasonal_naive_without_statsforecast(
+        self,
+        monkeypatch,
+    ):
+        """Test comparison can still score the baseline without statsforecast."""
+        import ts_agents.core.forecasting.statistical as statistical
+        from ts_agents.core.comparison import compare_forecasting_methods
+
+        monkeypatch.setattr(
+            statistical,
+            "_get_statsforecast_components",
+            lambda: (_ for _ in ()).throw(
+                ImportError("Statistical forecasting requires optional dependencies.")
+            ),
+        )
+
+        x = np.tile(np.arange(1, 5, dtype=float), 3)
+        result = compare_forecasting_methods(
+            x,
+            horizon=4,
+            methods=["seasonal_naive"],
+            validation_size=4,
+            season_length=4,
+        )
+
+        assert result.methods == ["seasonal_naive"]
+        assert result.rankings["rmse"] == ["seasonal_naive"]
+        assert result.metrics["seasonal_naive"]["rmse"] == pytest.approx(0.0)
+
 
 class TestGenericCompare:
     """Tests for the generic compare_methods function."""

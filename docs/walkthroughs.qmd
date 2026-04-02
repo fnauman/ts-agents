@@ -6,6 +6,10 @@ Step-by-step guides for the three first-class workflows.
 The legacy `demo` aliases still exist for one release cycle, but this page uses
 the workflow/tool grammar that new automation should prefer.
 
+Profile note:
+- Base install supports `inspect-series` plus a light `seasonal_naive` forecast baseline.
+- Use `ts-agents[recommended]` or `uv sync` for the full forecasting and activity-recognition walkthroughs below.
+
 ## Inspect a series {#inspect}
 
 ### 1. Run the workflow
@@ -68,6 +72,7 @@ Key flags:
 uv run ts-agents workflow run forecast-series \
   --input-json '{"series":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]}' \
   --horizon 5 \
+  --methods seasonal_naive,arima,theta \
   --output-dir outputs/forecast
 ```
 
@@ -101,7 +106,7 @@ Recommendation: ARIMA (RMSE: 0.0000)
 # More methods and a longer horizon
 uv run ts-agents workflow run forecast-series \
   --input-json '{"series":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]}' \
-  --methods arima,ets,theta \
+  --methods seasonal_naive,arima,ets,theta \
   --horizon 8 \
   --output-dir outputs/forecast-longer
 ```
@@ -110,7 +115,7 @@ Key flags:
 
 | Flag | Default | Options |
 |------|---------|---------|
-| `--methods` | `arima,theta` | `arima`, `ets`, `theta` (comma-separated) |
+| `--methods` | `seasonal_naive,arima,theta` | `seasonal_naive`, `arima`, `ets`, `theta` (comma-separated) |
 | `--horizon` | `1` | Any positive integer |
 | `--run-id` / `--variable` | off | bundled dataset lookup |
 | `--output-dir` | workflow-specific temp path | Any path |

@@ -5,6 +5,10 @@ title: "CLI Quick Reference"
 Practical patterns for the `ts-agents` CLI. Not exhaustive, but centered on the
 current workflow/tool grammar rather than the deprecated compatibility aliases.
 
+Install notes:
+- `ts-agents`: workflow discovery, `inspect-series`, and `forecast-series --methods seasonal_naive`
+- `ts-agents[recommended]` or `uv sync`: full forecasting comparisons plus `activity-recognition`
+
 ## Data discovery
 
 ```bash
@@ -50,19 +54,21 @@ Common bundles: `minimal` (5 tools), `standard` (15), `full` (25+), `demo`, `dem
 # List first-class workflows
 uv run ts-agents workflow list
 uv run ts-agents workflow list --json
+uv run ts-agents workflow show forecast-series --json
 
 # Inspect a short series
 uv run ts-agents workflow run inspect-series \
   --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' \
   --output-dir outputs/inspect
 
-# Forecast a deterministic inline series
+# Forecast a deterministic inline series with the base-install baseline
 uv run ts-agents workflow run forecast-series \
   --input-json '{"series":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]}' \
   --horizon 5 \
+  --methods seasonal_naive \
   --output-dir outputs/forecast
 
-# Run labeled-stream activity recognition
+# Run labeled-stream activity recognition (requires classification/recommended extras)
 uv run python data/make_synthetic_labeled_stream.py \
   --scenario gait --seconds 40 --seed 1337 \
   --out data/demo_labeled_stream.csv

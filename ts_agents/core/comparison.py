@@ -250,16 +250,18 @@ def compare_forecasting_methods(
     from .forecasting import (
         forecast_arima,
         forecast_ets,
+        forecast_seasonal_naive,
         forecast_theta,
     )
 
     if methods is None:
-        methods = ["arima", "ets", "theta"]
+        methods = ["seasonal_naive", "arima", "theta"]
 
     if validation_size is None:
         validation_size = horizon
 
     method_funcs = {
+        "seasonal_naive": forecast_seasonal_naive,
         "arima": forecast_arima,
         "ets": forecast_ets,
         "theta": forecast_theta,
@@ -394,8 +396,10 @@ def _compute_rankings(
     # Get all metric names
     all_metrics = set()
     for method_metrics in metrics.values():
-        for key in method_metrics.keys():
-            if key != "error":
+        for key, value in method_metrics.items():
+            if key in {"error", "error_type"}:
+                continue
+            if isinstance(value, (int, float, np.integer, np.floating)):
                 all_metrics.add(key)
 
     rankings = {}
@@ -403,8 +407,11 @@ def _compute_rankings(
         # Collect (method, value) pairs
         values = []
         for method, method_metrics in metrics.items():
-            if metric in method_metrics and not np.isnan(method_metrics[metric]):
-                values.append((method, method_metrics[metric]))
+            value = method_metrics.get(metric)
+            if not isinstance(value, (int, float, np.integer, np.floating)):
+                continue
+            if not np.isnan(value):
+                values.append((method, value))
 
         if not values:
             continue
@@ -493,6 +500,7 @@ def _generate_forecasting_recommendation(
     # Add method notes
     parts.append("\n### Method Notes:")
     method_notes = {
+        "seasonal_naive": "- **Seasonal Naive**: Strong baseline that repeats the last observed seasonal cycle",
         "arima": "- **ARIMA**: Best for non-seasonal or differenced series",
         "ets": "- **ETS**: Best for seasonal data with clear patterns",
         "theta": "- **Theta**: Simple but effective, won M3 competition",

@@ -130,9 +130,30 @@ def test_workflow_help_includes_examples(capsys):
         parser.parse_args(["workflow", "run", "--help"])
     output = capsys.readouterr().out
     assert "Examples:" in output
+    assert "workflow show forecast-series --json" in output
     assert "workflow run inspect-series" in output
     assert "workflow run forecast-series" in output
     assert "workflow run activity-recognition" in output
+
+
+def test_workflow_run_parser_accepts_explicit_fallback_flags():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "workflow",
+            "run",
+            "inspect-series",
+            "--input-json",
+            '{"series":[1,2,3]}',
+            "--sandbox",
+            "docker",
+            "--allow-fallback",
+            "--fallback-backend",
+            "local",
+        ]
+    )
+    assert args.allow_fallback is True
+    assert args.fallback_backend == "local"
 
 
 def test_sandbox_help_includes_commands(capsys):
