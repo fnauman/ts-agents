@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from difflib import get_close_matches
+from functools import partial
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,7 @@ from ts_agents.contracts import CLIEnvelope, CLIError, CLIExecution
 from ts_agents.tools.executor import ToolError, ToolErrorCode
 
 from .output import (
+    dump_json,
     extract_images_from_jsonable,
     extract_images_to_files,
     render_output,
@@ -30,6 +32,21 @@ def _parse_bool(raw: str) -> bool:
     if value in {"false", "0", "no", "n", "off"}:
         return False
     raise ValueError(f"Invalid boolean value: {raw}")
+
+
+class TSArgumentParser(argparse.ArgumentParser):
+    """ArgumentParser that propagates exit_on_error to nested subparsers."""
+
+    def __init__(self, *args, **kwargs):
+        self._ts_exit_on_error = kwargs.get("exit_on_error", True)
+        super().__init__(*args, **kwargs)
+
+    def add_subparsers(self, **kwargs):
+        kwargs.setdefault(
+            "parser_class",
+            partial(type(self), exit_on_error=self._ts_exit_on_error),
+        )
+        return super().add_subparsers(**kwargs)
 
 
 def _maybe_number(raw: str) -> Any:
@@ -438,6 +455,18 @@ def _success_envelope(args: argparse.Namespace, result: Any) -> CLIEnvelope:
 
 
 def _exception_to_cli_error(exc: Exception) -> CLIError:
+    if isinstance(exc, argparse.ArgumentError):
+        argument = getattr(exc, "argument_name", None)
+        details = {"usage_error": True}
+        if argument:
+            details["argument"] = argument
+        return CLIError(
+            code="usage_error",
+            message=str(exc),
+            retryable=False,
+            details=details,
+        )
+
     if isinstance(exc, ToolError):
         return CLIError(
             code=exc.code.value,
@@ -475,6 +504,9 @@ def _error_envelope(args: argparse.Namespace, exc: Exception) -> CLIEnvelope:
 
 
 def _exit_code_for_exception(exc: Exception) -> int:
+    if isinstance(exc, argparse.ArgumentError):
+        return 2
+
     if isinstance(exc, ToolError):
         mapping = {
             ToolErrorCode.VALIDATION_ERROR: 2,
@@ -497,6 +529,61 @@ def _exit_code_for_exception(exc: Exception) -> int:
     if isinstance(exc, TimeoutError):
         return 8
     return 6
+
+
+def _argv_requests_json(argv: Optional[List[str]]) -> bool:
+    raw_argv = list(argv) if argv is not None else sys.argv[1:]
+    return "--json" in raw_argv
+
+
+def _infer_command_label_from_argv(argv: List[str]) -> str:
+    if not argv:
+        return "ts-agents"
+
+    command = argv[0]
+    if command in {"tool", "workflow", "data", "sandbox", "skills", "agent", "demo"}:
+        if len(argv) > 1 and not argv[1].startswith("-"):
+            return f"{command} {argv[1]}"
+    return command
+
+
+def _infer_target_name_from_argv(argv: List[str]) -> Optional[str]:
+    if not argv:
+        return None
+
+    command = argv[0]
+    if command == "tool":
+        if len(argv) > 2 and argv[1] in {"run", "show"} and not argv[2].startswith("-"):
+            return argv[2]
+        if len(argv) > 2 and argv[1] == "search" and not argv[2].startswith("-"):
+            return argv[2]
+        return None
+
+    if command == "workflow":
+        if len(argv) > 2 and argv[1] == "run" and not argv[2].startswith("-"):
+            return argv[2]
+        return None
+
+    if command == "skills":
+        if len(argv) > 2 and argv[1] == "show" and not argv[2].startswith("-"):
+            return argv[2]
+        return None
+
+    if command in {"run", "demo"} and len(argv) > 1 and not argv[1].startswith("-"):
+        return argv[1]
+
+    return None
+
+
+def _parse_error_envelope(argv: List[str], exc: argparse.ArgumentError) -> CLIEnvelope:
+    return CLIEnvelope(
+        ok=False,
+        command=_infer_command_label_from_argv(argv),
+        name=_infer_target_name_from_argv(argv),
+        input={"argv": argv},
+        error=_exception_to_cli_error(exc),
+        execution=None,
+    )
 
 
 def _add_output_args(parser: argparse.ArgumentParser) -> None:
@@ -1258,10 +1345,11 @@ def _add_demo_subcommands(subparsers: argparse._SubParsersAction) -> None:
     )
     _add_output_args(forecasting_parser)
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+def build_parser(*, exit_on_error: bool = True) -> argparse.ArgumentParser:
+    parser = TSArgumentParser(
         prog="ts-agents",
         description="Time series analysis CLI",
+        exit_on_error=exit_on_error,
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -1991,7 +2079,7 @@ def _render_forecasting_report_with_llm(
         f"variable: {variable_name}\n"
         f"horizon: {horizon}\n"
         f"methods: {methods}\n"
-        f"comparison_json: {json.dumps(comparison_payload)}"
+        f"comparison_json: {dump_json(comparison_payload, indent=None)}"
     )
     response = llm.invoke(prompt)
     content = response.content
@@ -2171,8 +2259,8 @@ def _run_demo_window_classification_llm(args: argparse.Namespace) -> Dict[str, A
 
     selection_path = output_dir / "window_selection.json"
     eval_path = output_dir / "eval.json"
-    selection_path.write_text(json.dumps(selection_payload, indent=2))
-    eval_path.write_text(json.dumps(eval_payload, indent=2))
+    selection_path.write_text(dump_json(selection_payload))
+    eval_path.write_text(dump_json(eval_payload))
 
     window_plot = output_dir / "window_scores.png"
     confusion_plot = output_dir / "confusion_matrix.png"
@@ -2389,8 +2477,31 @@ def run(argv: Optional[List[str]] = None) -> int:
     from ts_agents.config import load_user_env
 
     load_user_env()
-    parser = build_parser()
-    args = parser.parse_args(argv)
+    json_requested = _argv_requests_json(argv)
+    parser = build_parser(exit_on_error=not json_requested)
+    raw_argv = list(argv) if argv is not None else sys.argv[1:]
+    try:
+        if json_requested:
+            args, unknown = parser.parse_known_args(argv)
+            if unknown:
+                raise argparse.ArgumentError(
+                    None,
+                    f"unrecognized arguments: {' '.join(unknown)}",
+                )
+        else:
+            args = parser.parse_args(argv)
+    except argparse.ArgumentError as exc:
+        if json_requested:
+            print(render_output(_parse_error_envelope(raw_argv, exc), json_output=True))
+            return 2
+
+        parser = build_parser()
+        try:
+            parser.parse_args(argv)
+        except SystemExit as parse_exit:
+            return int(parse_exit.code)
+        raise
+
     _emit_deprecation_warning(args)
 
     try:
@@ -2434,7 +2545,7 @@ def run(argv: Optional[List[str]] = None) -> int:
                         image_dir=args.extract_images,
                         filename_prefix=filename_prefix,
                     )
-                    content_to_save = json.dumps(payload, indent=2, default=str)
+                    content_to_save = dump_json(payload)
                 else:
                     content_to_save, image_paths = extract_images_to_files(
                         output,

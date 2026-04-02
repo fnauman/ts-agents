@@ -10,7 +10,7 @@ from ts_agents.contracts import ArtifactRef
 
 
 def ensure_output_dir(output_dir: str | Path) -> Path:
-    path = Path(output_dir)
+    path = Path(output_dir).resolve()
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -101,7 +101,7 @@ def artifact_ref(
 ) -> ArtifactRef:
     return ArtifactRef(
         kind=kind,
-        path=str(Path(path)),
+        path=str(Path(path).resolve()),
         mime_type=mime_type,
         description=description,
         created_by=created_by,

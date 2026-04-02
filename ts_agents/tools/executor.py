@@ -36,6 +36,8 @@ from enum import Enum
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Dict, List, Optional, Type, Union
 
+from ts_agents.cli.output import dump_json
+
 from .results import format_result, serialize_result
 
 logger = logging.getLogger(__name__)
@@ -822,7 +824,7 @@ class DockerBackend(ExecutorBackend):
                 resp_path = io_dir / "response.json"
                 artifact_dir = io_dir / "artifacts"
                 artifact_dir.mkdir(parents=True, exist_ok=True)
-                req_path.write_text(json.dumps(request_payload, indent=2, default=str))
+                req_path.write_text(dump_json(request_payload))
 
                 cmd: List[str] = [
                     "docker",
@@ -1005,7 +1007,7 @@ class SubprocessBackend(ExecutorBackend):
                 resp_path = io_dir / "response.json"
                 artifact_dir = io_dir / "artifacts"
                 artifact_dir.mkdir(parents=True, exist_ok=True)
-                req_path.write_text(json.dumps(request_payload, indent=2, default=str))
+                req_path.write_text(dump_json(request_payload))
 
                 env = os.environ.copy()
                 for k, v in (context.environment or {}).items():
@@ -1379,7 +1381,7 @@ class DaytonaBackend(ExecutorBackend):
             resp_runner = ".ts_agents_io/response.json"
 
             sandbox.fs.upload_file(
-                json.dumps(request_payload, indent=2, default=str).encode("utf-8"),
+                dump_json(request_payload).encode("utf-8"),
                 req_remote,
             )
 

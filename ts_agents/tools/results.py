@@ -39,6 +39,7 @@ from typing import Any, Dict, List, Optional, Type, Union
 
 import numpy as np
 
+from ts_agents.cli.output import dump_json
 from ts_agents.contracts import ArtifactRef, ToolPayload
 
 
@@ -147,7 +148,7 @@ class ToolResult(ABC):
 
     def to_json(self) -> str:
         """Convert to JSON string."""
-        return json.dumps(self.to_dict())
+        return dump_json(self.to_dict(), indent=None)
 
 
 @dataclass

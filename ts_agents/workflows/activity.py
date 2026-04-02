@@ -65,6 +65,10 @@ def run_activity_recognition_workflow(
 
     selection_payload = to_jsonable(selection)
     evaluation_payload = to_jsonable(evaluation)
+    quality_flags = _activity_quality_flags(
+        selection_payload=selection_payload,
+        evaluation_payload=evaluation_payload,
+    )
     score = evaluation_payload.get("score")
     summary_data = {
         "workflow": workflow_name,
@@ -78,6 +82,7 @@ def run_activity_recognition_workflow(
         "seed": int(seed),
         "best_window_size": int(selection.best_window_size),
         "score": float(score) if isinstance(score, (int, float)) else None,
+        "quality_flags": quality_flags,
         "window_selection": selection_payload,
         "evaluation": evaluation_payload,
         "output_dir": str(output_path),
@@ -154,6 +159,7 @@ def run_activity_recognition_workflow(
     return ToolPayload(
         kind="workflow",
         summary=summary,
+        status="degraded" if warnings or quality_flags else "ok",
         data=summary_data,
         artifacts=artifacts,
         warnings=warnings,
@@ -200,6 +206,54 @@ def _normalize_window_sizes(window_sizes: Optional[Iterable[int]]) -> Optional[L
     return normalized
 
 
+def _activity_quality_flags(
+    *,
+    selection_payload: dict[str, Any],
+    evaluation_payload: dict[str, Any],
+) -> List[str]:
+    flags: List[str] = []
+
+    scores = (selection_payload.get("scores_by_window") or {}).values()
+    if any(score is None for score in scores):
+        flags.append("nan_window_scores")
+
+    n_windows_by_window = selection_payload.get("n_windows_by_window") or {}
+    if any(isinstance(count, int) and count < 10 for count in n_windows_by_window.values()):
+        flags.append("too_few_windows")
+
+    classification = evaluation_payload.get("classification") or {}
+    confusion = classification.get("confusion_matrix")
+    active_rows = _count_active_confusion_rows(confusion)
+    class_counts = evaluation_payload.get("class_counts") or {}
+    if active_rows is not None:
+        if active_rows <= 1:
+            flags.append("single_class_test_split")
+        if class_counts and active_rows < len(class_counts):
+            flags.append("metric_not_comparable")
+
+    score = evaluation_payload.get("score")
+    accuracy = classification.get("accuracy")
+    f1_macro = classification.get("f1_score")
+    if all(
+        isinstance(value, (int, float)) and float(value) == 1.0
+        for value in (score, accuracy, f1_macro)
+    ):
+        flags.append("perfect_metrics")
+
+    return flags
+
+
+def _count_active_confusion_rows(confusion: Any) -> Optional[int]:
+    if not isinstance(confusion, list):
+        return None
+
+    active_rows = 0
+    for row in confusion:
+        if isinstance(row, list) and any(value != 0 for value in row):
+            active_rows += 1
+    return active_rows
+
+
 def _plot_window_selection(selection_payload: dict[str, Any]):
     import matplotlib.pyplot as plt
 
@@ -207,7 +261,17 @@ def _plot_window_selection(selection_payload: dict[str, Any]):
     if not scores:
         raise ValueError("No scores_by_window found in selection payload.")
 
-    items = sorted(((int(key), float(value)) for key, value in scores.items()), key=lambda item: item[0])
+    items = sorted(
+        (
+            (int(key), float(value))
+            for key, value in scores.items()
+            if value is not None
+        ),
+        key=lambda item: item[0],
+    )
+    if not items:
+        raise ValueError("No finite scores_by_window found in selection payload.")
+
     xs = [window for window, _ in items]
     ys = [score for _, score in items]
     best_window = selection_payload.get("best_window_size")
@@ -303,13 +367,9 @@ def _build_report(
 def _build_quality_note(evaluation_payload: dict[str, Any]) -> str:
     classification = evaluation_payload.get("classification") or {}
     confusion = classification.get("confusion_matrix")
-    if isinstance(confusion, list):
-        active_rows = 0
-        for row in confusion:
-            if isinstance(row, list) and any(value != 0 for value in row):
-                active_rows += 1
-        if active_rows <= 1:
-            return "Test split appears single-class; treat classifier metrics with caution."
+    active_rows = _count_active_confusion_rows(confusion)
+    if active_rows is not None and active_rows <= 1:
+        return "Test split appears single-class; treat classifier metrics with caution."
 
     score = evaluation_payload.get("score")
     accuracy = classification.get("accuracy")

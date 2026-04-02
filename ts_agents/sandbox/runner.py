@@ -32,6 +32,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict
 
+from ts_agents.cli.output import dump_json
+
 
 def run_request(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Execute a tool request payload and return a serialized ExecutionResult."""
@@ -78,7 +80,7 @@ def run_request_file(input_path: str | Path, output_path: str | Path) -> Path:
     response = run_request(payload)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(response, indent=2, default=str))
+    output_path.write_text(dump_json(response))
     return output_path
 
 

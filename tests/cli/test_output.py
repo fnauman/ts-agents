@@ -3,6 +3,7 @@ import pytest
 
 from ts_agents.contracts import ArtifactRef, ToolPayload
 from ts_agents.cli.output import (
+    dump_json,
     extract_images_from_jsonable,
     extract_images_to_files,
     format_human,
@@ -29,6 +30,22 @@ def test_to_jsonable_dataclass():
     assert payload["method"] == "stl"
     assert payload["period"] == 2
     assert payload["trend"] == [1.0, 2.0]
+
+
+def test_to_jsonable_sanitizes_non_finite_floats():
+    payload = to_jsonable({"nan": float("nan"), "inf": np.float64("inf"), "ok": 1.5})
+    assert payload == {"nan": None, "inf": None, "ok": 1.5}
+
+
+def test_dump_json_emits_strict_json_for_non_finite_values():
+    rendered = dump_json({"scores": {"32": float("nan"), "64": 0.5}})
+    assert '"32": null' in rendered
+    assert "NaN" not in rendered
+
+
+def test_to_jsonable_raises_for_unsupported_objects():
+    with pytest.raises(TypeError):
+        to_jsonable(object())
 
 
 def test_format_human_array():
