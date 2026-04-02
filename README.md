@@ -318,19 +318,25 @@ input modes, artifact outputs, and availability in the current environment.
 
 ```bash
 ts-agents tool run stl_decompose_with_data --run Re200Rm200 --var bx001_real
-ts-agents tool run forecast_theta_with_data --run Re200Rm200 --var bx001_real --param horizon=30
+ts-agents tool run forecast_theta_with_data --run Re200Rm200 --var bx001_real --param horizon=30 --json
 ```
 
-### Save output and extract embedded images
+### Save output and inspect tool artifacts
 
 ```bash
-ts-agents tool run forecast_theta_with_data \
+ts-agents tool run stl_decompose_with_data \
   --run Re200Rm200 \
   --var bx001_real \
-  --param horizon=30 \
-  --save outputs/Re200Rm200/theta.txt \
-  --extract-images outputs/Re200Rm200/assets
+  --json \
+  --save outputs/Re200Rm200/stl.json
 ```
+
+Current low-level plot-producing tools expose PNG paths under
+`result.artifacts[*].path` in the saved JSON payload. `--extract-images` remains
+available only for legacy saved outputs that still contain embedded
+`[IMAGE_DATA:...]` tokens. Forecasting `forecast_*_with_data` tools are now
+data-only; use `ts-agents workflow run forecast-series --output-dir ...` when
+you want forecast plots, CSVs, and reports written as artifacts.
 
 ### Agent mode
 
@@ -438,7 +444,8 @@ For full details (env vars, resource limits, networking), see `SANDBOX.md`.
 
 ## Repository Layout
 
-- `main.py` - Gradio app entrypoint
+- `main.py` - source-checkout wrapper for `ts-agents-ui`
+- `app.py` - source-checkout wrapper for `ts-agents-hosted`
 - `ts_agents/cli/` - CLI parser, command handlers, input parsing, output helpers
 - `ts_agents/contracts.py` - shared data contracts (ArtifactRef, ToolPayload, CLIEnvelope, CLIError)
 - `ts_agents/core/` - pure time-series algorithms

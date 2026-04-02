@@ -92,13 +92,25 @@ and Markdown reports.
 ts-agents tool run describe_series \
   --input-json '{"series":[1,2,3,4,5]}'
 
-# Forecasting extra: save output and extract compatibility plots as PNGs
+# Forecasting extra: save the structured forecast payload as JSON
 uv run ts-agents tool run forecast_theta_with_data \
   --run Re200Rm200 --var bx001_real \
   --param horizon=12 \
-  --save outputs/theta.txt \
-  --extract-images outputs/assets
+  --json \
+  --save outputs/theta.json
+
+# Plot-producing tool: save the payload and read artifact paths from JSON
+uv run ts-agents tool run stl_decompose_with_data \
+  --run Re200Rm200 --var bx001_real \
+  --json \
+  --save outputs/stl.json
 ```
+
+For current low-level plot-producing tools, inspect `result.artifacts[*].path` in the
+saved JSON rather than expecting extracted PNGs. `--extract-images` only
+applies to saved legacy outputs that still contain `[IMAGE_DATA:...]` tokens.
+If you want forecast plots and reports, prefer `workflow run forecast-series
+--output-dir ...`, which writes artifact files directly.
 
 ## LLM-backed mode
 
