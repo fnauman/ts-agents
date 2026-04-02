@@ -112,7 +112,7 @@ saved forecast summaries.
 
 For the given `--run` and `--var`, execute each phase below.
 Save each tool response as JSON so you can read both the structured data and
-any `artifacts[*].path` entries. Save the forecasting tool outputs as JSON and
+any `result.artifacts[*].path` entries. Save the forecasting tool outputs as JSON and
 summarize them in the report instead of expecting forecast PNGs from the
 compatibility wrappers.
 
@@ -196,16 +196,16 @@ format: pdf
 ## Diagnostics
 (paste key stats from describe.json)
 
-![ACF](<path from acf.json -> artifacts[0].path>)
-![PSD](<path from psd.json -> artifacts[0].path>)
+![ACF](<path from acf.json -> result.artifacts[0].path>)
+![PSD](<path from psd.json -> result.artifacts[0].path>)
 
 ## Decomposition
-![STL](<path from stl.json -> artifacts[0].path>)
+![STL](<path from stl.json -> result.artifacts[0].path>)
 
 ## Patterns
-![Peaks](<path from peaks.json -> artifacts[0].path>)
-![Changepoints](<path from changepoints.json -> artifacts[0].path>)
-![Matrix Profile](<path from mp.json -> artifacts[0].path>)
+![Peaks](<path from peaks.json -> result.artifacts[0].path>)
+![Changepoints](<path from changepoints.json -> result.artifacts[0].path>)
+![Matrix Profile](<path from mp.json -> result.artifacts[0].path>)
 
 ## Forecasting
 Summarize `theta.json`, `ets.json`, and `arima.json`:
@@ -227,7 +227,7 @@ cd outputs/$RUN && quarto render report.qmd --to pdf
 
 - If any tool fails, log the error and continue with remaining tools.
 - If the series has fewer than 50 points, skip forecasting and warn the user.
-- Always verify that the saved JSON files contain the expected `artifacts[*].path` entries before composing the QMD.
+- Always verify that the plot-producing tool JSON files (`acf.json`, `psd.json`, `stl.json`, `peaks.json`, `changepoints.json`, `mp.json`) contain the expected `result.artifacts[*].path` entries before composing the QMD.
 - Treat the saved forecast JSON files as the forecasting source of truth; do not expect `--extract-images` output from the forecast wrappers.
 ````
 

@@ -106,7 +106,7 @@ uv run ts-agents tool run stl_decompose_with_data \
   --save outputs/stl.json
 ```
 
-For current low-level plot-producing tools, inspect `artifacts[*].path` in the
+For current low-level plot-producing tools, inspect `result.artifacts[*].path` in the
 saved JSON rather than expecting extracted PNGs. `--extract-images` only
 applies to saved legacy outputs that still contain `[IMAGE_DATA:...]` tokens.
 If you want forecast plots and reports, prefer `workflow run forecast-series

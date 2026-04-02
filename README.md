@@ -332,7 +332,7 @@ ts-agents tool run stl_decompose_with_data \
 ```
 
 Current low-level plot-producing tools expose PNG paths under
-`artifacts[*].path` in the saved JSON payload. `--extract-images` remains
+`result.artifacts[*].path` in the saved JSON payload. `--extract-images` remains
 available only for legacy saved outputs that still contain embedded
 `[IMAGE_DATA:...]` tokens. Forecasting `forecast_*_with_data` tools are now
 data-only; use `ts-agents workflow run forecast-series --output-dir ...` when

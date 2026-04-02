@@ -130,7 +130,7 @@ uv run ts-agents tool run stl_decompose_with_data \
   --save outputs/Re200Rm200/stl.json
 ```
 
-Read the saved tool JSON and use `artifacts[*].path` for the generated PNG
+Read the saved tool JSON and use `result.artifacts[*].path` for the generated PNG
 paths. `--extract-images` only unwraps legacy `[IMAGE_DATA:...]` tokens from
 older compatibility outputs. Forecasting `forecast_*_with_data` wrappers no
 longer embed plots; use `workflow run forecast-series --output-dir ...` when
