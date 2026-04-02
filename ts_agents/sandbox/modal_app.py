@@ -70,31 +70,9 @@ def run_tool(request: Dict[str, Any]) -> Dict[str, Any]:
     _require_source_checkout()
 
     # Import inside the function to ensure the packaged code is available.
-    from ts_agents.tools.executor import ExecutionContext, SandboxMode, execute_tool
+    from ts_agents.sandbox.runner import run_request
 
-    tool_name = request.get("tool_name")
-    params = request.get("kwargs") or {}
-    ctx_in = request.get("context") or {}
-
-    allowed = {
-        k: ctx_in.get(k)
-        for k in [
-            "timeout_seconds",
-            "memory_mb",
-            "disk_mb",
-            "working_dir",
-        ]
-        if k in ctx_in
-    }
-
-    ctx = ExecutionContext(
-        sandbox_mode=SandboxMode.LOCAL,
-        user_approved=True,
-        **allowed,
-    )
-
-    result = execute_tool(tool_name, params, ctx)
-    return result.to_dict()
+    return run_request(request)
 
 
 @app.local_entrypoint()
