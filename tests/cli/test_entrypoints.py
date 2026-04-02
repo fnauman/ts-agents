@@ -13,7 +13,7 @@ def test_python_module_entrypoint_supports_help():
     )
 
     assert completed.returncode == 0
-    assert "Time series analysis CLI" in completed.stdout
+    assert "CLI-first time-series workflows, tools, skills, and sandboxes" in completed.stdout
 
 
 def test_ui_console_entrypoint_supports_help():

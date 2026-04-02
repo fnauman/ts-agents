@@ -25,6 +25,27 @@ def test_workflow_list_json_returns_envelope(capsys):
     assert "forecast-series" in workflow_names
 
 
+def test_workflow_show_json_returns_machine_metadata(capsys):
+    code = run(["workflow", "show", "forecast-series", "--json"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["command"] == "workflow show"
+    assert payload["name"] == "forecast-series"
+    result = payload["result"]
+    assert result["supported_input_modes"] == [
+        "input_file",
+        "input_json",
+        "stdin",
+        "bundled_run",
+    ]
+    assert "artifacts" in result
+    assert "availability" in result
+    assert "supported_methods" in result["capabilities"]
+    assert "seasonal_naive" in result["capabilities"]["supported_methods"]
+
+
 def test_workflow_run_inspect_series_accepts_stdin_json(monkeypatch, capsys, tmp_path):
     monkeypatch.setattr(sys, "stdin", io.StringIO('{"series":[1,2,3,4,5]}'))
 
@@ -56,6 +77,34 @@ def test_workflow_run_inspect_series_accepts_stdin_json(monkeypatch, capsys, tmp
     assert payload["result"]["data"]["autocorrelation"]["requested_max_lag"] == 8
 
 
+def test_workflow_run_inspect_series_supports_subprocess_sandbox(capsys, tmp_path):
+    output_dir = tmp_path / "inspect_subprocess"
+    code = run(
+        [
+            "workflow",
+            "run",
+            "inspect-series",
+            "--input-json",
+            '{"series":[1,2,3,4,5]}',
+            "--output-dir",
+            str(output_dir),
+            "--skip-plots",
+            "--sandbox",
+            "subprocess",
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["execution"]["backend_requested"] == "subprocess"
+    assert payload["execution"]["backend_actual"] == "subprocess"
+    assert payload["result"]["data"]["output_dir"] == str(output_dir.resolve())
+    assert (output_dir / "summary.json").exists()
+    assert (output_dir / "report.md").exists()
+
+
 def test_workflow_run_forecast_series_writes_expected_files(monkeypatch, capsys, tmp_path):
     import ts_agents.core.comparison as comparison_mod
     import ts_agents.workflows.forecast as forecast_workflow
@@ -63,7 +112,13 @@ def test_workflow_run_forecast_series_writes_expected_files(monkeypatch, capsys,
     csv_path = tmp_path / "series.csv"
     csv_path.write_text("ds,y\n2024-01-01,1.0\n2024-01-02,1.1\n2024-01-03,1.2\n2024-01-04,1.3\n")
 
-    def fake_compare_forecasting_methods(series, horizon, methods, validation_size=None):
+    def fake_compare_forecasting_methods(
+        series,
+        horizon,
+        methods,
+        validation_size=None,
+        season_length=None,
+    ):
         return ComparisonResult(
             category="forecasting",
             methods=list(methods),
@@ -81,7 +136,9 @@ def test_workflow_run_forecast_series_writes_expected_files(monkeypatch, capsys,
     monkeypatch.setattr(
         forecast_workflow,
         "_forecast_with_method",
-        lambda series, method, horizon: SimpleNamespace(forecast=np.array([1.4, 1.5])),
+        lambda series, method, horizon, season_length=None: SimpleNamespace(
+            forecast=np.array([1.4, 1.5])
+        ),
     )
 
     output_dir = tmp_path / "forecast"
@@ -98,6 +155,8 @@ def test_workflow_run_forecast_series_writes_expected_files(monkeypatch, capsys,
             "y",
             "--horizon",
             "2",
+            "--methods",
+            "arima,theta",
             "--skip-plots",
             "--output-dir",
             str(output_dir),
@@ -132,7 +191,13 @@ def test_workflow_run_forecast_series_reports_degraded_when_some_methods_fail(
     csv_path = tmp_path / "series.csv"
     csv_path.write_text("ds,y\n2024-01-01,1.0\n2024-01-02,1.1\n2024-01-03,1.2\n2024-01-04,1.3\n")
 
-    def fake_compare_forecasting_methods(series, horizon, methods, validation_size=None):
+    def fake_compare_forecasting_methods(
+        series,
+        horizon,
+        methods,
+        validation_size=None,
+        season_length=None,
+    ):
         return ComparisonResult(
             category="forecasting",
             methods=["theta"],
@@ -152,7 +217,9 @@ def test_workflow_run_forecast_series_reports_degraded_when_some_methods_fail(
     monkeypatch.setattr(
         forecast_workflow,
         "_forecast_with_method",
-        lambda series, method, horizon: SimpleNamespace(forecast=np.array([1.4, 1.5])),
+        lambda series, method, horizon, season_length=None: SimpleNamespace(
+            forecast=np.array([1.4, 1.5])
+        ),
     )
 
     output_dir = tmp_path / "forecast"
@@ -200,7 +267,13 @@ def test_workflow_run_forecast_series_treats_missing_metrics_as_failed_method(
     csv_path = tmp_path / "series.csv"
     csv_path.write_text("ds,y\n2024-01-01,1.0\n2024-01-02,1.1\n2024-01-03,1.2\n2024-01-04,1.3\n")
 
-    def fake_compare_forecasting_methods(series, horizon, methods, validation_size=None):
+    def fake_compare_forecasting_methods(
+        series,
+        horizon,
+        methods,
+        validation_size=None,
+        season_length=None,
+    ):
         return ComparisonResult(
             category="forecasting",
             methods=["theta"],
@@ -217,7 +290,9 @@ def test_workflow_run_forecast_series_treats_missing_metrics_as_failed_method(
     monkeypatch.setattr(
         forecast_workflow,
         "_forecast_with_method",
-        lambda series, method, horizon: SimpleNamespace(forecast=np.array([1.4, 1.5])),
+        lambda series, method, horizon, season_length=None: SimpleNamespace(
+            forecast=np.array([1.4, 1.5])
+        ),
     )
 
     output_dir = tmp_path / "forecast"
@@ -257,7 +332,13 @@ def test_workflow_run_forecast_series_fails_when_all_methods_fail(monkeypatch, c
     csv_path = tmp_path / "series.csv"
     csv_path.write_text("ds,y\n2024-01-01,1.0\n2024-01-02,1.1\n2024-01-03,1.2\n2024-01-04,1.3\n")
 
-    def fake_compare_forecasting_methods(series, horizon, methods, validation_size=None):
+    def fake_compare_forecasting_methods(
+        series,
+        horizon,
+        methods,
+        validation_size=None,
+        season_length=None,
+    ):
         return ComparisonResult(
             category="forecasting",
             methods=[],
@@ -291,6 +372,8 @@ def test_workflow_run_forecast_series_fails_when_all_methods_fail(monkeypatch, c
             "y",
             "--horizon",
             "2",
+            "--methods",
+            "arima,theta",
             "--skip-plots",
             "--output-dir",
             str(output_dir),
@@ -316,7 +399,13 @@ def test_workflow_run_forecast_series_classifies_importerror_by_error_type(
     csv_path = tmp_path / "series.csv"
     csv_path.write_text("ds,y\n2024-01-01,1.0\n2024-01-02,1.1\n2024-01-03,1.2\n2024-01-04,1.3\n")
 
-    def fake_compare_forecasting_methods(series, horizon, methods, validation_size=None):
+    def fake_compare_forecasting_methods(
+        series,
+        horizon,
+        methods,
+        validation_size=None,
+        season_length=None,
+    ):
         return ComparisonResult(
             category="forecasting",
             methods=[],
@@ -352,6 +441,8 @@ def test_workflow_run_forecast_series_classifies_importerror_by_error_type(
             "y",
             "--horizon",
             "2",
+            "--methods",
+            "arima,theta",
             "--skip-plots",
             "--output-dir",
             str(output_dir),
@@ -654,6 +745,7 @@ def test_workflow_run_activity_recognition_continues_when_plot_generation_fails(
 def test_handle_workflow_command_uses_registry_runner(monkeypatch):
     import importlib
     import ts_agents.workflows as workflows
+    import ts_agents.workflows.executor as workflow_executor
 
     cli_main = importlib.import_module("ts_agents.cli.main")
     observed = {}
@@ -682,6 +774,16 @@ def test_handle_workflow_command_uses_registry_runner(monkeypatch):
             build_runner_kwargs=fake_build_runner_kwargs,
         ),
     )
+    monkeypatch.setattr(
+        workflow_executor,
+        "execute_workflow",
+        lambda workflow_name, workflow_input, runner_kwargs, context=None: SimpleNamespace(
+            success=True,
+            result=fake_runner(workflow_input, **runner_kwargs),
+            formatted_output="",
+            metadata={},
+        ),
+    )
 
     args = argparse.Namespace(
         workflow_command="run",
@@ -698,6 +800,10 @@ def test_handle_workflow_command_uses_registry_runner(monkeypatch):
         output_dir="outputs/inspect",
         max_lag=None,
         skip_plots=True,
+        sandbox=None,
+        allow_network=False,
+        allow_fallback=False,
+        fallback_backend=None,
     )
 
     result, text = cli_main._handle_workflow_command(args)

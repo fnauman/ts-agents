@@ -25,21 +25,51 @@ cd ts-agents
 uv sync
 ```
 
-## First run (no LLM required)
+Base install gives you workflow discovery, `workflow show`, `inspect-series`,
+and a dependency-light `seasonal_naive` forecast baseline. Use
+`ts-agents[recommended]` or a source checkout with `uv sync` for the full
+three-workflow experience.
 
-These commands work immediately — no API key needed.
+## First run (base install, no LLM required)
+
+These commands work immediately with `python -m pip install ts-agents` — no API
+key needed.
 
 ```bash
+# Inspect what each workflow requires in the current environment
+ts-agents workflow list
+ts-agents workflow show forecast-series --json
+
 # Inspect a short inline series and write summary artifacts
-uv run ts-agents workflow run inspect-series \
+ts-agents workflow run inspect-series \
   --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' \
   --output-dir outputs/inspect
 
-# Compare forecasting baselines on a deterministic inline series
+# Run the light seasonal baseline without the forecasting extra
+ts-agents workflow run forecast-series \
+  --input-json '{"series":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]}' \
+  --horizon 5 \
+  --methods seasonal_naive \
+  --output-dir outputs/forecast
+```
+
+Check `outputs/inspect/` and `outputs/forecast/` for JSON, plots, CSVs, and
+Markdown reports.
+
+## Full workflow stack from a source checkout
+
+Use this path when you want ARIMA/ETS/Theta forecasting comparisons plus
+`activity-recognition`.
+
+```bash
+uv sync
+
+# Compare multiple forecasting baselines
 uv run ts-agents workflow run forecast-series \
   --input-json '{"series":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]}' \
   --horizon 5 \
-  --output-dir outputs/forecast
+  --methods seasonal_naive,arima,theta \
+  --output-dir outputs/forecast-full
 
 # Generate a labeled stream and run the activity-recognition workflow
 uv run python data/make_synthetic_labeled_stream.py \
@@ -52,17 +82,17 @@ uv run ts-agents workflow run activity-recognition \
   --output-dir outputs/activity
 ```
 
-Check `outputs/inspect/`, `outputs/forecast/`, and `outputs/activity/` for
-JSON, plots, CSVs, and Markdown reports.
+Check `outputs/forecast-full/` and `outputs/activity/` for JSON, plots, CSVs,
+and Markdown reports.
 
 ## Try a single tool
 
 ```bash
-# STL decomposition on a built-in test series
-uv run ts-agents tool run stl_decompose_with_data \
-  --run Re200Rm200 --var bx001_real
+# Base install: lightweight statistics on inline JSON
+ts-agents tool run describe_series \
+  --input-json '{"series":[1,2,3,4,5]}'
 
-# Save output and extract compatibility plots as PNGs
+# Forecasting extra: save output and extract compatibility plots as PNGs
 uv run ts-agents tool run forecast_theta_with_data \
   --run Re200Rm200 --var bx001_real \
   --param horizon=12 \

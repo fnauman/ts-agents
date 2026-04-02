@@ -268,6 +268,20 @@ def _raise_unknown_tool_error(tool_name: str) -> None:
     )
 
 
+def _raise_unknown_workflow_error(workflow_name: str) -> None:
+    from ts_agents.workflows import list_workflows
+
+    workflow_names = [workflow.name for workflow in list_workflows()]
+    suggestions = _suggest_tool_names(workflow_name, workflow_names)
+    hint = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
+    raise ValueError(
+        f"Workflow '{workflow_name}' not found.{hint}\n"
+        f"Tip: inspect workflows with:\n"
+        f"  uv run ts-agents workflow list\n"
+        f"  uv run ts-agents workflow show inspect-series --json"
+    )
+
+
 def _add_json_input_args(parser: argparse.ArgumentParser) -> None:
     input_group = parser.add_mutually_exclusive_group()
     input_group.add_argument(
@@ -280,6 +294,31 @@ def _add_json_input_args(parser: argparse.ArgumentParser) -> None:
         "--stdin",
         action="store_true",
         help="Read structured JSON input from stdin",
+    )
+
+
+def _add_sandbox_execution_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--sandbox",
+        choices=["local", "subprocess", "docker", "daytona", "modal"],
+        default=None,
+        help="Execution sandbox (overrides TS_AGENTS_SANDBOX_MODE)",
+    )
+    parser.add_argument(
+        "--allow-network",
+        action="store_true",
+        help="Allow network access in sandboxed execution (if supported)",
+    )
+    parser.add_argument(
+        "--allow-fallback",
+        action="store_true",
+        help="Allow fallback to another backend when the requested sandbox is unavailable",
+    )
+    parser.add_argument(
+        "--fallback-backend",
+        choices=["local", "subprocess", "docker", "daytona", "modal"],
+        default=None,
+        help="Fallback backend to use with --allow-fallback (default: local)",
     )
 
 
@@ -310,28 +349,7 @@ def _add_tool_run_args(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Approve execution of very high cost tools",
     )
-    parser.add_argument(
-        "--sandbox",
-        choices=["local", "subprocess", "docker", "daytona", "modal"],
-        default=None,
-        help="Execution sandbox (overrides TS_AGENTS_SANDBOX_MODE)",
-    )
-    parser.add_argument(
-        "--allow-network",
-        action="store_true",
-        help="Allow network access in sandboxed execution (if supported)",
-    )
-    parser.add_argument(
-        "--allow-fallback",
-        action="store_true",
-        help="Allow fallback to another backend when the requested sandbox is unavailable",
-    )
-    parser.add_argument(
-        "--fallback-backend",
-        choices=["local", "subprocess", "docker", "daytona", "modal"],
-        default=None,
-        help="Fallback backend to use with --allow-fallback (default: local)",
-    )
+    _add_sandbox_execution_args(parser)
     _add_json_input_args(parser)
     _add_output_args(parser)
 
@@ -360,7 +378,7 @@ def _command_target_name(args: argparse.Namespace, exc: Optional[Exception] = No
         if args.sandbox_command == "doctor":
             return getattr(args, "backend", None)
     if args.command == "workflow":
-        if args.workflow_command == "run":
+        if args.workflow_command in {"run", "show"}:
             return getattr(args, "workflow_name", None)
     if args.command == "skills":
         if args.skills_command == "show":
@@ -560,7 +578,7 @@ def _infer_target_name_from_argv(argv: List[str]) -> Optional[str]:
         return None
 
     if command == "workflow":
-        if len(argv) > 2 and argv[1] == "run" and not argv[2].startswith("-"):
+        if len(argv) > 2 and argv[1] in {"run", "show"} and not argv[2].startswith("-"):
             return argv[2]
         return None
 
@@ -607,7 +625,7 @@ def _add_output_args(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_data_subcommands(subparsers: argparse._SubParsersAction) -> None:
-    data_parser = subparsers.add_parser("data", help="Data discovery commands")
+    data_parser = subparsers.add_parser("data", help="Bundled data utilities")
     data_sub = data_parser.add_subparsers(dest="data_command", required=True)
 
     list_parser = data_sub.add_parser("list", help="List runs and variables")
@@ -962,6 +980,10 @@ def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
     list_parser = workflow_sub.add_parser("list", help="List available workflows")
     _add_output_args(list_parser)
 
+    show_parser = workflow_sub.add_parser("show", help="Show structured metadata for one workflow")
+    show_parser.add_argument("workflow_name", type=str, help="Workflow name to inspect")
+    _add_output_args(show_parser)
+
     run_parser = workflow_sub.add_parser(
         "run",
         help="Run a named workflow",
@@ -969,8 +991,9 @@ def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
         epilog=(
             "Examples:\n"
             "  uv run ts-agents workflow list\n"
+            "  uv run ts-agents workflow show forecast-series --json\n"
             "  uv run ts-agents workflow run inspect-series --input data.csv --time-col ds --value-col y\n"
-            "  uv run ts-agents workflow run forecast-series --input data.csv --time-col ds --value-col y --horizon 48\n"
+            "  uv run ts-agents workflow run forecast-series --input data.csv --time-col ds --value-col y --horizon 48 --sandbox subprocess\n"
             "  uv run ts-agents workflow run activity-recognition --input stream.csv --label-col label --value-cols x,y,z\n"
             "  echo '{\"series\": [1,2,3,4]}' | uv run ts-agents workflow run inspect-series --stdin --output-dir outputs/inspect"
         ),
@@ -999,6 +1022,7 @@ def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Skip plot generation",
     )
+    _add_sandbox_execution_args(inspect_parser)
     _add_output_args(inspect_parser)
 
     forecast_parser = workflow_run_sub.add_parser(
@@ -1019,10 +1043,16 @@ def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
         help="Forecast horizon",
     )
     forecast_parser.add_argument(
+        "--season-length",
+        type=int,
+        default=None,
+        help="Optional seasonal period for seasonal methods",
+    )
+    forecast_parser.add_argument(
         "--methods",
         type=str,
-        default="arima,theta",
-        help="Comma-separated methods to compare (default: arima,theta)",
+        default="seasonal_naive,arima,theta",
+        help="Comma-separated methods to compare (default: seasonal_naive,arima,theta)",
     )
     forecast_parser.add_argument(
         "--validation-size",
@@ -1035,6 +1065,7 @@ def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Skip plot generation",
     )
+    _add_sandbox_execution_args(forecast_parser)
     _add_output_args(forecast_parser)
 
     activity_parser = workflow_run_sub.add_parser(
@@ -1107,6 +1138,7 @@ def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Skip plot generation",
     )
+    _add_sandbox_execution_args(activity_parser)
     _add_output_args(activity_parser)
 
 
@@ -1348,18 +1380,18 @@ def _add_demo_subcommands(subparsers: argparse._SubParsersAction) -> None:
 def build_parser(*, exit_on_error: bool = True) -> argparse.ArgumentParser:
     parser = TSArgumentParser(
         prog="ts-agents",
-        description="Time series analysis CLI",
+        description="CLI-first time-series workflows, tools, skills, and sandboxes",
         exit_on_error=exit_on_error,
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    _add_data_subcommands(subparsers)
+    _add_workflow_subcommands(subparsers)
     _add_tool_subcommands(subparsers)
-    _add_run_subcommands(subparsers)
-    _add_agent_subcommands(subparsers)
     _add_sandbox_subcommands(subparsers)
     _add_skills_subcommands(subparsers)
-    _add_workflow_subcommands(subparsers)
+    _add_agent_subcommands(subparsers)
+    _add_data_subcommands(subparsers)
+    _add_run_subcommands(subparsers)
     _add_demo_subcommands(subparsers)
 
     return parser
@@ -1454,6 +1486,19 @@ def _tool_detail_dict(tool: Any) -> Dict[str, Any]:
             "memory_mb": tool.memory_mb,
             "disk_mb": tool.disk_mb,
         },
+    }
+
+
+def _workflow_summary_dict(workflow: Any) -> Dict[str, Any]:
+    from ts_agents.workflows import workflow_to_dict
+
+    details = workflow_to_dict(workflow)
+    return {
+        "name": details["name"],
+        "description": details["description"],
+        "supported_input_modes": details["supported_input_modes"],
+        "required_extras": details["required_extras"],
+        "availability": details["availability"],
     }
 
 
@@ -1623,22 +1668,61 @@ def _handle_run_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]:
 
 
 def _handle_workflow_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]:
-    from ts_agents.workflows import get_workflow, list_workflows
+    from ts_agents.tools.executor import ExecutionContext
+    from ts_agents.workflows import get_workflow, list_workflows, workflow_to_dict
+    from ts_agents.workflows.executor import execute_workflow
 
     if args.workflow_command == "list":
         workflows = list_workflows()
         result = {
-            "workflows": [
-                {
-                    "name": workflow.name,
-                    "description": workflow.description,
-                }
-                for workflow in workflows
-            ]
+            "workflows": [_workflow_summary_dict(workflow) for workflow in workflows]
         }
         lines = ["Workflows:"]
         for workflow in workflows:
-            lines.append(f"- {workflow.name}: {workflow.description}")
+            availability = workflow.availability()
+            status = availability.get("status", "available")
+            hint = ""
+            if availability.get("install_hint"):
+                hint = f" ({availability['install_hint']})"
+            lines.append(f"- {workflow.name} [{status}]: {workflow.description}{hint}")
+        return result, "\n".join(lines)
+
+    if args.workflow_command == "show":
+        try:
+            workflow = get_workflow(args.workflow_name)
+        except KeyError:
+            _raise_unknown_workflow_error(args.workflow_name)
+        result = workflow_to_dict(workflow)
+        availability = result["availability"]
+        lines = [
+            f"Workflow: {result['name']}",
+            f"Description: {result['description']}",
+            f"Availability: {availability.get('status', 'available')}",
+            f"Input modes: {', '.join(result['supported_input_modes'])}",
+            f"Source requirement: {result['source_requirement']}",
+        ]
+        if result["required_extras"]:
+            lines.append(f"Required extras: {', '.join(result['required_extras'])}")
+        if availability.get("missing_dependencies"):
+            lines.append(
+                "Missing dependencies: " + ", ".join(availability["missing_dependencies"])
+            )
+        if availability.get("install_hint"):
+            lines.append(f"Install hint: {availability['install_hint']}")
+        if result["options"]:
+            lines.append("Options:")
+            for option in result["options"]:
+                optionality = "required" if option["required"] else "optional"
+                lines.append(f"- {option['name']} ({option['type']}, {optionality})")
+        if result["artifacts"]:
+            lines.append("Artifacts:")
+            for artifact in result["artifacts"]:
+                requirement = "required" if artifact["required"] else "optional"
+                lines.append(f"- {artifact['filename']} ({requirement})")
+        if result["examples"]:
+            lines.append("Examples:")
+            for example in result["examples"]:
+                lines.append(f"- {example}")
         return result, "\n".join(lines)
 
     if args.workflow_command != "run":
@@ -1647,19 +1731,50 @@ def _handle_workflow_command(args: argparse.Namespace) -> Tuple[Any, Optional[st
     try:
         workflow = get_workflow(args.workflow_name)
     except KeyError:
-        raise ValueError(f"Unknown workflow '{args.workflow_name}'.") from None
+        _raise_unknown_workflow_error(args.workflow_name)
     _validate_workflow_source_args(args)
     args.use_test_data_resolved = _resolve_use_test_data(args)
 
     workflow_input = workflow.load_input(args)
     runner_kwargs = workflow.build_runner_kwargs(args)
+    allow_fallback = getattr(args, "allow_fallback", False)
+    fallback_backend = getattr(args, "fallback_backend", None) or "local"
     args._ts_input_payload = {
         "workflow": args.workflow_name,
         "source": _workflow_input_source_ref(workflow_input),
         "options": runner_kwargs,
+        "sandbox": getattr(args, "sandbox", None)
+        or os.environ.get("TS_AGENTS_SANDBOX_MODE")
+        or "local",
+        "allow_fallback": allow_fallback,
+        "fallback_backend": fallback_backend,
     }
-    result = workflow.runner(workflow_input, **runner_kwargs)
-    return result, None
+    if getattr(args, "fallback_backend", None) and not allow_fallback:
+        raise ValueError(
+            "--fallback-backend requires --allow-fallback to take effect. "
+            "Pass --allow-fallback to opt in to backend fallback."
+        )
+
+    sandbox_mode = getattr(args, "sandbox", None) or os.environ.get("TS_AGENTS_SANDBOX_MODE")
+    context = ExecutionContext(
+        sandbox_mode=sandbox_mode,
+        allow_network=getattr(args, "allow_network", False),
+        allow_fallback=allow_fallback,
+        fallback_backend=fallback_backend,
+    )
+    execution = execute_workflow(
+        args.workflow_name,
+        workflow_input,
+        runner_kwargs,
+        context=context,
+    )
+    args._ts_execution_result = execution
+    if not execution.success:
+        if execution.error:
+            raise execution.error
+        raise RuntimeError(execution.formatted_output or "Workflow execution failed")
+
+    return execution.result, execution.formatted_output or None
 
 
 def _validate_workflow_source_args(args: argparse.Namespace) -> None:

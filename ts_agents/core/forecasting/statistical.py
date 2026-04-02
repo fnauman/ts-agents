@@ -290,8 +290,27 @@ def forecast_seasonal_naive(
     ForecastResult
         Forecast values and optional prediction intervals
     """
-    StatsForecast, _, _, _, SeasonalNaive = _get_statsforecast_components()
     series = np.asarray(series, dtype=np.float64).flatten()
+    resolved_season_length = _resolve_seasonal_naive_length(season_length)
+
+    try:
+        StatsForecast, _, _, _, SeasonalNaive = _get_statsforecast_components()
+    except ImportError:
+        if len(series) == 0:
+            raise ValueError("seasonal_naive requires at least one observed value.")
+        if resolved_season_length > len(series):
+            resolved_season_length = len(series)
+        last_cycle = series[-resolved_season_length:]
+        repeats = int(np.ceil(horizon / resolved_season_length))
+        forecast_values = np.tile(last_cycle, repeats)[:horizon]
+        return ForecastResult(
+            method="seasonal_naive",
+            forecast=forecast_values,
+            horizon=horizon,
+            lower_bound=None,
+            upper_bound=None,
+            confidence_level=level[0] / 100 if level else 0.95,
+        )
 
     df = pd.DataFrame({
         'unique_id': 'series',
@@ -299,7 +318,6 @@ def forecast_seasonal_naive(
         'y': series,
     })
 
-    resolved_season_length = _resolve_seasonal_naive_length(season_length)
     models = [SeasonalNaive(season_length=resolved_season_length)]
     if level is None:
         level = [95]
@@ -359,10 +377,23 @@ def forecast_ensemble(
     >>> ensemble = result.get_ensemble()
     >>> print(f"Ensemble forecast: {ensemble[:5]}")
     """
-    StatsForecast, AutoARIMA, AutoETS, AutoTheta, SeasonalNaive = _get_statsforecast_components()
     if models is None:
         models = ['arima', 'ets']
 
+    normalized_models = [model for model in models if model]
+    if set(normalized_models).issubset({"seasonal_naive"}):
+        seasonal_naive_forecast = forecast_seasonal_naive(
+            series,
+            horizon=horizon,
+            season_length=season_length,
+        )
+        return MultiForecastResult(
+            method="ensemble",
+            forecasts={"seasonal_naive": seasonal_naive_forecast.forecast},
+            horizon=horizon,
+        )
+
+    StatsForecast, AutoARIMA, AutoETS, AutoTheta, SeasonalNaive = _get_statsforecast_components()
     series = np.asarray(series, dtype=np.float64).flatten()
 
     df = pd.DataFrame({

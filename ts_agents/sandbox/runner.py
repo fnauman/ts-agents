@@ -39,6 +39,10 @@ def run_request(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Execute a tool request payload and return a serialized ExecutionResult."""
 
     from ts_agents.tools.executor import ExecutionContext, SandboxMode, execute_tool
+    from ts_agents.workflows.executor import (
+        execute_serialized_workflow_request,
+        is_workflow_target,
+    )
 
     tool_name = payload.get("tool_name")
     if not tool_name:
@@ -67,7 +71,15 @@ def run_request(payload: Dict[str, Any]) -> Dict[str, Any]:
         }},
     )
 
-    result = execute_tool(tool_name, kwargs, context=context)
+    if is_workflow_target(tool_name):
+        workflow_name = tool_name.split(":", 1)[1]
+        result = execute_serialized_workflow_request(
+            workflow_name=workflow_name,
+            kwargs=kwargs,
+            context=context,
+        )
+    else:
+        result = execute_tool(tool_name, kwargs, context=context)
     return result.to_dict()
 
 

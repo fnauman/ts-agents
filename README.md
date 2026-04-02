@@ -50,13 +50,18 @@ Use the workflow layer when you want reproducible CLI commands on bundled or
 custom data.
 
 ```bash
-uv sync
-uv run ts-agents workflow list
-uv run ts-agents workflow run inspect-series --input-json '{"series":[1,2,3,4]}'
-uv run ts-agents workflow run forecast-series --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' --horizon 3
-uv run python data/make_synthetic_labeled_stream.py --scenario gait --seconds 40 --seed 1337 --out data/demo_labeled_stream.csv
-uv run ts-agents workflow run activity-recognition --input data/demo_labeled_stream.csv --label-col label --value-cols x,y,z
+python -m pip install ts-agents
+ts-agents workflow list
+ts-agents workflow show forecast-series --json
+ts-agents workflow run inspect-series --input-json '{"series":[1,2,3,4]}'
+ts-agents workflow run forecast-series --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' --horizon 3 --methods seasonal_naive
 ```
+
+Base install is guaranteed to support workflow discovery plus `inspect-series`.
+It also supports a light `seasonal_naive` forecasting baseline. Install
+`ts-agents[recommended]` (or use `uv sync` from a source checkout) for the full
+three-workflow experience, including ARIMA/ETS/Theta forecasting and
+`activity-recognition`.
 
 ### 2. Use the low-level CLI on bundled or custom data
 
@@ -117,10 +122,16 @@ Canonical design doc:
 ## Quickstart
 
 ```bash
+# Base install: discovery + inspect-series + seasonal baseline forecast
+python -m pip install ts-agents
+ts-agents workflow list
+ts-agents workflow show forecast-series --json
+ts-agents workflow run inspect-series --input-json '{"series":[1,2,3,4]}'
+ts-agents workflow run forecast-series --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' --horizon 3 --methods seasonal_naive
+
+# Full workflow stack from a source checkout
 uv sync
-uv run ts-agents workflow list
-uv run ts-agents workflow run inspect-series --input-json '{"series":[1,2,3,4]}'
-uv run ts-agents workflow run forecast-series --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' --horizon 3
+uv run ts-agents workflow run forecast-series --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' --horizon 3 --methods seasonal_naive,arima,theta
 uv run python data/make_synthetic_labeled_stream.py --scenario gait --seconds 40 --seed 1337 --out data/demo_labeled_stream.csv
 uv run ts-agents workflow run activity-recognition --input data/demo_labeled_stream.csv --label-col label --value-cols x,y,z
 ```
@@ -182,6 +193,12 @@ Feature extras:
 - `viz`: plotting-only installs without Gradio
 - `recommended`: the demo-friendly install profile
 - `all`: the full optional stack
+
+Install profiles:
+- `ts-agents`: workflow discovery, `workflow show`, `inspect-series`, and a dependency-light `seasonal_naive` forecast baseline
+- `ts-agents[forecasting]`: unlocks ARIMA, ETS, and Theta for `forecast-series`
+- `ts-agents[classification]`: unlocks `activity-recognition`
+- `ts-agents[recommended]`: the documented three-workflow experience used in walkthroughs and demos
 
 Run the packaged entrypoints:
 
@@ -289,9 +306,13 @@ ts-agents tool list --bundle demo
 
 ```bash
 ts-agents workflow list
+ts-agents workflow show forecast-series --json
 ts-agents workflow run inspect-series --input-json '{"series":[1,2,3,4]}'
-ts-agents workflow run forecast-series --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' --horizon 3
+ts-agents workflow run forecast-series --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' --horizon 3 --methods seasonal_naive
 ```
+
+Use `workflow show` before automation to inspect required extras, supported
+input modes, artifact outputs, and availability in the current environment.
 
 ### Run tools directly
 
@@ -330,13 +351,13 @@ workflow and is not bundled into the published wheel.
 Example prompt for Claude Code:
 
 ```text
-Use the `time-series-activity-recognition` skill. Generate a synthetic labeled stream with `uv run python data/make_synthetic_labeled_stream.py --scenario gait --seconds 40 --seed 1337 --out data/demo_labeled_stream.csv`, run `ts-agents workflow run activity-recognition --input data/demo_labeled_stream.csv --label-col label --value-cols x,y,z --output-dir outputs/activity-recognition`, and produce `outputs/reports/activity-recognition.qmd` plus `outputs/reports/activity-recognition.pdf`.
+Install `ts-agents[recommended]`, then use the `time-series-activity-recognition` skill. Generate a synthetic labeled stream with `uv run python data/make_synthetic_labeled_stream.py --scenario gait --seconds 40 --seed 1337 --out data/demo_labeled_stream.csv`, run `ts-agents workflow run activity-recognition --input data/demo_labeled_stream.csv --label-col label --value-cols x,y,z --output-dir outputs/activity-recognition`, and produce `outputs/reports/activity-recognition.qmd` plus `outputs/reports/activity-recognition.pdf`.
 ```
 
 Example prompt for Codex:
 
 ```text
-Use the `forecasting` skill. Run `ts-agents workflow run forecast-series --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' --horizon 3 --output-dir outputs/forecasting`, summarize the artifacts, and generate `outputs/reports/forecasting-summary.qmd` plus `outputs/reports/forecasting-summary.pdf`.
+Use the `forecasting` skill. Run `ts-agents workflow show forecast-series --json`, choose the methods available in the current environment, run `ts-agents workflow run forecast-series --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' --horizon 3 --methods seasonal_naive,arima,theta --output-dir outputs/forecasting`, summarize the artifacts, and generate `outputs/reports/forecasting-summary.qmd` plus `outputs/reports/forecasting-summary.pdf`.
 ```
 
 For polished deliverables, generate a Quarto report and render to PDF:

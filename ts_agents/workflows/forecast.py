@@ -11,7 +11,7 @@ from ts_agents.contracts import ToolPayload
 
 from .common import ensure_output_dir, write_dataframe_artifact, write_json_artifact, write_plot_artifact, write_text_artifact
 
-_SUPPORTED_METHODS = {"arima", "ets", "theta"}
+_SUPPORTED_METHODS = {"seasonal_naive", "arima", "ets", "theta"}
 
 
 def run_forecast_series_workflow(
@@ -20,6 +20,7 @@ def run_forecast_series_workflow(
     output_dir: str,
     horizon: int,
     methods: Optional[Iterable[str]] = None,
+    season_length: Optional[int] = None,
     validation_size: Optional[int] = None,
     skip_plots: bool = False,
     report_mode: str = "scripted",
@@ -40,6 +41,7 @@ def run_forecast_series_workflow(
             series_input.series,
             horizon=horizon,
             methods=selected_methods,
+            season_length=season_length,
             validation_size=validation_size,
         )
 
@@ -59,6 +61,7 @@ def run_forecast_series_workflow(
         series_input=series_input,
         method=best_method,
         horizon=horizon,
+        season_length=season_length,
     )
     warnings_list: List[str] = []
     quality_flags = _forecast_quality_flags(
@@ -84,6 +87,7 @@ def run_forecast_series_workflow(
         "horizon": int(horizon),
         "validation_size": int(validation_size or horizon),
         "methods": selected_methods,
+        "season_length": int(season_length) if season_length else None,
         "best_method": best_method,
         "valid_methods": valid_methods,
         "failed_methods": failed_methods,
@@ -137,6 +141,7 @@ def run_forecast_series_workflow(
         series_input=series_input,
         horizon=horizon,
         methods=selected_methods,
+        season_length=season_length,
         comparison_payload=comparison_payload,
     )
     if report_mode == "llm":
@@ -174,11 +179,11 @@ def run_forecast_series_workflow(
 
 def _normalize_methods(methods: Optional[Iterable[str]]) -> List[str]:
     if methods is None:
-        return ["arima", "theta"]
+        return ["seasonal_naive", "arima", "theta"]
 
     normalized = [str(method).strip().lower() for method in methods if str(method).strip()]
     if not normalized:
-        return ["arima", "theta"]
+        return ["seasonal_naive", "arima", "theta"]
 
     invalid = [method for method in normalized if method not in _SUPPORTED_METHODS]
     if invalid:
@@ -326,11 +331,17 @@ def _build_forecast_rows(
     series_input: SeriesInput,
     method: Optional[str],
     horizon: int,
+    season_length: Optional[int] = None,
 ) -> List[dict[str, Any]]:
     if method is None:
         return []
 
-    result = _forecast_with_method(series_input.series, method=method, horizon=horizon)
+    result = _forecast_with_method(
+        series_input.series,
+        method=method,
+        horizon=horizon,
+        season_length=season_length,
+    )
     forecast_values = to_jsonable(result.forecast)
     future_index = _infer_future_index(series_input=series_input, horizon=horizon)
     rows: List[dict[str, Any]] = []
@@ -345,15 +356,30 @@ def _build_forecast_rows(
     return rows
 
 
-def _forecast_with_method(series, *, method: str, horizon: int):
-    from ts_agents.core.forecasting import forecast_arima, forecast_ets, forecast_theta
+def _forecast_with_method(
+    series,
+    *,
+    method: str,
+    horizon: int,
+    season_length: Optional[int] = None,
+):
+    from ts_agents.core.forecasting import (
+        forecast_arima,
+        forecast_ets,
+        forecast_seasonal_naive,
+        forecast_theta,
+    )
 
     method_map = {
+        "seasonal_naive": forecast_seasonal_naive,
         "arima": forecast_arima,
         "ets": forecast_ets,
         "theta": forecast_theta,
     }
-    return method_map[method](series, horizon=horizon)
+    kwargs = {"horizon": horizon}
+    if season_length is not None:
+        kwargs["season_length"] = season_length
+    return method_map[method](series, **kwargs)
 
 
 def _infer_future_index(
@@ -400,6 +426,7 @@ def _build_report(
     series_input: SeriesInput,
     horizon: int,
     methods: List[str],
+    season_length: Optional[int],
     comparison_payload: dict[str, Any],
 ) -> str:
     rankings = comparison_payload.get("rankings") or {}
@@ -429,6 +456,7 @@ def _build_report(
             "",
             f"- **Source**: `{series_input.label}`",
             f"- **Horizon**: {horizon}",
+            f"- **Season Length**: {season_length if season_length is not None else 'n/a'}",
             f"- **Compared Methods**: {', '.join(methods)}",
             f"- **Best Method (RMSE)**: {best_method}",
             "",

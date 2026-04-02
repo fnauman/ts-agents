@@ -172,7 +172,13 @@ def test_scripted_forecasting_demo_writes_report_and_json(monkeypatch, tmp_path)
     def fake_get_series(run_id, variable_name, use_test_data=None, data_type=None):
         return np.array([0.10, 0.12, 0.15, 0.14, 0.16])
 
-    def fake_compare_forecasting_methods(series, horizon, methods, validation_size=None):
+    def fake_compare_forecasting_methods(
+        series,
+        horizon,
+        methods,
+        validation_size=None,
+        season_length=None,
+    ):
         return ComparisonResult(
             category="forecasting",
             methods=["arima", "theta"],
@@ -304,7 +310,13 @@ def test_demo_forecasting_cli_scripted_integration(monkeypatch, tmp_path):
         lambda run_id, variable_name, use_test_data=None, data_type=None: np.array([0.1, 0.2, 0.3, 0.4]),
     )
 
-    def fake_compare_forecasting_methods(series, horizon, methods, validation_size=None):
+    def fake_compare_forecasting_methods(
+        series,
+        horizon,
+        methods,
+        validation_size=None,
+        season_length=None,
+    ):
         return ComparisonResult(
             category="forecasting",
             methods=["arima", "theta"],

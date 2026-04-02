@@ -58,6 +58,24 @@ class TestForecasting:
         assert result.method == "seasonal_naive"
         np.testing.assert_allclose(result.forecast, expected)
 
+    def test_forecast_seasonal_naive_falls_back_without_statsforecast(self, monkeypatch):
+        """Test seasonal naive still works without the forecasting extra."""
+        import ts_agents.core.forecasting.statistical as statistical
+
+        monkeypatch.setattr(
+            statistical,
+            "_get_statsforecast_components",
+            lambda: (_ for _ in ()).throw(
+                ImportError("Statistical forecasting requires optional dependencies.")
+            ),
+        )
+
+        x = np.tile(np.arange(1, 5, dtype=float), 2)
+        result = statistical.forecast_seasonal_naive(x, horizon=6, season_length=4)
+
+        assert result.method == "seasonal_naive"
+        np.testing.assert_allclose(result.forecast, np.array([1, 2, 3, 4, 1, 2], dtype=float))
+
     def test_forecast_ensemble(self):
         """Test ensemble forecasting."""
         from ts_agents.core.forecasting import forecast_ensemble
@@ -90,6 +108,35 @@ class TestForecasting:
         np.testing.assert_allclose(
             result.forecasts["seasonal_naive"],
             np.arange(1, 13, dtype=float),
+        )
+
+    def test_forecast_ensemble_supports_seasonal_naive_without_statsforecast(
+        self,
+        monkeypatch,
+    ):
+        """Test ensemble fallback works when only seasonal naive is requested."""
+        import ts_agents.core.forecasting.statistical as statistical
+
+        monkeypatch.setattr(
+            statistical,
+            "_get_statsforecast_components",
+            lambda: (_ for _ in ()).throw(
+                ImportError("Statistical forecasting requires optional dependencies.")
+            ),
+        )
+
+        x = np.tile(np.arange(1, 5, dtype=float), 2)
+        result = statistical.forecast_ensemble(
+            x,
+            horizon=4,
+            models=["seasonal_naive"],
+            season_length=4,
+        )
+
+        assert list(result.forecasts.keys()) == ["seasonal_naive"]
+        np.testing.assert_allclose(
+            result.forecasts["seasonal_naive"],
+            np.array([1, 2, 3, 4], dtype=float),
         )
 
     def test_forecast_arima_with_season_length(self):
