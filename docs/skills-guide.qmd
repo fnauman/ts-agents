@@ -30,20 +30,34 @@ Run the activity-recognition skill on data/demo_labeled_stream.csv
 
 **Codex / other agents**
 ```
-Follow the forecasting skill to compare ARIMA and Theta
-on Re200Rm200 / bx001_real with horizon 12
+Use the forecasting skill to inspect method availability and run
+`workflow run forecast-series` on a single-series CSV with horizon 12
 ```
 
 The agent reads the `SKILL.md`, discovers the required tools, and executes the workflow.
 
 ## Customizing skill outputs
 
-### Plot-producing tools
+### Workflow-first outputs vs low-level tool outputs
 
-First-class workflows write artifact files directly under `--output-dir`; that
-is the canonical machine-facing contract. The lower-level `*_with_data` tools
-now expose artifact refs for the tools below. Save them with `--json` when you
-want a machine-readable record of the tool output and artifact paths.
+Prefer first-class workflows when the goal is an artifact bundle:
+
+- `workflow run inspect-series` for summary/report artifacts
+- `workflow run forecast-series` for forecast plots, CSVs, and Markdown reports
+- `workflow run activity-recognition` for window-size and evaluation artifacts
+
+Use `tool run` when you need one targeted analysis function, a compatibility
+wrapper, or a saved JSON payload from a specific low-level tool. That split is
+especially important for forecasting: the workflow is artifact-first, while the
+`forecast_*_with_data` wrappers are compatibility/data surfaces.
+
+### Low-level plot-producing tools
+
+First-class workflows write artifact files directly under `--output-dir`, or
+into an auto-generated run directory when `--output-dir` is omitted; that is
+the canonical machine-facing contract. The lower-level `*_with_data` tools
+below expose artifact refs for targeted plotting tasks. Save them with `--json`
+when you want a machine-readable record of the tool output and artifact paths.
 `--extract-images` remains available only for legacy text outputs that still
 contain embedded `[IMAGE_DATA:...]` tokens.
 
@@ -75,11 +89,11 @@ The table below lists every tool that produces a plot, organized by analysis pha
 Forecasting `forecast_arima_with_data`, `forecast_ets_with_data`,
 `forecast_theta_with_data`, `forecast_seasonal_naive_with_data`,
 `forecast_ensemble_with_data`, and `compare_forecasts_with_data` are now
-data-only compatibility wrappers. Use `workflow run forecast-series --output-dir ...`
-when you want forecast plots, CSVs, and Markdown reports as
-artifacts.
+data-only compatibility wrappers. Treat them as structured forecast summaries,
+not plot-producing tools. Use `workflow run forecast-series --output-dir ...`
+when you want forecast plots, CSVs, and Markdown reports as artifacts.
 
-### PDF reports via a comprehensive analysis skill
+### PDF reports via a mixed workflow/tool skill
 
 A skill can orchestrate many plot-producing tools, save their structured output,
 compose a Quarto document, and render to PDF — all in one workflow. Here is a
@@ -90,6 +104,8 @@ complete `SKILL.md` example:
 name: comprehensive-report
 description: Full diagnostic, decomposition, pattern, and forecast analysis rendered as a PDF report
 tasks: [report, pdf, comprehensive]
+workflows:
+  - forecast-series
 tools:
   - describe_series_with_data
   - compute_autocorrelation_with_data
@@ -106,7 +122,11 @@ tools:
 ## Objective
 
 Produce a single PDF report with diagnostic/decomposition/pattern plots plus
-saved forecast summaries.
+saved forecast summaries. If you need forecast plots, CSVs, or a generated
+forecast report, call `workflow run forecast-series` separately and attach
+those artifacts instead of expecting them from the compatibility wrappers. The
+`workflows:` frontmatter above is the explicit signal that this skill also uses
+the public workflow surface in addition to the listed low-level tools.
 
 ## Workflow
 
@@ -164,7 +184,7 @@ uv run ts-agents tool run analyze_matrix_profile_with_data \
   --save outputs/$RUN/mp.json
 ```
 
-### 4. Forecasting
+### 4. Forecasting summaries
 
 ```bash
 uv run ts-agents tool run forecast_theta_with_data \
@@ -213,6 +233,10 @@ Summarize `theta.json`, `ets.json`, and `arima.json`:
 - point forecast values
 - intervals / uncertainty fields when present
 
+If you also ran `workflow run forecast-series`, reference its forecast plot,
+CSV, and Markdown artifacts here instead of expecting PNGs from the forecast
+wrappers.
+
 ## Summary
 (synthesize findings across all phases)
 ```
@@ -228,7 +252,9 @@ cd outputs/$RUN && quarto render report.qmd --to pdf
 - If any tool fails, log the error and continue with remaining tools.
 - If the series has fewer than 50 points, skip forecasting and warn the user.
 - Always verify that the plot-producing tool JSON files (`acf.json`, `psd.json`, `stl.json`, `peaks.json`, `changepoints.json`, `mp.json`) contain the expected `result.artifacts[*].path` entries before composing the QMD.
-- Treat the saved forecast JSON files as the forecasting source of truth; do not expect `--extract-images` output from the forecast wrappers.
+- Treat the saved forecast JSON files as the forecasting source of truth unless
+  you explicitly ran `workflow run forecast-series`; do not expect
+  `--extract-images` output from the forecast wrappers.
 ````
 
 ### Example prompts

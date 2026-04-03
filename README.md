@@ -87,6 +87,13 @@ ts-agents-ui
 ts-agents-hosted
 ```
 
+From a source checkout (`git clone ...` + `uv sync`), use the root wrappers:
+
+```bash
+uv run python main.py
+HOST=0.0.0.0 PORT=7860 uv run python app.py
+```
+
 `ts-agents-hosted` is environment-variable driven rather than flag-driven.
 Configure `HOST`, `PORT`, `GRADIO_SHARE`, `TS_AGENTS_ENABLE_AGENT`,
 `TS_AGENTS_AGENT_TYPE`, `TS_AGENTS_PERSIST_SESSIONS`, and
@@ -152,8 +159,10 @@ echo 'OPENAI_API_KEY=your-key' >> ~/.env
 uv run ts-agents agent run "Use the forecasting skill to compare ARIMA and Theta for a short univariate series"
 ```
 
-The workflow commands write artifacts under their `--output-dir`, for example
-`outputs/inspect/summary.json` or `outputs/forecast/forecast.csv`.
+If you pass `--output-dir`, workflow artifacts are written there. If you omit
+it, each workflow run creates a unique run directory such as
+`outputs/<workflow>/<run-id>/` with `run_manifest.json`, JSON/CSV outputs, and
+any generated plots or reports.
 
 Compatibility note: `ts-agents run ...` and `ts-agents demo ...` still work for
 one release cycle, but they now emit deprecation warnings. Prefer
@@ -243,6 +252,8 @@ CLI entrypoints:
 - Also supported: `python -m ts_agents ...`
 - Gradio UI: `ts-agents-ui`
 - Hosted profile: `ts-agents-hosted`
+- Source-checkout UI wrapper: `python main.py`
+- Source-checkout hosted wrapper: `python app.py`
 
 ### Environment variables
 
@@ -264,7 +275,8 @@ streaming, and log files) are documented in `SANDBOX.md`.
 
 The installed package includes a hosted Gradio profile at `ts-agents-hosted`
 intended for public demos such as Hugging Face Spaces. Source-checkout
-deployments can still use the root `app.py` wrapper. It defaults to:
+deployments can use the root `app.py` wrapper, which calls the same hosted
+entrypoint as `ts-agents-hosted`. It defaults to:
 - manual analysis mode (`agent` disabled)
 - no session persistence
 - a public-safe configuration that does not require `OPENAI_API_KEY`
@@ -273,6 +285,7 @@ Launch it with:
 
 ```bash
 ts-agents-hosted
+uv run python app.py
 ```
 
 Useful environment variables:
@@ -313,6 +326,9 @@ ts-agents workflow run forecast-series --input-json '{"series":[1,2,3,4,5,6,7,8,
 
 Use `workflow show` before automation to inspect required extras, supported
 input modes, artifact outputs, and availability in the current environment.
+If you omit `--output-dir`, the workflow creates a run-scoped directory under
+`outputs/<workflow>/` and writes `run_manifest.json` plus the generated
+artifacts there.
 
 ### Run tools directly
 
@@ -336,7 +352,8 @@ Current low-level plot-producing tools expose PNG paths under
 available only for legacy saved outputs that still contain embedded
 `[IMAGE_DATA:...]` tokens. Forecasting `forecast_*_with_data` tools are now
 data-only; use `ts-agents workflow run forecast-series --output-dir ...` when
-you want forecast plots, CSVs, and reports written as artifacts.
+you want forecast plots, CSVs, and reports written as artifacts. If you omit
+`--output-dir`, the workflow creates a unique run directory automatically.
 
 ### Agent mode
 
@@ -395,7 +412,12 @@ Run the app:
 
 ```bash
 ts-agents-ui
+uv run python main.py
 ```
+
+`main.py` is the source-checkout wrapper for the packaged `ts-agents-ui`
+entrypoint. Use `app.py` when you want the hosted/manual profile from a source
+checkout instead.
 
 Useful options:
 
