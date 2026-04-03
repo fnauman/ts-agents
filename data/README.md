@@ -68,8 +68,12 @@ Re = 200 and magnetic Reynolds number Rm = 200. `ds` is the (integer) time step.
 | **`short_real.csv`** | 2 (Re200Rm200, Re175Rm175) | 10 | <1 KB | yes |
 
 This file is used as the default bundled forecast example dataset for
-low-level tool and workflow examples such as
-`uv run ts-agents tool run forecast_theta_with_data --run Re200Rm200 --var bx001_real --param horizon=12 --json`.
+quick CLI checks and workflow examples such as
+`uv run ts-agents workflow run forecast-series --input data/short_real.csv --time-col ds --value-col bx001_real --output-dir outputs/forecast-short-real`.
+Low-level compatibility tools such as
+`uv run ts-agents tool run forecast_theta_with_data --run Re200Rm200 --var bx001_real --param horizon=12 --json`
+remain available when you want a direct structured forecast payload instead of
+a workflow artifact bundle.
 
 ## `m4_monthly_mini.csv` — M4 Monthly workflow subset
 
@@ -95,13 +99,20 @@ benchmark.
 ## `demo_labeled_stream.csv`
 
 A small single-subject demo stream used for quick workflow demos and
-window-size selection tutorials. The default documented path is the synthetic
+window-size selection tutorials. This is the default path used throughout the
+quickstart and workflow docs, and the documented default is the synthetic
 generator:
 
 ```bash
 uv run python data/make_synthetic_labeled_stream.py \
   --scenario gait --seconds 40 --seed 1337 \
   --out data/demo_labeled_stream.csv
+
+uv run ts-agents workflow run activity-recognition \
+  --input data/demo_labeled_stream.csv \
+  --label-col label \
+  --value-cols x,y,z \
+  --output-dir outputs/activity
 ```
 
 If you specifically want a phone-recorded WISDM demo stream instead, use

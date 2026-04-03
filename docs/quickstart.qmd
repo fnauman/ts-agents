@@ -54,7 +54,9 @@ ts-agents workflow run forecast-series \
 ```
 
 Check `outputs/inspect/` and `outputs/forecast/` for JSON, plots, CSVs, and
-Markdown reports.
+Markdown reports. If you omit `--output-dir`, each workflow run creates a
+unique run directory under `outputs/<workflow>/` and writes `run_manifest.json`
+plus the generated artifacts there.
 
 ## Full workflow stack from a source checkout
 
@@ -83,7 +85,8 @@ uv run ts-agents workflow run activity-recognition \
 ```
 
 Check `outputs/forecast-full/` and `outputs/activity/` for JSON, plots, CSVs,
-and Markdown reports.
+and Markdown reports. The same workflows can also auto-create run-scoped output
+directories when `--output-dir` is omitted.
 
 ## Try a single tool
 
@@ -106,11 +109,12 @@ uv run ts-agents tool run stl_decompose_with_data \
   --save outputs/stl.json
 ```
 
-For current low-level plot-producing tools, inspect `result.artifacts[*].path` in the
-saved JSON rather than expecting extracted PNGs. `--extract-images` only
-applies to saved legacy outputs that still contain `[IMAGE_DATA:...]` tokens.
-If you want forecast plots and reports, prefer `workflow run forecast-series
---output-dir ...`, which writes artifact files directly.
+For current low-level plot-producing tools, inspect `result.artifacts[*].path`
+in the saved JSON rather than expecting extracted PNGs. `--extract-images`
+only applies to saved legacy outputs that still contain `[IMAGE_DATA:...]`
+tokens. If you want forecast plots, CSVs, and Markdown reports, prefer
+`workflow run forecast-series --output-dir ...` or omit `--output-dir` and let
+the workflow create a run-scoped directory under `outputs/forecast/`.
 
 ## LLM-backed mode
 
