@@ -12,6 +12,7 @@ import shlex
 import sys
 from typing import Any, Dict, List, NoReturn, Optional, Tuple
 
+from ts_agents.cli_contracts import normalize_cli_template
 from ts_agents.contracts import CLIEnvelope, CLIError, CLIExecution
 from ts_agents.tools.executor import ToolError, ToolErrorCode
 
@@ -354,6 +355,8 @@ def _add_tool_run_args(parser: argparse.ArgumentParser) -> None:
 
 
 def _command_label(args: argparse.Namespace) -> str:
+    if args.command == "capabilities":
+        return "capabilities"
     if args.command == "tool":
         return f"tool {args.tool_command}"
     if args.command == "skills":
@@ -393,6 +396,8 @@ def _command_input_payload(args: argparse.Namespace) -> Dict[str, Any]:
     if hasattr(args, "_ts_input_payload"):
         return getattr(args, "_ts_input_payload")
 
+    if args.command == "capabilities":
+        return {}
     if args.command == "tool":
         if args.tool_command == "list":
             return {
@@ -558,7 +563,7 @@ def _infer_command_label_from_argv(argv: List[str]) -> str:
         return "ts-agents"
 
     command = argv[0]
-    if command in {"tool", "workflow", "data", "sandbox", "skills", "agent", "demo"}:
+    if command in {"tool", "workflow", "data", "sandbox", "skills", "agent", "demo", "capabilities"}:
         if len(argv) > 1 and not argv[1].startswith("-"):
             return f"{command} {argv[1]}"
     return command
@@ -676,6 +681,14 @@ def _add_data_subcommands(subparsers: argparse._SubParsersAction) -> None:
         help="Force use of full dataset",
     )
     _add_output_args(vars_parser)
+
+
+def _add_capabilities_subcommand(subparsers: argparse._SubParsersAction) -> None:
+    capabilities_parser = subparsers.add_parser(
+        "capabilities",
+        help="Show machine-readable CLI capabilities for autonomous agents",
+    )
+    _add_output_args(capabilities_parser)
 
 
 def _add_tool_subcommands(subparsers: argparse._SubParsersAction) -> None:
@@ -1384,6 +1397,7 @@ def build_parser(*, exit_on_error: bool = True) -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    _add_capabilities_subcommand(subparsers)
     _add_workflow_subcommands(subparsers)
     _add_tool_subcommands(subparsers)
     _add_sandbox_subcommands(subparsers)
@@ -1445,18 +1459,86 @@ def _handle_data_command(args: argparse.Namespace) -> Tuple[Any, str]:
     return result, "\n".join(text_lines)
 
 
+def _tool_supports_bundled_run(tool: Any) -> bool:
+    param_names = {param.name for param in tool.parameters}
+    run_names = {"unique_id", "run_id"}
+    variable_names = {"variable_name", "variable"}
+    return bool(param_names & run_names) and bool(param_names & variable_names)
+
+
+def _tool_input_modes(tool: Any) -> List[str]:
+    modes = ["param_flags", "input_json", "stdin_json"]
+    if _tool_supports_bundled_run(tool):
+        modes.append("bundled_run_shorthand")
+    return modes
+
+
+def _tool_cli_templates(tool: Any) -> List[str]:
+    required = [param.name for param in tool.parameters if not param.optional]
+    param_types = {param.name: param.type for param in tool.parameters}
+    templates = [f"ts-agents tool show {tool.name} --json"]
+    templates.append(
+        normalize_cli_template(
+            _build_run_example_command(tool.name, required, param_types)
+        )
+        + " --json"
+    )
+    unique_templates: List[str] = []
+    for template in templates:
+        if template not in unique_templates:
+            unique_templates.append(template)
+    return unique_templates
+
+
+def _tool_status_contract(tool: Any) -> Dict[str, Any]:
+    if tool.name.endswith("_with_data"):
+        return {
+            "result_shape": "ToolPayload wrapper",
+            "status_field": "Inspect `result.status` for `ok` vs `degraded` outcomes.",
+            "warnings_field": "Inspect `result.warnings` for non-fatal caveats.",
+            "artifact_field": "Inspect `result.artifacts` for generated files.",
+        }
+
+    return {
+        "result_shape": "Core analysis result",
+        "status_field": "Core tool results do not use a standard nested status field.",
+        "warnings_field": None,
+        "artifact_field": None,
+    }
+
+
 def _tool_summary_dict(tool: Any) -> Dict[str, Any]:
+    from ts_agents.tools.registry import tool_availability
+
     return {
         "name": tool.name,
         "category": tool.category.value,
         "cost": tool.cost.value,
         "description": tool.description,
         "dependencies": tool.dependencies,
+        "optional_dependencies": tool.optional_dependencies,
+        "availability": tool_availability(tool),
+        "writes_artifacts": bool(tool.artifact_kinds),
+        "artifact_kinds": list(tool.artifact_kinds),
     }
 
 
 def _tool_detail_dict(tool: Any) -> Dict[str, Any]:
+    from ts_agents.tools.registry import (
+        dependency_required_extras,
+        tool_availability,
+        tool_dependency_details,
+    )
+
     required = [param.name for param in tool.parameters if not param.optional]
+    required_extras = sorted(
+        {
+            extra
+            for dependency in tool.dependencies
+            for extra in dependency_required_extras(dependency)
+        }
+    )
+    availability = tool_availability(tool)
     return {
         "name": tool.name,
         "category": tool.category.value,
@@ -1464,6 +1546,11 @@ def _tool_detail_dict(tool: Any) -> Dict[str, Any]:
         "description": tool.description,
         "signature": tool.get_signature(),
         "dependencies": tool.dependencies,
+        "optional_dependencies": tool.optional_dependencies,
+        "dependency_details": tool_dependency_details(tool),
+        "required_extras": required_extras,
+        "availability": availability,
+        "install_hint": availability.get("install_hint"),
         "parameters": [
             {
                 "name": param.name,
@@ -1480,6 +1567,11 @@ def _tool_detail_dict(tool: Any) -> Dict[str, Any]:
             "description": tool.returns,
         },
         "examples": tool.examples,
+        "input_modes": _tool_input_modes(tool),
+        "cli_templates": _tool_cli_templates(tool),
+        "writes_artifacts": bool(tool.artifact_kinds),
+        "artifact_kinds": list(tool.artifact_kinds),
+        "status_contract": _tool_status_contract(tool),
         "resources": {
             "timeout_seconds": tool.timeout_seconds,
             "memory_mb": tool.memory_mb,
@@ -1499,6 +1591,88 @@ def _workflow_summary_dict(workflow: Any) -> Dict[str, Any]:
         "required_extras": details["required_extras"],
         "availability": details["availability"],
     }
+
+
+def _capabilities_status_contract() -> Dict[str, Any]:
+    return {
+        "cli_envelope": {
+            "ok_field": "True means the CLI command itself executed successfully.",
+            "error_field": "When `ok` is false, inspect `error.code`, `error.message`, and `error.hint`.",
+            "execution_field": "Inspect `execution` for backend and runtime metadata when a command executes work.",
+        },
+        "workflow_results": {
+            "status_field": "Inspect `result.status` for `ok` vs `degraded` workflow outcomes.",
+            "warnings_field": "Inspect `result.warnings` for non-fatal caveats.",
+            "quality_flags_path": "If present, inspect `result.data.quality_flags` for workflow-specific quality issues.",
+        },
+        "tool_results": {
+            "core_tools": "Core tool results return the raw analysis payload.",
+            "wrapper_tools": "Many `_with_data` tools return a ToolPayload with `status`, `warnings`, `artifacts`, and `provenance`.",
+        },
+    }
+
+
+def _handle_capabilities_command(args: argparse.Namespace) -> Tuple[Any, str]:
+    from ts_agents.tools.executor import list_sandbox_backends
+    from ts_agents.tools.registry import ToolRegistry, tool_availability
+    from ts_agents.workflows import list_workflows, workflow_to_dict
+
+    workflows = [workflow_to_dict(workflow) for workflow in list_workflows()]
+    tools = ToolRegistry.list_all()
+    available_tools = sum(1 for tool in tools if tool_availability(tool)["available"])
+    tools_by_category = ToolRegistry.get_tools_for_category_summary()
+
+    result = {
+        "entrypoints": {
+            "workflow_discovery": [
+                "ts-agents workflow list --json",
+                "ts-agents workflow show <workflow> --json",
+                "ts-agents workflow run <workflow> ... --json",
+            ],
+            "tool_discovery": [
+                "ts-agents tool search <query> --json",
+                "ts-agents tool show <tool> --json",
+                "ts-agents tool run <tool> ... --json",
+            ],
+            "skills": [
+                "ts-agents skills list --json",
+                "ts-agents skills show <skill> --json",
+            ],
+            "sandboxes": [
+                "ts-agents sandbox list --json",
+                "ts-agents sandbox doctor <backend> --json",
+            ],
+        },
+        "status_contract": _capabilities_status_contract(),
+        "recommended_entrypoints": [
+            "Start with `workflow list --json` for public workflows.",
+            "Use `workflow show --json` before `workflow run` to inspect availability, options, artifacts, and source contracts.",
+            "Use `tool search --json` and `tool show --json` for lower-level execution.",
+            "Always inspect `result.status`, `warnings`, and workflow `quality_flags` rather than relying on exit code 0 alone.",
+        ],
+        "workflows": workflows,
+        "tools": {
+            "count": len(tools),
+            "available_count": available_tools,
+            "unavailable_count": len(tools) - available_tools,
+            "categories": tools_by_category,
+        },
+        "sandboxes": {
+            "default_backend": os.environ.get("TS_AGENTS_SANDBOX_MODE", "local"),
+            "fallback_default": "local",
+            "fallback_requires_opt_in": True,
+            "backends": list_sandbox_backends(),
+        },
+    }
+
+    lines = [
+        "CLI capabilities:",
+        "- Start with workflow discovery for public automation surfaces.",
+        f"- Workflows: {len(workflows)}",
+        f"- Tools: {len(tools)} total, {available_tools} currently available",
+        f"- Default sandbox backend: {result['sandboxes']['default_backend']}",
+    ]
+    return result, "\n".join(lines)
 
 
 def _handle_tool_command(args: argparse.Namespace) -> Tuple[Any, str]:
@@ -1563,20 +1737,36 @@ def _handle_tool_command(args: argparse.Namespace) -> Tuple[Any, str]:
         except KeyError:
             _raise_unknown_tool_error(args.tool)
         result = _tool_detail_dict(tool)
+        availability = result["availability"]
+        install_hint = availability.get("install_hint") or result.get("install_hint")
         lines = [
             f"Tool: {tool.name}",
             f"Category: {tool.category.value}",
             f"Cost: {tool.cost.value}",
             f"Description: {tool.description}",
             f"Returns: {tool.returns}",
+            f"Availability: {availability.get('status', 'available')}",
         ]
         if tool.dependencies:
             lines.append(f"Dependencies: {', '.join(tool.dependencies)}")
+        if tool.optional_dependencies:
+            lines.append(f"Optional dependencies: {', '.join(tool.optional_dependencies)}")
+        if result.get("required_extras"):
+            lines.append(f"Required extras: {', '.join(result['required_extras'])}")
+        if install_hint:
+            lines.append(f"Install hint: {install_hint}")
         if tool.parameters:
             lines.append("Parameters:")
             for param in tool.parameters:
                 optional = "optional" if param.optional else "required"
                 lines.append(f"- {param.name} ({param.type}, {optional})")
+        lines.append("Input modes: " + ", ".join(result["input_modes"]))
+        if result["writes_artifacts"]:
+            lines.append("Artifacts: " + ", ".join(result["artifact_kinds"]))
+        if result["cli_templates"]:
+            lines.append("CLI templates:")
+            for template in result["cli_templates"]:
+                lines.append(f"- {template}")
         if tool.examples:
             lines.append("Examples:")
             for example in tool.examples:
@@ -1713,11 +1903,24 @@ def _handle_workflow_command(args: argparse.Namespace) -> Tuple[Any, Optional[st
             for option in result["options"]:
                 optionality = "required" if option["required"] else "optional"
                 lines.append(f"- {option['name']} ({option['type']}, {optionality})")
+        if result["source_options"]:
+            lines.append("Source options:")
+            for option in result["source_options"]:
+                optionality = "required" if option["required"] else "optional"
+                lines.append(f"- {option['name']} ({option['type']}, {optionality})")
+        if result["global_options"]:
+            lines.append("Global options:")
+            for option in result["global_options"]:
+                lines.append(f"- {option['name']} ({option['type']})")
         if result["artifacts"]:
             lines.append("Artifacts:")
             for artifact in result["artifacts"]:
                 requirement = "required" if artifact["required"] else "optional"
                 lines.append(f"- {artifact['filename']} ({requirement})")
+        if result["cli_templates"]:
+            lines.append("CLI templates:")
+            for template in result["cli_templates"]:
+                lines.append(f"- {template}")
         if result["examples"]:
             lines.append("Examples:")
             for example in result["examples"]:
@@ -2622,7 +2825,9 @@ def run(argv: Optional[List[str]] = None) -> int:
         if getattr(args, "extract_images", None) and not getattr(args, "save", None):
             raise ValueError("--extract-images requires --save")
 
-        if args.command == "data":
+        if args.command == "capabilities":
+            result, text = _handle_capabilities_command(args)
+        elif args.command == "data":
             result, text = _handle_data_command(args)
         elif args.command == "tool":
             result, text = _handle_tool_command(args)

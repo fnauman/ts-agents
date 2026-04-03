@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from importlib.util import find_spec
 from typing import Any, Callable, Dict, List, Optional
 
+from ts_agents.cli_contracts import normalize_cli_template
 from ts_agents.cli.input_parsing import load_labeled_stream_input, load_series_input
 
 from .activity import run_activity_recognition_workflow
@@ -15,6 +16,25 @@ from .inspect import run_inspect_series_workflow
 
 def _module_available(module_name: str) -> bool:
     return find_spec(module_name) is not None
+
+
+def _option_contract(
+    *,
+    name: str,
+    type: str,
+    description: str,
+    required: bool = False,
+    default: Any = None,
+    choices: Optional[List[Any]] = None,
+) -> Dict[str, Any]:
+    return {
+        "name": name,
+        "type": type,
+        "description": description,
+        "required": required,
+        "default": default,
+        "choices": list(choices or []),
+    }
 
 
 def _optional_feature(
@@ -32,6 +52,184 @@ def _optional_feature(
         "missing_dependencies": missing_dependencies or [],
         "note": note,
     }
+
+
+def _workflow_source_options(workflow: "WorkflowDefinition") -> List[Dict[str, Any]]:
+    options: List[Dict[str, Any]] = []
+    if "input_file" in workflow.supported_input_modes:
+        options.append(
+            _option_contract(
+                name="input",
+                type="string",
+                description="Path to CSV, TSV, parquet, JSON, or JSONL input data.",
+            )
+        )
+    if "input_json" in workflow.supported_input_modes:
+        options.append(
+            _option_contract(
+                name="input_json",
+                type="string",
+                description="Inline JSON payload or path to a JSON file.",
+            )
+        )
+    if "stdin" in workflow.supported_input_modes:
+        options.append(
+            _option_contract(
+                name="stdin",
+                type="boolean",
+                description="Read input from stdin.",
+                default=False,
+            )
+        )
+    if "bundled_run" in workflow.supported_input_modes:
+        options.extend(
+            [
+                _option_contract(
+                    name="run_id",
+                    type="string",
+                    description="Bundled dataset run ID. Requires `variable`.",
+                ),
+                _option_contract(
+                    name="variable",
+                    type="string",
+                    description="Bundled dataset variable name. Requires `run_id`.",
+                ),
+                _option_contract(
+                    name="use_test_data",
+                    type="boolean",
+                    description="Force bundled test data when using `run_id` and `variable`.",
+                    default=False,
+                ),
+                _option_contract(
+                    name="full_data",
+                    type="boolean",
+                    description="Force the full bundled dataset when using `run_id` and `variable`.",
+                    default=False,
+                ),
+            ]
+        )
+
+    input_type = workflow.input_schema.get("type")
+    if input_type == "series_input":
+        options.extend(
+            [
+                _option_contract(
+                    name="time_col",
+                    type="string",
+                    description="Optional time/index column for tabular inputs.",
+                ),
+                _option_contract(
+                    name="value_col",
+                    type="string",
+                    description="Series value column for tabular inputs.",
+                ),
+            ]
+        )
+    elif input_type == "labeled_stream_input":
+        options.extend(
+            [
+                _option_contract(
+                    name="time_col",
+                    type="string",
+                    description="Optional time/index column for tabular inputs.",
+                ),
+                _option_contract(
+                    name="label_col",
+                    type="string",
+                    description="Label column containing per-timepoint activity labels.",
+                    default="label",
+                ),
+                _option_contract(
+                    name="value_cols",
+                    type="array",
+                    description="Feature columns for the labeled stream.",
+                    default=["x", "y", "z"],
+                ),
+            ]
+        )
+
+    return options
+
+
+def _workflow_global_options() -> List[Dict[str, Any]]:
+    from ts_agents.tools.executor import SandboxMode
+
+    backend_choices = [mode.value for mode in SandboxMode]
+    return [
+        _option_contract(
+            name="sandbox",
+            type="string",
+            description="Execution sandbox backend for workflow runs.",
+            choices=backend_choices,
+        ),
+        _option_contract(
+            name="allow_network",
+            type="boolean",
+            description="Allow network access in sandboxed execution when supported.",
+            default=False,
+        ),
+        _option_contract(
+            name="allow_fallback",
+            type="boolean",
+            description="Allow fallback to another backend if the requested sandbox is unavailable.",
+            default=False,
+        ),
+        _option_contract(
+            name="fallback_backend",
+            type="string",
+            description="Fallback backend used with `allow_fallback`.",
+            choices=backend_choices,
+        ),
+        _option_contract(
+            name="json",
+            type="boolean",
+            description="Emit machine-readable JSON instead of text output.",
+            default=False,
+        ),
+        _option_contract(
+            name="save",
+            type="string",
+            description="Optional path to save the rendered CLI output.",
+        ),
+        _option_contract(
+            name="extract_images",
+            type="string",
+            description="Optional directory for extracted embedded image payloads when using `save`.",
+        ),
+    ]
+
+
+def _workflow_status_contract() -> Dict[str, Any]:
+    return {
+        "top_level_ok": "True means the CLI command executed successfully.",
+        "result_status_field": "Inspect `result.status` for `ok` vs `degraded` workflow outcomes.",
+        "warnings_field": "Inspect `result.warnings` for non-fatal execution caveats.",
+        "quality_flags_path": "If present, inspect `result.data.quality_flags` for workflow-specific quality issues.",
+    }
+
+
+def _workflow_default_output_behavior(workflow: "WorkflowDefinition") -> Dict[str, Any]:
+    default_output_dir = None
+    for option in workflow.options:
+        if option.name == "output_dir":
+            default_output_dir = option.default
+            break
+    return {
+        "default_output_dir": default_output_dir,
+        "behavior": "Workflow artifacts are written into the configured output directory.",
+        "collision_policy": "If you reuse the same output directory, later runs may overwrite prior artifacts.",
+        "agent_recommendation": "For autonomous runs, set a unique `output_dir` explicitly.",
+    }
+
+
+def _workflow_cli_templates(workflow: "WorkflowDefinition") -> List[str]:
+    templates = [f"ts-agents workflow show {workflow.name} --json"]
+    templates.extend(normalize_cli_template(example) for example in workflow.examples)
+    unique_templates: List[str] = []
+    for template in templates:
+        if template not in unique_templates:
+            unique_templates.append(template)
+    return unique_templates
 
 
 @dataclass(frozen=True)
@@ -516,5 +714,10 @@ def workflow_to_dict(workflow: WorkflowDefinition) -> Dict[str, Any]:
         "required_extras": list(workflow.required_extras),
         "availability": availability,
         "examples": list(workflow.examples),
+        "cli_templates": _workflow_cli_templates(workflow),
+        "source_options": _workflow_source_options(workflow),
+        "global_options": _workflow_global_options(),
+        "status_contract": _workflow_status_contract(),
+        "default_output_behavior": _workflow_default_output_behavior(workflow),
         "capabilities": workflow.capabilities,
     }

@@ -16,6 +16,20 @@ def test_sandbox_list_json_returns_envelope(capsys):
     assert "docker" in backend_names
 
 
+def test_capabilities_json_returns_bootstrap_surface(capsys):
+    code = run(["capabilities", "--json"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["command"] == "capabilities"
+    assert "entrypoints" in payload["result"]
+    assert "status_contract" in payload["result"]
+    assert "workflows" in payload["result"]
+    assert "tools" in payload["result"]
+    assert "sandboxes" in payload["result"]
+
+
 def test_sandbox_doctor_local_json_returns_backend_status(capsys):
     code = run(["sandbox", "doctor", "local", "--json"])
 
