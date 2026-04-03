@@ -85,8 +85,11 @@ manual/public demo deployment. This is optional and secondary to the CLI.
 python -m pip install "ts-agents[ui]"
 ts-agents-ui
 ts-agents-hosted
+```
 
-# Same entrypoints from a source checkout
+From a source checkout (`git clone ...` + `uv sync`), use the root wrappers:
+
+```bash
 uv run python main.py
 HOST=0.0.0.0 PORT=7860 uv run python app.py
 ```
@@ -158,7 +161,7 @@ uv run ts-agents agent run "Use the forecasting skill to compare ARIMA and Theta
 
 If you pass `--output-dir`, workflow artifacts are written there. If you omit
 it, each workflow run creates a unique run directory such as
-`outputs/forecast/<run-id>/` with `run_manifest.json`, JSON/CSV outputs, and
+`outputs/<workflow>/<run-id>/` with `run_manifest.json`, JSON/CSV outputs, and
 any generated plots or reports.
 
 Compatibility note: `ts-agents run ...` and `ts-agents demo ...` still work for

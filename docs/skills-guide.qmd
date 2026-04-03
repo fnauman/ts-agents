@@ -104,6 +104,8 @@ complete `SKILL.md` example:
 name: comprehensive-report
 description: Full diagnostic, decomposition, pattern, and forecast analysis rendered as a PDF report
 tasks: [report, pdf, comprehensive]
+workflows:
+  - forecast-series
 tools:
   - describe_series_with_data
   - compute_autocorrelation_with_data
@@ -122,7 +124,9 @@ tools:
 Produce a single PDF report with diagnostic/decomposition/pattern plots plus
 saved forecast summaries. If you need forecast plots, CSVs, or a generated
 forecast report, call `workflow run forecast-series` separately and attach
-those artifacts instead of expecting them from the compatibility wrappers.
+those artifacts instead of expecting them from the compatibility wrappers. The
+`workflows:` frontmatter above is the explicit signal that this skill also uses
+the public workflow surface in addition to the listed low-level tools.
 
 ## Workflow
 
