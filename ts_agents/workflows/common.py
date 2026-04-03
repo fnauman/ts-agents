@@ -49,9 +49,20 @@ def read_workflow_manifest(output_dir: str | Path) -> dict[str, Any] | None:
     if not manifest_path.exists():
         return None
     try:
-        return json.loads(manifest_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return None
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"{WORKFLOW_MANIFEST_FILENAME} in {Path(output_dir).resolve()} is not valid JSON "
+            f"and cannot be used for --resume. ({exc})"
+        ) from exc
+
+    if not isinstance(payload, dict):
+        raise ValueError(
+            f"{WORKFLOW_MANIFEST_FILENAME} in {Path(output_dir).resolve()} must contain a JSON object "
+            f"for --resume, got {type(payload).__name__}."
+        )
+
+    return payload
 
 
 def write_json_artifact(
@@ -171,9 +182,20 @@ def attach_workflow_run_metadata(
         "output_dir_mode": output_dir_mode,
     }
 
-    if isinstance(payload.data, dict):
-        payload.data.update(run_metadata)
-        payload.data["run"] = dict(run_metadata)
+    if not isinstance(payload.data, dict):
+        raise TypeError(
+            f"attach_workflow_run_metadata: payload.data must be a dict, got {type(payload.data).__name__}"
+        )
+    payload.data.update(run_metadata)
+    payload.data["run"] = dict(run_metadata)
+
+    manifest_artifact = artifact_ref(
+        kind="json",
+        path=manifest_path,
+        mime_type="application/json",
+        description="Workflow run manifest.",
+        created_by=workflow_name,
+    )
 
     manifest_payload = {
         "schema_version": CLI_SCHEMA_VERSION,
@@ -189,15 +211,11 @@ def attach_workflow_run_metadata(
         "source": to_jsonable(source),
         "options": to_jsonable(options),
         "warnings": to_jsonable(payload.warnings),
-        "quality_flags": to_jsonable((payload.data or {}).get("quality_flags") or []),
-        "artifacts": [to_jsonable(artifact) for artifact in payload.artifacts],
+        "quality_flags": to_jsonable(payload.data.get("quality_flags") or []),
+        "artifacts": [to_jsonable(artifact) for artifact in (*payload.artifacts, manifest_artifact)],
         "provenance": to_jsonable(payload.provenance),
     }
-    manifest_artifact = write_json_artifact(
-        data=manifest_payload,
-        path=manifest_path,
-        description="Workflow run manifest.",
-        created_by=workflow_name,
-    )
+    payload_text = render_output(to_jsonable(manifest_payload), json_output=True)
+    write_output(payload_text, str(manifest_path))
     payload.artifacts.append(manifest_artifact)
     return payload

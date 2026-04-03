@@ -7,6 +7,7 @@ import sys
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from ts_agents.cli.main import run
 from ts_agents.cli.input_parsing import SeriesInput
@@ -110,6 +111,9 @@ def test_workflow_run_inspect_series_accepts_stdin_json(monkeypatch, capsys, tmp
     assert str(output_dir / "summary.json") in artifact_paths
     assert str(output_dir / "report.md") in artifact_paths
     assert str(output_dir / "run_manifest.json") in artifact_paths
+    manifest_payload = json.loads((output_dir / "run_manifest.json").read_text())
+    manifest_artifact_paths = {artifact["path"] for artifact in manifest_payload["artifacts"]}
+    assert str(output_dir / "run_manifest.json") in manifest_artifact_paths
     assert payload["result"]["data"]["autocorrelation"]["max_lag"] == 4
     assert payload["result"]["data"]["autocorrelation"]["requested_max_lag"] == 8
 
@@ -219,6 +223,36 @@ def test_workflow_run_overwrite_clears_explicit_output_dir(capsys, tmp_path):
     assert (output_dir / "run_manifest.json").exists()
 
 
+def test_workflow_run_overwrite_does_not_clear_output_dir_when_late_validation_fails(capsys, tmp_path):
+    output_dir = tmp_path / "inspect"
+    output_dir.mkdir()
+    stale_path = output_dir / "stale.txt"
+    stale_path.write_text("stale")
+
+    code = run(
+        [
+            "workflow",
+            "run",
+            "inspect-series",
+            "--input-json",
+            '{"series":[1,2,3,4,5]}',
+            "--output-dir",
+            str(output_dir),
+            "--overwrite",
+            "--fallback-backend",
+            "local",
+            "--skip-plots",
+            "--json",
+        ]
+    )
+
+    assert code == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert "--allow-fallback" in payload["error"]["message"]
+    assert stale_path.exists()
+
+
 def test_workflow_run_resume_reuses_manifest_run_id(capsys, tmp_path):
     output_dir = tmp_path / "inspect"
 
@@ -258,6 +292,79 @@ def test_workflow_run_resume_reuses_manifest_run_id(capsys, tmp_path):
     second_payload = json.loads(capsys.readouterr().out)
     assert second_payload["result"]["data"]["run_id"] == first_run_id
     assert second_payload["result"]["data"]["run"]["resumed"] is True
+
+
+def test_workflow_run_resume_rejects_invalid_manifest_json(capsys, tmp_path):
+    output_dir = tmp_path / "inspect"
+    output_dir.mkdir()
+    (output_dir / "run_manifest.json").write_text("{not-json")
+
+    code = run(
+        [
+            "workflow",
+            "run",
+            "inspect-series",
+            "--input-json",
+            '{"series":[1,2,3,4,5]}',
+            "--output-dir",
+            str(output_dir),
+            "--resume",
+            "--skip-plots",
+            "--json",
+        ]
+    )
+
+    assert code == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert "not valid JSON" in payload["error"]["message"]
+
+
+def test_workflow_run_resume_rejects_non_object_manifest(capsys, tmp_path):
+    output_dir = tmp_path / "inspect"
+    output_dir.mkdir()
+    (output_dir / "run_manifest.json").write_text("[]")
+
+    code = run(
+        [
+            "workflow",
+            "run",
+            "inspect-series",
+            "--input-json",
+            '{"series":[1,2,3,4,5]}',
+            "--output-dir",
+            str(output_dir),
+            "--resume",
+            "--skip-plots",
+            "--json",
+        ]
+    )
+
+    assert code == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert "must contain a JSON object" in payload["error"]["message"]
+
+
+def test_attach_workflow_run_metadata_rejects_non_dict_payload_data(tmp_path):
+    from ts_agents.contracts import ToolPayload
+    from ts_agents.workflows.common import attach_workflow_run_metadata
+
+    payload = ToolPayload(
+        kind="workflow",
+        summary="ok",
+        data=[],  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(TypeError, match="payload.data must be a dict"):
+        attach_workflow_run_metadata(
+            payload,
+            workflow_name="inspect-series",
+            output_dir=tmp_path,
+            run_id="run-123",
+            source={},
+            options={},
+        )
 
 
 def test_workflow_executor_skips_host_availability_gate_for_docker(monkeypatch):

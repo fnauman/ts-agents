@@ -619,7 +619,6 @@ def _workflow_default_output_root(workflow: Any) -> str:
 def _prepare_workflow_run_output(args: argparse.Namespace, workflow: Any) -> Dict[str, Any]:
     from ts_agents.workflows.common import (
         WORKFLOW_MANIFEST_FILENAME,
-        clear_output_dir,
         generate_workflow_run_id,
         output_dir_has_files,
         read_workflow_manifest,
@@ -645,7 +644,7 @@ def _prepare_workflow_run_output(args: argparse.Namespace, workflow: Any) -> Dic
         run_id = generate_workflow_run_id()
         output_path = (base_output_root / run_id).resolve()
 
-    existing_manifest = read_workflow_manifest(output_path)
+    existing_manifest = read_workflow_manifest(output_path) if explicit_output_dir and resume else None
     resumed = False
     if explicit_output_dir:
         if resume:
@@ -655,13 +654,15 @@ def _prepare_workflow_run_output(args: argparse.Namespace, workflow: Any) -> Dic
                 raise ValueError(
                     f"--resume requires {WORKFLOW_MANIFEST_FILENAME} in the output directory."
                 )
+            if not isinstance(existing_manifest, dict):
+                raise ValueError(
+                    f"{WORKFLOW_MANIFEST_FILENAME} in {output_path} must contain a JSON object for --resume."
+                )
             run_id = str(existing_manifest.get("run_id") or generate_workflow_run_id())
             resumed = True
         else:
             run_id = generate_workflow_run_id()
-            if overwrite:
-                clear_output_dir(output_path)
-            elif output_dir_has_files(output_path):
+            if output_dir_has_files(output_path) and not overwrite:
                 raise ValueError(
                     "Output directory already exists and is not empty. "
                     "Use --overwrite to replace prior artifacts or --resume to continue an existing run."
@@ -679,7 +680,15 @@ def _prepare_workflow_run_output(args: argparse.Namespace, workflow: Any) -> Dic
         "output_dir_mode": output_dir_mode,
         "manifest_path": str(output_path / WORKFLOW_MANIFEST_FILENAME),
         "output_dir": str(output_path),
+        "_clear_output_dir": bool(explicit_output_dir and overwrite and output_path.exists()),
     }
+
+
+def _materialize_workflow_output_dir(run_lifecycle: Dict[str, Any]) -> None:
+    from ts_agents.workflows.common import clear_output_dir
+
+    if run_lifecycle.get("_clear_output_dir"):
+        clear_output_dir(run_lifecycle["output_dir"])
 
 
 def _infer_command_label_from_argv(argv: List[str]) -> str:
@@ -2086,13 +2095,18 @@ def _handle_workflow_command(args: argparse.Namespace) -> Tuple[Any, Optional[st
             "output_dir_mode": run_lifecycle["output_dir_mode"],
         }
     )
+    public_run_lifecycle = {
+        key: value
+        for key, value in run_lifecycle.items()
+        if not key.startswith("_")
+    }
     allow_fallback = getattr(args, "allow_fallback", False)
     fallback_backend = getattr(args, "fallback_backend", None) or "local"
     args._ts_input_payload = {
         "workflow": args.workflow_name,
         "source": _workflow_input_source_ref(workflow_input),
         "options": runner_kwargs,
-        "run": run_lifecycle,
+        "run": public_run_lifecycle,
         "sandbox": getattr(args, "sandbox", None)
         or os.environ.get("TS_AGENTS_SANDBOX_MODE")
         or "local",
@@ -2104,6 +2118,8 @@ def _handle_workflow_command(args: argparse.Namespace) -> Tuple[Any, Optional[st
             "--fallback-backend requires --allow-fallback to take effect. "
             "Pass --allow-fallback to opt in to backend fallback."
         )
+
+    _materialize_workflow_output_dir(run_lifecycle)
 
     sandbox_mode = getattr(args, "sandbox", None) or os.environ.get("TS_AGENTS_SANDBOX_MODE")
     context = ExecutionContext(
