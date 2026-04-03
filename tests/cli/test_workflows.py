@@ -56,6 +56,11 @@ def test_workflow_show_json_returns_machine_metadata(capsys):
     assert "input_json" in source_option_names
     assert "run_id" in source_option_names
     assert result["default_output_behavior"]["default_output_dir"] == "outputs/forecast"
+    global_option_names = [option["name"] for option in result["global_options"]]
+    assert "overwrite" in global_option_names
+    assert "resume" in global_option_names
+    assert result["default_output_behavior"]["manifest_filename"] == "run_manifest.json"
+    assert result["default_output_behavior"]["supports_resume"] is True
     assert any(
         template == "ts-agents workflow show forecast-series --json"
         for template in result["cli_templates"]
@@ -91,13 +96,20 @@ def test_workflow_run_inspect_series_accepts_stdin_json(monkeypatch, capsys, tmp
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
+    assert payload["quality_status"] == "ok"
+    assert payload["degraded"] is False
+    assert payload["requires_review"] is False
     assert payload["name"] == "inspect-series"
     assert payload["result"]["data"]["workflow"] == "inspect-series"
+    assert payload["result"]["data"]["run_id"]
+    assert payload["result"]["data"]["manifest_path"] == str(output_dir / "run_manifest.json")
+    assert (output_dir / "run_manifest.json").exists()
     assert (output_dir / "summary.json").exists()
     assert (output_dir / "report.md").exists()
     artifact_paths = {artifact["path"] for artifact in payload["result"]["artifacts"]}
     assert str(output_dir / "summary.json") in artifact_paths
     assert str(output_dir / "report.md") in artifact_paths
+    assert str(output_dir / "run_manifest.json") in artifact_paths
     assert payload["result"]["data"]["autocorrelation"]["max_lag"] == 4
     assert payload["result"]["data"]["autocorrelation"]["requested_max_lag"] == 8
 
@@ -126,8 +138,126 @@ def test_workflow_run_inspect_series_supports_subprocess_sandbox(capsys, tmp_pat
     assert payload["execution"]["backend_requested"] == "subprocess"
     assert payload["execution"]["backend_actual"] == "subprocess"
     assert payload["result"]["data"]["output_dir"] == str(output_dir.resolve())
+    assert payload["result"]["data"]["manifest_path"] == str((output_dir / "run_manifest.json").resolve())
     assert (output_dir / "summary.json").exists()
     assert (output_dir / "report.md").exists()
+
+
+def test_workflow_run_generates_run_scoped_output_dir_by_default(monkeypatch, capsys, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    code = run(
+        [
+            "workflow",
+            "run",
+            "inspect-series",
+            "--input-json",
+            '{"series":[1,2,3,4,5]}',
+            "--skip-plots",
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    output_dir = Path(payload["result"]["data"]["output_dir"])
+    assert output_dir.parent == (tmp_path / "outputs" / "inspect").resolve()
+    assert output_dir.name == payload["result"]["data"]["run_id"]
+    assert (output_dir / "run_manifest.json").exists()
+
+
+def test_workflow_run_rejects_nonempty_explicit_output_dir_without_overwrite_or_resume(capsys, tmp_path):
+    output_dir = tmp_path / "inspect"
+    output_dir.mkdir()
+    (output_dir / "stale.txt").write_text("stale")
+
+    code = run(
+        [
+            "workflow",
+            "run",
+            "inspect-series",
+            "--input-json",
+            '{"series":[1,2,3,4,5]}',
+            "--output-dir",
+            str(output_dir),
+            "--skip-plots",
+            "--json",
+        ]
+    )
+
+    assert code == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "validation_error"
+    assert "Use --overwrite" in payload["error"]["message"]
+
+
+def test_workflow_run_overwrite_clears_explicit_output_dir(capsys, tmp_path):
+    output_dir = tmp_path / "inspect"
+    output_dir.mkdir()
+    (output_dir / "stale.txt").write_text("stale")
+
+    code = run(
+        [
+            "workflow",
+            "run",
+            "inspect-series",
+            "--input-json",
+            '{"series":[1,2,3,4,5]}',
+            "--output-dir",
+            str(output_dir),
+            "--overwrite",
+            "--skip-plots",
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["result"]["data"]["run"]["resumed"] is False
+    assert not (output_dir / "stale.txt").exists()
+    assert (output_dir / "run_manifest.json").exists()
+
+
+def test_workflow_run_resume_reuses_manifest_run_id(capsys, tmp_path):
+    output_dir = tmp_path / "inspect"
+
+    first_code = run(
+        [
+            "workflow",
+            "run",
+            "inspect-series",
+            "--input-json",
+            '{"series":[1,2,3,4,5]}',
+            "--output-dir",
+            str(output_dir),
+            "--skip-plots",
+            "--json",
+        ]
+    )
+    assert first_code == 0
+    first_payload = json.loads(capsys.readouterr().out)
+    first_run_id = first_payload["result"]["data"]["run_id"]
+
+    second_code = run(
+        [
+            "workflow",
+            "run",
+            "inspect-series",
+            "--input-json",
+            '{"series":[1,2,3,4,5,6]}',
+            "--output-dir",
+            str(output_dir),
+            "--resume",
+            "--skip-plots",
+            "--json",
+        ]
+    )
+
+    assert second_code == 0
+    second_payload = json.loads(capsys.readouterr().out)
+    assert second_payload["result"]["data"]["run_id"] == first_run_id
+    assert second_payload["result"]["data"]["run"]["resumed"] is True
 
 
 def test_workflow_executor_skips_host_availability_gate_for_docker(monkeypatch):
@@ -592,17 +722,21 @@ def test_workflow_run_forecast_series_writes_expected_files(monkeypatch, capsys,
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
+    assert payload["quality_status"] == "ok"
+    assert payload["requires_review"] is False
     assert payload["name"] == "forecast-series"
     assert payload["result"]["data"]["best_method"] == "theta"
     assert (output_dir / "forecast_comparison.json").exists()
     assert (output_dir / "forecast.json").exists()
     assert (output_dir / "forecast.csv").exists()
     assert (output_dir / "report.md").exists()
+    assert (output_dir / "run_manifest.json").exists()
     artifact_paths = {artifact["path"] for artifact in payload["result"]["artifacts"]}
     assert str(output_dir / "forecast_comparison.json") in artifact_paths
     assert str(output_dir / "forecast.json") in artifact_paths
     assert str(output_dir / "forecast.csv") in artifact_paths
     assert str(output_dir / "report.md") in artifact_paths
+    assert str(output_dir / "run_manifest.json") in artifact_paths
 
 
 def test_workflow_run_forecast_series_reports_degraded_when_some_methods_fail(
@@ -673,6 +807,9 @@ def test_workflow_run_forecast_series_reports_degraded_when_some_methods_fail(
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
+    assert payload["quality_status"] == "degraded"
+    assert payload["degraded"] is True
+    assert payload["requires_review"] is True
     assert payload["result"]["status"] == "degraded"
     assert payload["result"]["data"]["valid_methods"] == ["theta"]
     assert payload["result"]["data"]["failed_methods"] == ["arima"]
@@ -958,14 +1095,107 @@ def test_workflow_run_activity_recognition_writes_expected_files(monkeypatch, ca
     assert payload["ok"] is True
     assert payload["name"] == "activity-recognition"
     assert payload["result"]["data"]["best_window_size"] == 96
+    assert payload["result"]["data"]["classifier_requested"] == "auto"
+    assert payload["result"]["data"]["classifier_resolved"] == "minirocket"
+    assert payload["result"]["data"]["classifier_effective_backend"] == "minirocket"
+    assert payload["result"]["data"]["classification_method"] == "minirocket"
     assert payload["result"]["data"]["classifier_used"] == "minirocket"
     assert (output_dir / "window_selection.json").exists()
     assert (output_dir / "eval.json").exists()
     assert (output_dir / "report.md").exists()
+    assert (output_dir / "run_manifest.json").exists()
     artifact_paths = {artifact["path"] for artifact in payload["result"]["artifacts"]}
     assert str(output_dir / "window_selection.json") in artifact_paths
     assert str(output_dir / "eval.json") in artifact_paths
     assert str(output_dir / "report.md") in artifact_paths
+    assert str(output_dir / "run_manifest.json") in artifact_paths
+
+
+def test_workflow_run_activity_recognition_surfaces_effective_backend_provenance(
+    monkeypatch,
+    capsys,
+    tmp_path,
+):
+    import ts_agents.core.windowing as windowing
+
+    monkeypatch.chdir(tmp_path)
+
+    class FakeSelection:
+        best_window_size = 96
+        metric = "balanced_accuracy"
+
+        def to_dict(self):
+            return {
+                "method": "window_size_selection",
+                "best_window_size": 96,
+                "metric": "balanced_accuracy",
+                "scores_by_window": {32: 0.66, 96: 0.84},
+                "n_windows_by_window": {32: 180, 96: 120},
+                "details": {},
+            }
+
+    class FakeEval:
+        metric = "balanced_accuracy"
+        score = 0.84
+
+        def to_dict(self):
+            return {
+                "method": "windowed_classification",
+                "window_size": 96,
+                "stride": 48,
+                "classifier": "minirocket",
+                "metric": "balanced_accuracy",
+                "score": 0.84,
+                "n_windows": 120,
+                "class_counts": {"idle": 62, "walk": 58},
+                "classification": {
+                    "method": "rocket_fallback",
+                    "accuracy": 0.86,
+                    "f1_score": 0.83,
+                    "confusion_matrix": [[26, 4], [5, 25]],
+                    "predictions": ["idle", "walk"],
+                },
+            }
+
+    monkeypatch.setattr(windowing, "select_window_size", lambda *args, **kwargs: FakeSelection())
+    monkeypatch.setattr(windowing, "evaluate_windowed_classifier", lambda *args, **kwargs: FakeEval())
+
+    csv_path = tmp_path / "stream.csv"
+    csv_path.write_text(
+        "x,y,z,label\n"
+        "0,0,0,idle\n"
+        "1,1,1,idle\n"
+        "2,2,2,walk\n"
+        "3,3,3,walk\n"
+    )
+
+    code = run(
+        [
+            "workflow",
+            "run",
+            "activity-recognition",
+            "--input",
+            str(csv_path),
+            "--label-col",
+            "label",
+            "--value-cols",
+            "x,y,z",
+            "--window-sizes",
+            "32,96",
+            "--skip-plots",
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    data = payload["result"]["data"]
+    assert data["classifier_requested"] == "auto"
+    assert data["classifier_resolved"] == "minirocket"
+    assert data["classifier_evaluation"] == "minirocket"
+    assert data["classification_method"] == "rocket_fallback"
+    assert data["classifier_effective_backend"] == "rocket_fallback"
+    assert data["classifier_used"] == "rocket_fallback"
 
 
 def test_workflow_run_activity_recognition_sanitizes_nan_scores_and_surfaces_quality_flags(
@@ -1052,6 +1282,9 @@ def test_workflow_run_activity_recognition_sanitizes_nan_scores_and_surfaces_qua
         stdout,
         parse_constant=lambda constant: (_ for _ in ()).throw(AssertionError(constant)),
     )
+    assert payload["quality_status"] == "degraded"
+    assert payload["degraded"] is True
+    assert payload["requires_review"] is True
     assert payload["result"]["status"] == "degraded"
     flags = set(payload["result"]["data"]["quality_flags"])
     assert "nan_window_scores" in flags
@@ -1238,14 +1471,15 @@ def test_handle_workflow_command_uses_registry_runner(monkeypatch):
     assert observed["series_input"] is fake_series_input
     assert observed["loader_args"] == "inspect-series"
     assert observed["builder_args"] == "inspect-series"
-    assert observed["kwargs"] == {
-        "output_dir": "outputs/custom",
-        "skip_plots": True,
-    }
-    assert args._ts_input_payload["options"] == {
-        "output_dir": "outputs/custom",
-        "skip_plots": True,
-    }
+    assert observed["kwargs"]["output_dir"] == "outputs/custom"
+    assert observed["kwargs"]["skip_plots"] is True
+    assert observed["kwargs"]["run_id"]
+    assert observed["kwargs"]["resumed"] is False
+    assert observed["kwargs"]["output_dir_mode"] == "generated"
+    assert args._ts_input_payload["options"]["output_dir"] == "outputs/custom"
+    assert args._ts_input_payload["options"]["skip_plots"] is True
+    assert args._ts_input_payload["options"]["run_id"] == observed["kwargs"]["run_id"]
+    assert args._ts_input_payload["run"]["run_id"] == observed["kwargs"]["run_id"]
 
 
 def test_workflow_run_inspect_series_returns_absolute_paths_for_relative_output_dir(

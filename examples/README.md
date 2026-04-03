@@ -25,6 +25,6 @@ For a reduced profile:
 ```bash
 uv run python examples/forecasting_m4_monthly_mini.py \
   --series M4,M100 \
-  --methods seasonal_naive,theta \
+  --methods seasonal_naive \
   --output-dir outputs/reports/forecasting-workflow-smoke
 ```

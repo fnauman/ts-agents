@@ -9,7 +9,14 @@ from ts_agents.cli.input_parsing import SeriesInput
 from ts_agents.cli.output import dump_json, to_jsonable
 from ts_agents.contracts import ToolPayload
 
-from .common import ensure_output_dir, write_dataframe_artifact, write_json_artifact, write_plot_artifact, write_text_artifact
+from .common import (
+    attach_workflow_run_metadata,
+    ensure_output_dir,
+    write_dataframe_artifact,
+    write_json_artifact,
+    write_plot_artifact,
+    write_text_artifact,
+)
 
 _SUPPORTED_METHODS = {"seasonal_naive", "arima", "ets", "theta"}
 
@@ -25,6 +32,9 @@ def run_forecast_series_workflow(
     skip_plots: bool = False,
     report_mode: str = "scripted",
     model_name: Optional[str] = None,
+    run_id: Optional[str] = None,
+    resumed: bool = False,
+    output_dir_mode: str = "explicit",
 ) -> ToolPayload:
     """Run the baseline forecasting workflow."""
     import pandas as pd
@@ -166,7 +176,7 @@ def run_forecast_series_workflow(
         f"Forecast-series workflow completed for {series_input.label} "
         f"with horizon {horizon}. Best method by RMSE: {best_method_text}."
     )
-    return ToolPayload(
+    payload = ToolPayload(
         kind="workflow",
         summary=summary,
         status="degraded" if warnings_list or quality_flags else "ok",
@@ -174,6 +184,23 @@ def run_forecast_series_workflow(
         artifacts=artifacts,
         warnings=warnings_list,
         provenance=series_input.provenance,
+    )
+    return attach_workflow_run_metadata(
+        payload,
+        workflow_name=workflow_name,
+        output_dir=output_path,
+        run_id=run_id,
+        source=summary_data["source"],
+        options={
+            "horizon": horizon,
+            "methods": selected_methods,
+            "season_length": season_length,
+            "validation_size": validation_size,
+            "skip_plots": skip_plots,
+            "report_mode": report_mode,
+        },
+        resumed=resumed,
+        output_dir_mode=output_dir_mode,
     )
 
 

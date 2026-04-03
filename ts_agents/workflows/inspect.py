@@ -10,7 +10,13 @@ from ts_agents.cli.input_parsing import SeriesInput
 from ts_agents.cli.output import to_jsonable
 from ts_agents.contracts import ToolPayload
 
-from .common import ensure_output_dir, write_json_artifact, write_plot_artifact, write_text_artifact
+from .common import (
+    attach_workflow_run_metadata,
+    ensure_output_dir,
+    write_json_artifact,
+    write_plot_artifact,
+    write_text_artifact,
+)
 
 
 def run_inspect_series_workflow(
@@ -19,6 +25,9 @@ def run_inspect_series_workflow(
     output_dir: str,
     max_lag: Optional[int] = None,
     skip_plots: bool = False,
+    run_id: Optional[str] = None,
+    resumed: bool = False,
+    output_dir_mode: str = "explicit",
 ) -> ToolPayload:
     """Run a lightweight diagnostics workflow on an arbitrary series."""
     from ts_agents.core.spectral import detect_periodicity
@@ -107,7 +116,7 @@ def run_inspect_series_workflow(
         f"Dominant period: {_format_number(dominant_period)}; "
         f"lag-1 autocorrelation: {_format_number(lag_one)}."
     )
-    return ToolPayload(
+    payload = ToolPayload(
         kind="workflow",
         summary=summary,
         status="degraded" if warnings else "ok",
@@ -115,6 +124,19 @@ def run_inspect_series_workflow(
         artifacts=artifacts,
         warnings=warnings,
         provenance=series_input.provenance,
+    )
+    return attach_workflow_run_metadata(
+        payload,
+        workflow_name=workflow_name,
+        output_dir=output_path,
+        run_id=run_id,
+        source=summary_data["source"],
+        options={
+            "max_lag": max_lag,
+            "skip_plots": skip_plots,
+        },
+        resumed=resumed,
+        output_dir_mode=output_dir_mode,
     )
 
 

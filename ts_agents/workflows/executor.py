@@ -424,6 +424,7 @@ def _rewrite_docker_workflow_output_paths(
 
     destination_dir = Path(requested_output_dir).resolve()
     destination_dir.mkdir(parents=True, exist_ok=True)
+    rewritten_paths: Dict[str, Path] = {}
 
     for artifact in artifacts:
         if not isinstance(artifact, dict):
@@ -433,13 +434,36 @@ def _rewrite_docker_workflow_output_paths(
             continue
         destination = destination_dir / source.name
         shutil.copy2(source, destination)
+        rewritten_paths[str(source)] = destination
         artifact["path"] = str(destination)
 
     data = payload.get("data")
     if isinstance(data, dict):
         data["output_dir"] = str(destination_dir)
+        _rewrite_workflow_run_metadata_paths(data, destination_dir, rewritten_paths)
 
     result.formatted_output = format_result(payload)
+
+
+def _rewrite_workflow_run_metadata_paths(
+    data: Dict[str, Any],
+    destination_dir: Path,
+    rewritten_paths: Dict[str, Path],
+) -> None:
+    manifest_path = data.get("manifest_path")
+    if isinstance(manifest_path, str):
+        destination_manifest = rewritten_paths.get(manifest_path)
+        if destination_manifest is not None:
+            data["manifest_path"] = str(destination_manifest)
+
+    run_metadata = data.get("run")
+    if isinstance(run_metadata, dict):
+        run_metadata["output_dir"] = str(destination_dir)
+        run_manifest_path = run_metadata.get("manifest_path")
+        if isinstance(run_manifest_path, str):
+            destination_manifest = rewritten_paths.get(run_manifest_path)
+            if destination_manifest is not None:
+                run_metadata["manifest_path"] = str(destination_manifest)
 
 
 def _materialize_remote_workflow_output_paths(
@@ -526,6 +550,7 @@ def _materialize_remote_workflow_output_paths(
     data = payload.get("data")
     if isinstance(data, dict) and destination_dir is not None:
         data["output_dir"] = str(destination_dir)
+        _rewrite_workflow_run_metadata_paths(data, destination_dir, rewritten_paths)
 
     result.formatted_output = format_result(payload)
 

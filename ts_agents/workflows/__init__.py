@@ -157,6 +157,18 @@ def _workflow_global_options() -> List[Dict[str, Any]]:
     backend_choices = [mode.value for mode in SandboxMode]
     return [
         _option_contract(
+            name="overwrite",
+            type="boolean",
+            description="Clear an existing explicit output directory before writing artifacts.",
+            default=False,
+        ),
+        _option_contract(
+            name="resume",
+            type="boolean",
+            description="Reuse an existing explicit output directory that already contains a workflow manifest.",
+            default=False,
+        ),
+        _option_contract(
             name="sandbox",
             type="string",
             description="Execution sandbox backend for workflow runs.",
@@ -202,6 +214,7 @@ def _workflow_global_options() -> List[Dict[str, Any]]:
 def _workflow_status_contract() -> Dict[str, Any]:
     return {
         "top_level_ok": "True means the CLI command executed successfully.",
+        "top_level_quality_status": "Inspect `quality_status`, `degraded`, and `requires_review` on the CLI envelope for a quick review signal.",
         "result_status_field": "Inspect `result.status` for `ok` vs `degraded` workflow outcomes.",
         "warnings_field": "Inspect `result.warnings` for non-fatal execution caveats.",
         "quality_flags_path": "If present, inspect `result.data.quality_flags` for workflow-specific quality issues.",
@@ -216,9 +229,12 @@ def _workflow_default_output_behavior(workflow: "WorkflowDefinition") -> Dict[st
             break
     return {
         "default_output_dir": default_output_dir,
-        "behavior": "Workflow artifacts are written into the configured output directory.",
-        "collision_policy": "If you reuse the same output directory, later runs may overwrite prior artifacts.",
-        "agent_recommendation": "For autonomous runs, set a unique `output_dir` explicitly.",
+        "manifest_filename": "run_manifest.json",
+        "behavior": "When `--output-dir` is omitted, workflow artifacts are written into a generated run-scoped subdirectory under the default output root.",
+        "collision_policy": "Explicit `output_dir` values must be new/empty unless `--overwrite` or `--resume` is set.",
+        "supports_overwrite": True,
+        "supports_resume": True,
+        "agent_recommendation": "For autonomous runs, prefer the generated default run directory or pair an explicit `output_dir` with `--overwrite` or `--resume`.",
     }
 
 
@@ -491,9 +507,9 @@ _WORKFLOWS = {
             ]
         },
         examples=[
-            "uv run ts-agents workflow run inspect-series --input-json '{\"series\":[1,2,3,4]}'",
-            "uv run ts-agents workflow run inspect-series --input data.csv --time-col ds --value-col y",
-            "uv run ts-agents workflow run inspect-series --run-id Re200Rm200 --variable bx001_real",
+            "ts-agents workflow run inspect-series --input-json '{\"series\":[1,2,3,4]}'",
+            "ts-agents workflow run inspect-series --input data.csv --time-col ds --value-col y",
+            "ts-agents workflow run inspect-series --run-id Re200Rm200 --variable bx001_real",
         ],
         capabilities={
             "writes_artifacts": ["summary.json", "report.md", "autocorrelation.png"],
@@ -563,9 +579,9 @@ _WORKFLOWS = {
         },
         required_extras=["forecasting"],
         examples=[
-            "uv run ts-agents workflow show forecast-series --json",
-            "uv run ts-agents workflow run forecast-series --input-json '{\"series\":[1,2,3,4,5,6,7,8,9,10,11,12]}' --horizon 3 --methods seasonal_naive",
-            "uv run ts-agents workflow run forecast-series --input data.csv --time-col ds --value-col y --horizon 24 --methods seasonal_naive,arima,theta",
+            "ts-agents workflow show forecast-series --json",
+            "ts-agents workflow run forecast-series --input-json '{\"series\":[1,2,3,4,5,6,7,8,9,10,11,12]}' --horizon 3 --methods seasonal_naive",
+            "ts-agents workflow run forecast-series --input data.csv --time-col ds --value-col y --horizon 24 --methods seasonal_naive,arima,theta",
         ],
         capabilities={
             "supported_methods": ["seasonal_naive", "arima", "ets", "theta"],
@@ -654,8 +670,8 @@ _WORKFLOWS = {
         },
         required_extras=["classification"],
         examples=[
-            "uv run ts-agents workflow show activity-recognition --json",
-            "uv run ts-agents workflow run activity-recognition --input data/demo_labeled_stream.csv --label-col label --value-cols x,y,z",
+            "ts-agents workflow show activity-recognition --json",
+            "ts-agents workflow run activity-recognition --input data/demo_labeled_stream.csv --label-col label --value-cols x,y,z",
         ],
         capabilities={
             "supported_metrics": ["accuracy", "balanced_accuracy", "f1_macro"],

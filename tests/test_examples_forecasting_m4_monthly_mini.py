@@ -74,7 +74,7 @@ def test_run_workflow_reduced_profile_writes_expected_artifacts(tmp_path):
     result = module.run_workflow(
         output_dir=output_dir,
         series_ids=["M4", "M100"],
-        methods=["seasonal_naive", "theta"],
+        methods=["seasonal_naive"],
         horizon=18,
         season_length=12,
         rolling_origins=2,
@@ -105,25 +105,25 @@ def test_run_workflow_reduced_profile_writes_expected_artifacts(tmp_path):
     assert list(metrics_df.columns) == ["phase", "origin", "unique_id", "method", "smape", "mae", "rmse"]
     assert set(metrics_df["phase"]) == {"rolling_origin", "holdout"}
     assert set(metrics_df["unique_id"]) == {"M4", "M100"}
-    assert set(metrics_df["method"]) == {"seasonal_naive", "theta"}
-    assert len(metrics_df) == 12
+    assert set(metrics_df["method"]) == {"seasonal_naive"}
+    assert len(metrics_df) == 6
 
     assert list(summary_df.columns) == ["phase", "method", "smape", "mae", "rmse"]
-    assert len(summary_df) == 4
+    assert len(summary_df) == 2
     assert set(summary_df["phase"]) == {"rolling_origin", "holdout"}
-    assert set(summary_df["method"]) == {"seasonal_naive", "theta"}
+    assert set(summary_df["method"]) == {"seasonal_naive"}
 
     assert list(forecasts_df.columns) == ["unique_id", "method", "ds", "actual", "forecast"]
-    assert len(forecasts_df) == 72
+    assert len(forecasts_df) == 36
     assert set(forecasts_df["unique_id"]) == {"M4", "M100"}
-    assert set(forecasts_df["method"]) == {"seasonal_naive", "theta"}
+    assert set(forecasts_df["method"]) == {"seasonal_naive"}
 
     assert run_summary["series"] == ["M4", "M100"]
-    assert run_summary["methods"] == ["seasonal_naive", "theta"]
+    assert run_summary["methods"] == ["seasonal_naive"]
     assert run_summary["horizon"] == 18
     assert run_summary["season_length"] == 12
     assert run_summary["rolling_origins"] == 2
-    assert run_summary["best_method"] in {"seasonal_naive", "theta"}
+    assert run_summary["best_method"] == "seasonal_naive"
     assert Path(run_summary["artifacts"]["metrics_by_series"]) == metrics_path
     assert Path(run_summary["artifacts"]["summary"]) == summary_path
     assert Path(run_summary["artifacts"]["holdout_forecasts"]) == forecasts_path
@@ -140,6 +140,27 @@ def test_run_workflow_reduced_profile_writes_expected_artifacts(tmp_path):
     assert "metrics_by_series.csv" in report
     assert "holdout_forecasts.csv" in report
     assert "plots/M4.png" in report
+
+
+def test_run_workflow_rejects_statsforecast_methods_without_dependency(monkeypatch, tmp_path):
+    module = _load_example_module()
+    original_find_spec = module.find_spec
+
+    monkeypatch.setattr(
+        module,
+        "find_spec",
+        lambda name: None if name == "statsforecast" else original_find_spec(name),
+    )
+
+    with pytest.raises(ImportError, match="seasonal_naive"):
+        module.run_workflow(
+            output_dir=tmp_path / "forecasting-workflow-smoke",
+            series_ids=["M4"],
+            methods=["theta"],
+            horizon=18,
+            season_length=12,
+            rolling_origins=2,
+        )
 
 
 def test_main_treats_empty_plot_series_as_default(monkeypatch, tmp_path, capsys):
