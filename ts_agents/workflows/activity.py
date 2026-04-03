@@ -10,7 +10,13 @@ from ts_agents.cli.input_parsing import LabeledStreamInput
 from ts_agents.cli.output import to_jsonable
 from ts_agents.contracts import ToolPayload
 
-from .common import ensure_output_dir, write_json_artifact, write_plot_artifact, write_text_artifact
+from .common import (
+    attach_workflow_run_metadata,
+    ensure_output_dir,
+    write_json_artifact,
+    write_plot_artifact,
+    write_text_artifact,
+)
 
 _SUPPORTED_CLASSIFIERS = {"auto", "minirocket", "rocket", "knn"}
 _SUPPORTED_METRICS = {"accuracy", "balanced_accuracy", "f1_macro"}
@@ -29,6 +35,9 @@ def run_activity_recognition_workflow(
     test_size: float = 0.25,
     seed: int = 1337,
     skip_plots: bool = False,
+    run_id: Optional[str] = None,
+    resumed: bool = False,
+    output_dir_mode: str = "explicit",
 ) -> ToolPayload:
     """Run window-size selection and evaluation on a labeled sensor stream."""
     from ts_agents.core.windowing import evaluate_windowed_classifier, select_window_size
@@ -65,6 +74,10 @@ def run_activity_recognition_workflow(
 
     selection_payload = to_jsonable(selection)
     evaluation_payload = to_jsonable(evaluation)
+    classification = evaluation_payload.get("classification") or {}
+    evaluation_classifier = evaluation_payload.get("classifier")
+    classification_method = classification.get("method")
+    effective_backend = classification_method or evaluation_classifier or selected_classifier
     quality_flags = _activity_quality_flags(
         selection_payload=selection_payload,
         evaluation_payload=evaluation_payload,
@@ -76,7 +89,11 @@ def run_activity_recognition_workflow(
         "value_columns": list(stream_input.value_columns),
         "label_column": stream_input.label_column,
         "classifier_requested": classifier,
-        "classifier_used": selected_classifier,
+        "classifier_resolved": selected_classifier,
+        "classifier_evaluation": evaluation_classifier,
+        "classifier_effective_backend": effective_backend,
+        "classification_method": classification_method,
+        "classifier_used": effective_backend,
         "metric": selected_metric,
         "balance": selected_balance,
         "seed": int(seed),
@@ -136,7 +153,9 @@ def run_activity_recognition_workflow(
 
     report = _build_report(
         stream_input=stream_input,
-        classifier_used=selected_classifier,
+        classifier_requested=classifier,
+        classifier_resolved=selected_classifier,
+        effective_backend=effective_backend,
         metric=selected_metric,
         selection_payload=selection_payload,
         evaluation_payload=evaluation_payload,
@@ -156,7 +175,7 @@ def run_activity_recognition_workflow(
         f"Best window size: {summary_data['best_window_size']}; "
         f"{selected_metric}: {score_text}."
     )
-    return ToolPayload(
+    payload = ToolPayload(
         kind="workflow",
         summary=summary,
         status="degraded" if warnings or quality_flags else "ok",
@@ -164,6 +183,25 @@ def run_activity_recognition_workflow(
         artifacts=artifacts,
         warnings=warnings,
         provenance=stream_input.provenance,
+    )
+    return attach_workflow_run_metadata(
+        payload,
+        workflow_name=workflow_name,
+        output_dir=output_path,
+        run_id=run_id,
+        source=summary_data["source"],
+        options={
+            "window_sizes": candidate_windows,
+            "metric": selected_metric,
+            "classifier": classifier,
+            "balance": selected_balance,
+            "max_windows_per_segment": max_windows_per_segment,
+            "test_size": test_size,
+            "seed": seed,
+            "skip_plots": skip_plots,
+        },
+        resumed=resumed,
+        output_dir_mode=output_dir_mode,
     )
 
 
@@ -338,7 +376,9 @@ def _close_plots(*figures: Any) -> None:
 def _build_report(
     *,
     stream_input: LabeledStreamInput,
-    classifier_used: str,
+    classifier_requested: str,
+    classifier_resolved: str,
+    effective_backend: str,
     metric: str,
     selection_payload: dict[str, Any],
     evaluation_payload: dict[str, Any],
@@ -352,7 +392,9 @@ def _build_report(
             f"- **Source**: `{stream_input.label}`",
             f"- **Value Columns**: {', '.join(stream_input.value_columns)}",
             f"- **Label Column**: `{stream_input.label_column}`",
-            f"- **Classifier**: `{classifier_used}`",
+            f"- **Classifier Requested**: `{classifier_requested}`",
+            f"- **Classifier Resolved**: `{classifier_resolved}`",
+            f"- **Effective Backend**: `{effective_backend}`",
             f"- **Best Window Size**: {selection_payload.get('best_window_size')}",
             f"- **Metric**: `{metric}` = {_format_metric(evaluation_payload.get('score'))}",
             f"- **Accuracy**: {_format_metric(classification.get('accuracy'))}",

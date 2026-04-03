@@ -62,6 +62,9 @@ class CLIEnvelope:
     schema_version: str = CLI_SCHEMA_VERSION
     name: Optional[str] = None
     input: Dict[str, Any] = field(default_factory=dict)
+    quality_status: Optional[str] = None
+    degraded: Optional[bool] = None
+    requires_review: Optional[bool] = None
     result: Any = None
     error: Optional[CLIError] = None
     execution: Optional[CLIExecution] = None

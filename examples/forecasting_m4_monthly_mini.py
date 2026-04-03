@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from importlib.util import find_spec
 import json
 import sys
 from pathlib import Path
@@ -24,6 +25,7 @@ DEFAULT_METHODS = ("seasonal_naive", "theta", "ets", "arima")
 DEFAULT_HORIZON = 18
 DEFAULT_SEASON_LENGTH = 12
 DEFAULT_ROLLING_ORIGINS = 2
+_STATSFORECAST_METHODS = {"arima", "ets", "theta"}
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATASET = REPO_ROOT / "data" / "m4_monthly_mini.csv"
@@ -34,6 +36,18 @@ def _parse_csv_list(value: str | None, default: Iterable[str]) -> list[str]:
     if value is None:
         return list(default)
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _resolve_methods(methods: list[str]) -> list[str]:
+    invalid = sorted(set(method for method in methods if method not in DEFAULT_METHODS))
+    if invalid:
+        raise ValueError(f"Unsupported method(s): {invalid}")
+    if any(method in _STATSFORECAST_METHODS for method in methods) and find_spec("statsforecast") is None:
+        raise ImportError(
+            'Methods arima/ets/theta require optional forecasting dependencies. '
+            'Install `ts-agents[forecasting]` or run the reduced profile with `--methods seasonal_naive`.'
+        )
+    return methods
 
 
 def _load_panel(dataset_path: Path, series_ids: list[str]) -> dict[str, dict[str, np.ndarray]]:
@@ -253,7 +267,7 @@ def run_workflow(
     plot_series: list[str] | None = None,
 ) -> dict[str, object]:
     series_ids = list(series_ids) if series_ids is not None else list(DEFAULT_SERIES)
-    methods = list(methods) if methods is not None else list(DEFAULT_METHODS)
+    methods = _resolve_methods(list(methods) if methods is not None else list(DEFAULT_METHODS))
 
     if not series_ids:
         raise ValueError("at least one series ID is required")

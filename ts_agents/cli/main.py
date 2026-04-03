@@ -322,6 +322,19 @@ def _add_sandbox_execution_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_workflow_run_lifecycle_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Allow reusing an existing explicit output directory by clearing prior artifacts first.",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume into an existing explicit output directory that already has a workflow manifest.",
+    )
+
+
 def _add_tool_run_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("tool", type=str, help="Tool name to execute")
     parser.add_argument(
@@ -434,6 +447,7 @@ def _command_input_payload(args: argparse.Namespace) -> Dict[str, Any]:
                 "extract_images",
                 "_ts_input_payload",
                 "_ts_execution_result",
+                "_ts_raw_argv",
             }
         }
     if args.command == "demo":
@@ -464,13 +478,45 @@ def _execution_payload(execution: Any) -> Optional[CLIExecution]:
     )
 
 
+def _quality_payload(result: Any) -> Tuple[Optional[str], Optional[bool], Optional[bool]]:
+    if isinstance(result, dict):
+        status = result.get("status")
+        warnings = result.get("warnings") or []
+        data = result.get("data") or {}
+    else:
+        status = getattr(result, "status", None)
+        warnings = getattr(result, "warnings", []) or []
+        data = getattr(result, "data", {}) or {}
+
+    if isinstance(data, dict):
+        quality_flags = data.get("quality_flags") or []
+    else:
+        quality_flags = getattr(data, "quality_flags", []) or []
+    if status is None and not warnings and not quality_flags:
+        return None, None, None
+
+    degraded = status == "degraded"
+    requires_review = degraded or bool(warnings) or bool(quality_flags)
+    if status in {"ok", "degraded"}:
+        quality_status = status
+    elif requires_review:
+        quality_status = "review"
+    else:
+        quality_status = None
+    return quality_status, degraded, requires_review
+
+
 def _success_envelope(args: argparse.Namespace, result: Any) -> CLIEnvelope:
     execution = _execution_payload(getattr(args, "_ts_execution_result", None))
+    quality_status, degraded, requires_review = _quality_payload(result)
     return CLIEnvelope(
         ok=True,
         command=_command_label(args),
         name=_command_target_name(args),
         input=_command_input_payload(args),
+        quality_status=quality_status,
+        degraded=degraded,
+        requires_review=requires_review,
         result=result,
         execution=execution,
     )
@@ -556,6 +602,93 @@ def _exit_code_for_exception(exc: Exception) -> int:
 def _argv_requests_json(argv: Optional[List[str]]) -> bool:
     raw_argv = list(argv) if argv is not None else sys.argv[1:]
     return "--json" in raw_argv
+
+
+def _flag_was_provided(args: argparse.Namespace, flag: str) -> bool:
+    raw_argv = getattr(args, "_ts_raw_argv", []) or []
+    return any(token == flag or token.startswith(f"{flag}=") for token in raw_argv)
+
+
+def _workflow_default_output_root(workflow: Any) -> str:
+    for option in getattr(workflow, "options", []):
+        if option.name == "output_dir" and option.default:
+            return str(option.default)
+    return f"outputs/{getattr(workflow, 'name', 'workflow')}"
+
+
+def _prepare_workflow_run_output(args: argparse.Namespace, workflow: Any) -> Dict[str, Any]:
+    from ts_agents.workflows.common import (
+        WORKFLOW_MANIFEST_FILENAME,
+        generate_workflow_run_id,
+        output_dir_has_files,
+        read_workflow_manifest,
+    )
+
+    overwrite = getattr(args, "overwrite", False)
+    resume = getattr(args, "resume", False)
+    if overwrite and resume:
+        raise ValueError("--overwrite and --resume cannot be used together.")
+
+    explicit_output_dir = _flag_was_provided(args, "--output-dir")
+    if (overwrite or resume) and not explicit_output_dir:
+        raise ValueError("--overwrite and --resume require an explicit --output-dir.")
+
+    requested_output_dir = getattr(args, "output_dir", None)
+    output_dir_mode = "explicit" if explicit_output_dir else "generated"
+    if explicit_output_dir:
+        output_path = Path(requested_output_dir).expanduser().resolve()
+        if output_path.exists() and not output_path.is_dir():
+            raise ValueError("--output-dir must point to a directory path.")
+    else:
+        base_output_root = Path(_workflow_default_output_root(workflow)).expanduser()
+        run_id = generate_workflow_run_id()
+        output_path = (base_output_root / run_id).resolve()
+
+    existing_manifest = read_workflow_manifest(output_path) if explicit_output_dir and resume else None
+    resumed = False
+    if explicit_output_dir:
+        if resume:
+            if not output_path.exists():
+                raise ValueError("--resume requires an existing --output-dir.")
+            if existing_manifest is None:
+                raise ValueError(
+                    f"--resume requires {WORKFLOW_MANIFEST_FILENAME} in the output directory."
+                )
+            if not isinstance(existing_manifest, dict):
+                raise ValueError(
+                    f"{WORKFLOW_MANIFEST_FILENAME} in {output_path} must contain a JSON object for --resume."
+                )
+            run_id = str(existing_manifest.get("run_id") or generate_workflow_run_id())
+            resumed = True
+        else:
+            run_id = generate_workflow_run_id()
+            if output_dir_has_files(output_path) and not overwrite:
+                raise ValueError(
+                    "Output directory already exists and is not empty. "
+                    "Use --overwrite to replace prior artifacts or --resume to continue an existing run."
+                )
+    else:
+        if output_path.exists():
+            raise ValueError(
+                "Generated workflow output directory already exists unexpectedly; retry the command."
+            )
+
+    args.output_dir = str(output_path)
+    return {
+        "run_id": run_id,
+        "resumed": resumed,
+        "output_dir_mode": output_dir_mode,
+        "manifest_path": str(output_path / WORKFLOW_MANIFEST_FILENAME),
+        "output_dir": str(output_path),
+        "_clear_output_dir": bool(explicit_output_dir and overwrite and output_path.exists()),
+    }
+
+
+def _materialize_workflow_output_dir(run_lifecycle: Dict[str, Any]) -> None:
+    from ts_agents.workflows.common import clear_output_dir
+
+    if run_lifecycle.get("_clear_output_dir"):
+        clear_output_dir(run_lifecycle["output_dir"])
 
 
 def _infer_command_label_from_argv(argv: List[str]) -> str:
@@ -1002,12 +1135,12 @@ def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  uv run ts-agents workflow list\n"
-            "  uv run ts-agents workflow show forecast-series --json\n"
-            "  uv run ts-agents workflow run inspect-series --input data.csv --time-col ds --value-col y\n"
-            "  uv run ts-agents workflow run forecast-series --input data.csv --time-col ds --value-col y --horizon 48 --sandbox subprocess\n"
-            "  uv run ts-agents workflow run activity-recognition --input stream.csv --label-col label --value-cols x,y,z\n"
-            "  echo '{\"series\": [1,2,3,4]}' | uv run ts-agents workflow run inspect-series --stdin --output-dir outputs/inspect"
+            "  ts-agents workflow list\n"
+            "  ts-agents workflow show forecast-series --json\n"
+            "  ts-agents workflow run inspect-series --input data.csv --time-col ds --value-col y\n"
+            "  ts-agents workflow run forecast-series --input data.csv --time-col ds --value-col y --horizon 48 --sandbox subprocess\n"
+            "  ts-agents workflow run activity-recognition --input stream.csv --label-col label --value-cols x,y,z\n"
+            "  echo '{\"series\": [1,2,3,4]}' | ts-agents workflow run inspect-series --stdin"
         ),
     )
     workflow_run_sub = run_parser.add_subparsers(dest="workflow_name", required=True)
@@ -1021,7 +1154,7 @@ def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
         "--output-dir",
         type=str,
         default="outputs/inspect",
-        help="Output directory for workflow artifacts",
+        help="Explicit output directory for workflow artifacts. If omitted, a run-scoped subdirectory is created under outputs/inspect.",
     )
     inspect_parser.add_argument(
         "--max-lag",
@@ -1034,6 +1167,7 @@ def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Skip plot generation",
     )
+    _add_workflow_run_lifecycle_args(inspect_parser)
     _add_sandbox_execution_args(inspect_parser)
     _add_output_args(inspect_parser)
 
@@ -1046,7 +1180,7 @@ def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
         "--output-dir",
         type=str,
         default="outputs/forecast",
-        help="Output directory for workflow artifacts",
+        help="Explicit output directory for workflow artifacts. If omitted, a run-scoped subdirectory is created under outputs/forecast.",
     )
     forecast_parser.add_argument(
         "--horizon",
@@ -1077,6 +1211,7 @@ def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Skip plot generation",
     )
+    _add_workflow_run_lifecycle_args(forecast_parser)
     _add_sandbox_execution_args(forecast_parser)
     _add_output_args(forecast_parser)
 
@@ -1089,7 +1224,7 @@ def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
         "--output-dir",
         type=str,
         default="outputs/activity",
-        help="Output directory for workflow artifacts",
+        help="Explicit output directory for workflow artifacts. If omitted, a run-scoped subdirectory is created under outputs/activity.",
     )
     activity_parser.add_argument(
         "--label-col",
@@ -1150,6 +1285,7 @@ def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Skip plot generation",
     )
+    _add_workflow_run_lifecycle_args(activity_parser)
     _add_sandbox_execution_args(activity_parser)
     _add_output_args(activity_parser)
 
@@ -1599,6 +1735,7 @@ def _capabilities_status_contract() -> Dict[str, Any]:
             "ok_field": "True means the CLI command itself executed successfully.",
             "error_field": "When `ok` is false, inspect `error.code`, `error.message`, and `error.hint`.",
             "execution_field": "Inspect `execution` for backend and runtime metadata when a command executes work.",
+            "quality_fields": "Inspect `quality_status`, `degraded`, and `requires_review` to distinguish clean success from degraded-but-executed results.",
         },
         "workflow_results": {
             "status_field": "Inspect `result.status` for `ok` vs `degraded` workflow outcomes.",
@@ -1648,7 +1785,7 @@ def _handle_capabilities_command(args: argparse.Namespace) -> Tuple[Any, str]:
             "Start with `workflow list --json` for public workflows.",
             "Use `workflow show --json` before `workflow run` to inspect availability, options, artifacts, and source contracts.",
             "Use `tool search --json` and `tool show --json` for lower-level execution.",
-            "Always inspect `result.status`, `warnings`, and workflow `quality_flags` rather than relying on exit code 0 alone.",
+            "Always inspect top-level quality fields plus `result.status`, `warnings`, and workflow `quality_flags` rather than relying on exit code 0 alone.",
         ],
         "workflows": workflows,
         "tools": {
@@ -1917,6 +2054,17 @@ def _handle_workflow_command(args: argparse.Namespace) -> Tuple[Any, Optional[st
             for artifact in result["artifacts"]:
                 requirement = "required" if artifact["required"] else "optional"
                 lines.append(f"- {artifact['filename']} ({requirement})")
+        default_output_behavior = result.get("default_output_behavior") or {}
+        if default_output_behavior:
+            lines.append("Output behavior:")
+            if default_output_behavior.get("default_output_dir"):
+                lines.append(f"- Default root: {default_output_behavior['default_output_dir']}")
+            if default_output_behavior.get("manifest_filename"):
+                lines.append(f"- Manifest: {default_output_behavior['manifest_filename']}")
+            if default_output_behavior.get("behavior"):
+                lines.append(f"- {default_output_behavior['behavior']}")
+            if default_output_behavior.get("collision_policy"):
+                lines.append(f"- {default_output_behavior['collision_policy']}")
         if result["cli_templates"]:
             lines.append("CLI templates:")
             for template in result["cli_templates"]:
@@ -1936,15 +2084,29 @@ def _handle_workflow_command(args: argparse.Namespace) -> Tuple[Any, Optional[st
         _raise_unknown_workflow_error(args.workflow_name)
     _validate_workflow_source_args(args)
     args.use_test_data_resolved = _resolve_use_test_data(args)
+    run_lifecycle = _prepare_workflow_run_output(args, workflow)
 
     workflow_input = workflow.load_input(args)
     runner_kwargs = workflow.build_runner_kwargs(args)
+    runner_kwargs.update(
+        {
+            "run_id": run_lifecycle["run_id"],
+            "resumed": run_lifecycle["resumed"],
+            "output_dir_mode": run_lifecycle["output_dir_mode"],
+        }
+    )
+    public_run_lifecycle = {
+        key: value
+        for key, value in run_lifecycle.items()
+        if not key.startswith("_")
+    }
     allow_fallback = getattr(args, "allow_fallback", False)
     fallback_backend = getattr(args, "fallback_backend", None) or "local"
     args._ts_input_payload = {
         "workflow": args.workflow_name,
         "source": _workflow_input_source_ref(workflow_input),
         "options": runner_kwargs,
+        "run": public_run_lifecycle,
         "sandbox": getattr(args, "sandbox", None)
         or os.environ.get("TS_AGENTS_SANDBOX_MODE")
         or "local",
@@ -1956,6 +2118,8 @@ def _handle_workflow_command(args: argparse.Namespace) -> Tuple[Any, Optional[st
             "--fallback-backend requires --allow-fallback to take effect. "
             "Pass --allow-fallback to opt in to backend fallback."
         )
+
+    _materialize_workflow_output_dir(run_lifecycle)
 
     sandbox_mode = getattr(args, "sandbox", None) or os.environ.get("TS_AGENTS_SANDBOX_MODE")
     context = ExecutionContext(
@@ -2819,6 +2983,7 @@ def run(argv: Optional[List[str]] = None) -> int:
             return int(parse_exit.code)
         raise
 
+    args._ts_raw_argv = raw_argv
     _emit_deprecation_warning(args)
 
     try:
