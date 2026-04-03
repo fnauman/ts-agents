@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
+from ts_agents.cli_contracts import normalize_cli_template
 from ts_agents.runtime_paths import resolve_default_skills_dir
 
 
@@ -197,13 +198,6 @@ def _extract_markdown_sections(body: str) -> List[Dict[str, Any]]:
     return sections
 
 
-def _normalize_ts_agents_command(command: str) -> str:
-    normalized = " ".join(command.strip().split())
-    if normalized.startswith("uv run ts-agents "):
-        return "ts-agents " + normalized[len("uv run ts-agents ") :]
-    return normalized
-
-
 def _extract_command_sequences(lines: List[str]) -> List[str]:
     commands: List[str] = []
     current: List[str] = []
@@ -211,7 +205,7 @@ def _extract_command_sequences(lines: List[str]) -> List[str]:
     def _maybe_finalize() -> None:
         if not current:
             return
-        commands.append(_normalize_ts_agents_command(" ".join(current)))
+        commands.append(normalize_cli_template(" ".join(current)))
         current.clear()
 
     for raw_line in lines:
@@ -294,7 +288,7 @@ def get_skill_details(
         "frontmatter": frontmatter,
         "sections": _extract_markdown_sections(body),
         "commands": commands,
-        "command_templates": commands,
+        "command_templates": list(commands),  # alias: currently identical to "commands"
         "body": body,
     }
 

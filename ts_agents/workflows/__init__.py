@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from importlib.util import find_spec
 from typing import Any, Callable, Dict, List, Optional
 
+from ts_agents.cli_contracts import normalize_cli_template
 from ts_agents.cli.input_parsing import load_labeled_stream_input, load_series_input
 
 from .activity import run_activity_recognition_workflow
@@ -15,13 +16,6 @@ from .inspect import run_inspect_series_workflow
 
 def _module_available(module_name: str) -> bool:
     return find_spec(module_name) is not None
-
-
-def _normalize_cli_template(command: str) -> str:
-    normalized = command.strip()
-    if normalized.startswith("uv run "):
-        normalized = normalized[len("uv run ") :]
-    return normalized
 
 
 def _option_contract(
@@ -158,12 +152,15 @@ def _workflow_source_options(workflow: "WorkflowDefinition") -> List[Dict[str, A
 
 
 def _workflow_global_options() -> List[Dict[str, Any]]:
+    from ts_agents.tools.executor import SandboxMode
+
+    backend_choices = [mode.value for mode in SandboxMode]
     return [
         _option_contract(
             name="sandbox",
             type="string",
             description="Execution sandbox backend for workflow runs.",
-            choices=["local", "subprocess", "docker", "daytona", "modal"],
+            choices=backend_choices,
         ),
         _option_contract(
             name="allow_network",
@@ -181,7 +178,7 @@ def _workflow_global_options() -> List[Dict[str, Any]]:
             name="fallback_backend",
             type="string",
             description="Fallback backend used with `allow_fallback`.",
-            choices=["local", "subprocess", "docker", "daytona", "modal"],
+            choices=backend_choices,
         ),
         _option_contract(
             name="json",
@@ -227,7 +224,7 @@ def _workflow_default_output_behavior(workflow: "WorkflowDefinition") -> Dict[st
 
 def _workflow_cli_templates(workflow: "WorkflowDefinition") -> List[str]:
     templates = [f"ts-agents workflow show {workflow.name} --json"]
-    templates.extend(_normalize_cli_template(example) for example in workflow.examples)
+    templates.extend(normalize_cli_template(example) for example in workflow.examples)
     unique_templates: List[str] = []
     for template in templates:
         if template not in unique_templates:

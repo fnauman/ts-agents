@@ -12,6 +12,7 @@ import shlex
 import sys
 from typing import Any, Dict, List, NoReturn, Optional, Tuple
 
+from ts_agents.cli_contracts import normalize_cli_template
 from ts_agents.contracts import CLIEnvelope, CLIError, CLIExecution
 from ts_agents.tools.executor import ToolError, ToolErrorCode
 
@@ -1458,13 +1459,6 @@ def _handle_data_command(args: argparse.Namespace) -> Tuple[Any, str]:
     return result, "\n".join(text_lines)
 
 
-def _normalize_cli_template(command: str) -> str:
-    normalized = command.strip()
-    if normalized.startswith("uv run "):
-        normalized = normalized[len("uv run ") :]
-    return normalized
-
-
 def _tool_supports_bundled_run(tool: Any) -> bool:
     param_names = {param.name for param in tool.parameters}
     run_names = {"unique_id", "run_id"}
@@ -1484,7 +1478,7 @@ def _tool_cli_templates(tool: Any) -> List[str]:
     param_types = {param.name: param.type for param in tool.parameters}
     templates = [f"ts-agents tool show {tool.name} --json"]
     templates.append(
-        _normalize_cli_template(
+        normalize_cli_template(
             _build_run_example_command(tool.name, required, param_types)
         )
         + " --json"
@@ -1534,17 +1528,17 @@ def _tool_detail_dict(tool: Any) -> Dict[str, Any]:
         dependency_required_extras,
         tool_availability,
         tool_dependency_details,
-        tool_install_hint,
     )
 
     required = [param.name for param in tool.parameters if not param.optional]
     required_extras = sorted(
         {
             extra
-            for dependency in [*tool.dependencies, *tool.optional_dependencies]
+            for dependency in tool.dependencies
             for extra in dependency_required_extras(dependency)
         }
     )
+    availability = tool_availability(tool)
     return {
         "name": tool.name,
         "category": tool.category.value,
@@ -1555,8 +1549,8 @@ def _tool_detail_dict(tool: Any) -> Dict[str, Any]:
         "optional_dependencies": tool.optional_dependencies,
         "dependency_details": tool_dependency_details(tool),
         "required_extras": required_extras,
-        "availability": tool_availability(tool),
-        "install_hint": tool_install_hint(tool),
+        "availability": availability,
+        "install_hint": availability.get("install_hint"),
         "parameters": [
             {
                 "name": param.name,
@@ -1744,6 +1738,7 @@ def _handle_tool_command(args: argparse.Namespace) -> Tuple[Any, str]:
             _raise_unknown_tool_error(args.tool)
         result = _tool_detail_dict(tool)
         availability = result["availability"]
+        install_hint = availability.get("install_hint") or result.get("install_hint")
         lines = [
             f"Tool: {tool.name}",
             f"Category: {tool.category.value}",
@@ -1758,8 +1753,8 @@ def _handle_tool_command(args: argparse.Namespace) -> Tuple[Any, str]:
             lines.append(f"Optional dependencies: {', '.join(tool.optional_dependencies)}")
         if result.get("required_extras"):
             lines.append(f"Required extras: {', '.join(result['required_extras'])}")
-        if availability.get("install_hint"):
-            lines.append(f"Install hint: {availability['install_hint']}")
+        if install_hint:
+            lines.append(f"Install hint: {install_hint}")
         if tool.parameters:
             lines.append("Parameters:")
             for param in tool.parameters:

@@ -417,8 +417,32 @@ def test_tool_show_json_reports_optional_backend_for_seasonal_naive(capsys):
     result = payload["result"]
     assert result["dependencies"] == []
     assert result["optional_dependencies"] == ["statsforecast"]
+    assert result["required_extras"] == []
     assert result["availability"]["available"] is True
     assert result["availability"]["optional_features"][0]["name"] == "statsforecast_backend"
+
+
+def test_tool_show_text_surfaces_optional_backend_install_hint_when_backend_missing(
+    monkeypatch,
+    capsys,
+):
+    import ts_agents.tools.registry as registry_mod
+
+    real_available = registry_mod._module_available
+
+    def fake_available(module_name: str) -> bool:
+        if module_name == "statsforecast":
+            return False
+        return real_available(module_name)
+
+    monkeypatch.setattr(registry_mod, "_module_available", fake_available)
+
+    code = run(["tool", "show", "forecast_seasonal_naive"])
+
+    assert code == 0
+    output = capsys.readouterr().out
+    assert "Install hint:" in output
+    assert "ts-agents[forecasting]" in output
 
 
 def test_tool_show_json_unknown_tool_is_typed(capsys):

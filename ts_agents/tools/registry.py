@@ -216,10 +216,13 @@ def tool_availability(tool: ToolMetadata) -> Dict[str, Any]:
     missing_required = [
         dependency for dependency in tool.dependencies if not _module_available(dependency)
     ]
+    missing_optional = [
+        dependency for dependency in tool.optional_dependencies if not _module_available(dependency)
+    ]
     required_extras = sorted(
         {
             extra
-            for dependency in [*tool.dependencies, *tool.optional_dependencies]
+            for dependency in tool.dependencies
             for extra in dependency_required_extras(dependency)
         }
     )
@@ -243,7 +246,7 @@ def tool_availability(tool: ToolMetadata) -> Dict[str, Any]:
         "missing_dependencies": missing_required,
         "required_extras": required_extras,
         "optional_features": optional_features,
-        "install_hint": tool_install_hint(tool) if missing_required else None,
+        "install_hint": tool_install_hint(tool) if (missing_required or missing_optional) else None,
     }
 
 

@@ -97,6 +97,7 @@ class TestToolRegistry:
         assert tool.optional_dependencies == ["statsforecast"]
         availability = tool_availability(tool)
         assert availability["available"] is True
+        assert availability["required_extras"] == []
         assert availability["optional_features"][0]["name"] == "statsforecast_backend"
 
     def test_segment_changepoint_with_data_has_expected_params(self):
