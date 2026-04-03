@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Callable, List, Optional, Dict, Any, Sequence
 from enum import Enum
 import inspect
+from importlib.util import find_spec
 import threading
 import numpy as np
 
@@ -48,6 +49,30 @@ _COST_ORDER = [
     ComputationalCost.HIGH,
     ComputationalCost.VERY_HIGH,
 ]
+
+_DEPENDENCY_IMPORT_NAME_MAP = {
+    "scikit-learn": "sklearn",
+}
+
+_DEPENDENCY_INSTALL_HINTS = {
+    "statsforecast": 'Install `ts-agents[forecasting]` or `ts-agents[recommended]` to enable statistical forecasting backends.',
+    "statsmodels": 'Install `ts-agents[decomposition]` or `ts-agents[recommended]` to enable decomposition backends.',
+    "stumpy": 'Install `ts-agents[patterns]` or `ts-agents[recommended]` to enable matrix-profile tooling.',
+    "ruptures": 'Install `ts-agents[patterns]` or `ts-agents[recommended]` to enable changepoint tooling.',
+    "aeon": 'Install `ts-agents[classification]` or `ts-agents[recommended]` to enable aeon-based classification backends.',
+    "scikit-learn": 'Install `ts-agents[classification]` or `ts-agents[recommended]` to enable classification workflows.',
+    "matplotlib": 'Install `ts-agents[viz]` or `ts-agents[recommended]` to enable plot artifacts.',
+}
+
+_DEPENDENCY_REQUIRED_EXTRAS = {
+    "statsforecast": ["forecasting"],
+    "statsmodels": ["decomposition"],
+    "stumpy": ["patterns"],
+    "ruptures": ["patterns"],
+    "aeon": ["classification"],
+    "scikit-learn": ["classification"],
+    "matplotlib": ["viz"],
+}
 
 
 @dataclass
@@ -100,12 +125,16 @@ class ToolMetadata:
     core_function: Callable
     parameters: List[ToolParameter] = field(default_factory=list)
     dependencies: List[str] = field(default_factory=list)
+    optional_dependencies: List[str] = field(default_factory=list)
     examples: List[str] = field(default_factory=list)
     returns: str = ""
     timeout_seconds: int = 300
     memory_mb: int = 512
     disk_mb: int = 100
     input_validation_fn: Optional[Callable] = None
+    install_hint: Optional[str] = None
+    optional_dependency_note: Optional[str] = None
+    artifact_kinds: List[str] = field(default_factory=list)
 
     def get_signature(self) -> str:
         """Get function signature as string."""
@@ -134,6 +163,88 @@ class ToolMetadata:
             "properties": properties,
             "required": required,
         }
+
+
+def _dependency_import_name(name: str) -> str:
+    return _DEPENDENCY_IMPORT_NAME_MAP.get(name, name)
+
+
+def _module_available(module_name: str) -> bool:
+    return find_spec(_dependency_import_name(module_name)) is not None
+
+
+def dependency_required_extras(name: str) -> List[str]:
+    return list(_DEPENDENCY_REQUIRED_EXTRAS.get(name, []))
+
+
+def tool_dependency_details(tool: ToolMetadata) -> List[Dict[str, Any]]:
+    details: List[Dict[str, Any]] = []
+    for dependency in tool.dependencies:
+        details.append(
+            {
+                "name": dependency,
+                "required": True,
+                "available": _module_available(dependency),
+                "required_extras": dependency_required_extras(dependency),
+            }
+        )
+    for dependency in tool.optional_dependencies:
+        details.append(
+            {
+                "name": dependency,
+                "required": False,
+                "available": _module_available(dependency),
+                "required_extras": dependency_required_extras(dependency),
+                "note": tool.optional_dependency_note,
+            }
+        )
+    return details
+
+
+def tool_install_hint(tool: ToolMetadata) -> Optional[str]:
+    if tool.install_hint:
+        return tool.install_hint
+
+    for dependency in [*tool.dependencies, *tool.optional_dependencies]:
+        hint = _DEPENDENCY_INSTALL_HINTS.get(dependency)
+        if hint:
+            return hint
+    return None
+
+
+def tool_availability(tool: ToolMetadata) -> Dict[str, Any]:
+    missing_required = [
+        dependency for dependency in tool.dependencies if not _module_available(dependency)
+    ]
+    required_extras = sorted(
+        {
+            extra
+            for dependency in [*tool.dependencies, *tool.optional_dependencies]
+            for extra in dependency_required_extras(dependency)
+        }
+    )
+
+    optional_features = []
+    for dependency in tool.optional_dependencies:
+        optional_features.append(
+            {
+                "name": f"{dependency}_backend",
+                "available": _module_available(dependency),
+                "required_extras": dependency_required_extras(dependency),
+                "missing_dependencies": [] if _module_available(dependency) else [dependency],
+                "note": tool.optional_dependency_note
+                or f"Optional backend '{dependency}' is not required for baseline execution.",
+            }
+        )
+
+    return {
+        "status": "available" if not missing_required else "unavailable",
+        "available": not missing_required,
+        "missing_dependencies": missing_required,
+        "required_extras": required_extras,
+        "optional_features": optional_features,
+        "install_hint": tool_install_hint(tool) if missing_required else None,
+    }
 
 
 def _python_type_to_json_type(type_str: str) -> str:
@@ -482,6 +593,10 @@ def _register_default_tools() -> None:
         parameters,
         examples,
         returns: str,
+        optional_dependencies=None,
+        install_hint: Optional[str] = None,
+        optional_dependency_note: Optional[str] = None,
+        artifact_kinds: Optional[List[str]] = None,
     ) -> None:
         ToolRegistry.register(ToolMetadata(
             name=name,
@@ -490,9 +605,13 @@ def _register_default_tools() -> None:
             cost=cost,
             core_function=core_function,
             dependencies=dependencies or [],
+            optional_dependencies=optional_dependencies or [],
             parameters=parameters or [],
             examples=examples or [],
             returns=returns,
+            install_hint=install_hint,
+            optional_dependency_note=optional_dependency_note,
+            artifact_kinds=list(artifact_kinds or []),
         ))
 
     def _register_with_data(
@@ -505,7 +624,14 @@ def _register_default_tools() -> None:
         parameters,
         examples,
         returns: str,
+        optional_dependencies=None,
+        install_hint: Optional[str] = None,
+        optional_dependency_note: Optional[str] = None,
+        artifact_kinds: Optional[List[str]] = None,
     ) -> None:
+        resolved_artifact_kinds = artifact_kinds
+        if resolved_artifact_kinds is None and dependencies and "matplotlib" in dependencies:
+            resolved_artifact_kinds = ["image"]
         _register_tool(
             name=f"{base_name}_with_data",
             description=f"{description} (loads data by run/variable)",
@@ -513,9 +639,13 @@ def _register_default_tools() -> None:
             cost=cost,
             core_function=core_function,
             dependencies=dependencies,
+            optional_dependencies=optional_dependencies,
             parameters=parameters,
             examples=examples,
             returns=f"ToolPayload with structured data and optional artifact refs ({returns})",
+            install_hint=install_hint,
+            optional_dependency_note=optional_dependency_note,
+            artifact_kinds=resolved_artifact_kinds,
         )
 
     # ---------------------------------------------------------------------
@@ -670,7 +800,7 @@ def _register_default_tools() -> None:
         category=ToolCategory.FORECASTING,
         cost=ComputationalCost.HIGH,
         core_function=forecast_arima_with_data,
-        dependencies=["statsforecast", "matplotlib"],
+        dependencies=["statsforecast"],
         parameters=[
             ToolParameter("variable_name", "str", "Variable name to forecast"),
             ToolParameter("unique_id", "str", "Run ID"),
@@ -678,7 +808,7 @@ def _register_default_tools() -> None:
             ToolParameter("season_length", "int", "Seasonal period", optional=True),
         ],
         examples=["Forecast bx001_real for next 20 steps"],
-        returns="ForecastResult with plot",
+        returns="ForecastResult with structured forecast data",
     )
 
     _register_tool(
@@ -703,7 +833,7 @@ def _register_default_tools() -> None:
         category=ToolCategory.FORECASTING,
         cost=ComputationalCost.MEDIUM,
         core_function=forecast_ets_with_data,
-        dependencies=["statsforecast", "matplotlib"],
+        dependencies=["statsforecast"],
         parameters=[
             ToolParameter("variable_name", "str", "Variable name to forecast"),
             ToolParameter("unique_id", "str", "Run ID"),
@@ -711,7 +841,7 @@ def _register_default_tools() -> None:
             ToolParameter("season_length", "int", "Seasonal period", optional=True),
         ],
         examples=["Forecast with Exponential Smoothing"],
-        returns="ForecastResult with plot",
+        returns="ForecastResult with structured forecast data",
     )
 
     _register_tool(
@@ -736,7 +866,7 @@ def _register_default_tools() -> None:
         category=ToolCategory.FORECASTING,
         cost=ComputationalCost.LOW,
         core_function=forecast_theta_with_data,
-        dependencies=["statsforecast", "matplotlib"],
+        dependencies=["statsforecast"],
         parameters=[
             ToolParameter("variable_name", "str", "Variable name to forecast"),
             ToolParameter("unique_id", "str", "Run ID"),
@@ -744,7 +874,7 @@ def _register_default_tools() -> None:
             ToolParameter("season_length", "int", "Seasonal period", optional=True),
         ],
         examples=["Forecast using Theta method"],
-        returns="ForecastResult with plot",
+        returns="ForecastResult with structured forecast data",
     )
 
     _register_tool(
@@ -753,7 +883,12 @@ def _register_default_tools() -> None:
         category=ToolCategory.FORECASTING,
         cost=ComputationalCost.LOW,
         core_function=forecast_seasonal_naive,
-        dependencies=["statsforecast"],
+        dependencies=[],
+        optional_dependencies=["statsforecast"],
+        optional_dependency_note=(
+            "StatsForecast enables optimized seasonal-naive execution and interval support; "
+            "a dependency-light fallback remains available without it."
+        ),
         parameters=[
             ToolParameter("series", "np.ndarray", "Time series data"),
             ToolParameter("horizon", "int", "Forecast horizon", optional=True, default=10),
@@ -769,7 +904,12 @@ def _register_default_tools() -> None:
         category=ToolCategory.FORECASTING,
         cost=ComputationalCost.LOW,
         core_function=forecast_seasonal_naive_with_data,
-        dependencies=["statsforecast", "matplotlib"],
+        dependencies=[],
+        optional_dependencies=["statsforecast"],
+        optional_dependency_note=(
+            "StatsForecast enables optimized seasonal-naive execution and interval support; "
+            "a dependency-light fallback remains available without it."
+        ),
         parameters=[
             ToolParameter("variable_name", "str", "Variable name to forecast"),
             ToolParameter("unique_id", "str", "Run ID"),
@@ -777,7 +917,7 @@ def _register_default_tools() -> None:
             ToolParameter("season_length", "int", "Seasonal period", optional=True),
         ],
         examples=["Forecast by repeating the last seasonal cycle"],
-        returns="ForecastResult with plot",
+        returns="ForecastResult with structured forecast data",
     )
 
     _register_tool(
@@ -802,7 +942,7 @@ def _register_default_tools() -> None:
         category=ToolCategory.FORECASTING,
         cost=ComputationalCost.HIGH,
         core_function=forecast_ensemble_with_data,
-        dependencies=["statsforecast", "matplotlib"],
+        dependencies=["statsforecast"],
         parameters=[
             ToolParameter("variable_name", "str", "Variable name to forecast"),
             ToolParameter("unique_id", "str", "Run ID"),
@@ -811,7 +951,7 @@ def _register_default_tools() -> None:
             ToolParameter("season_length", "int", "Seasonal period", optional=True),
         ],
         examples=["Ensemble forecast for improved accuracy"],
-        returns="MultiForecastResult with plot",
+        returns="MultiForecastResult with structured forecast data",
     )
 
     _register_tool(

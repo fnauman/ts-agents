@@ -46,6 +46,20 @@ def test_workflow_show_json_returns_machine_metadata(capsys):
     assert "availability" in result
     assert "supported_methods" in result["capabilities"]
     assert "seasonal_naive" in result["capabilities"]["supported_methods"]
+    assert "source_options" in result
+    assert "global_options" in result
+    assert "status_contract" in result
+    assert "cli_templates" in result
+    assert "default_output_behavior" in result
+    source_option_names = [option["name"] for option in result["source_options"]]
+    assert "input" in source_option_names
+    assert "input_json" in source_option_names
+    assert "run_id" in source_option_names
+    assert result["default_output_behavior"]["default_output_dir"] == "outputs/forecast"
+    assert any(
+        template == "ts-agents workflow show forecast-series --json"
+        for template in result["cli_templates"]
+    )
 
 
 def test_unknown_workflow_error_uses_generic_hint(capsys):

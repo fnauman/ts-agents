@@ -87,6 +87,18 @@ class TestToolRegistry:
 
         assert "season_length" in param_names
 
+    def test_forecast_seasonal_naive_dependency_contract_reflects_fallback(self):
+        """Seasonal naive should advertise StatsForecast as optional, not required."""
+        from ts_agents.tools.registry import ToolRegistry, tool_availability
+
+        tool = ToolRegistry.get("forecast_seasonal_naive")
+
+        assert tool.dependencies == []
+        assert tool.optional_dependencies == ["statsforecast"]
+        availability = tool_availability(tool)
+        assert availability["available"] is True
+        assert availability["optional_features"][0]["name"] == "statsforecast_backend"
+
     def test_segment_changepoint_with_data_has_expected_params(self):
         """Test segment_changepoint_with_data exposes core controls + compatibility alias."""
         from ts_agents.tools.registry import ToolRegistry

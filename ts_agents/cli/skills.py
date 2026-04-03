@@ -197,13 +197,76 @@ def _extract_markdown_sections(body: str) -> List[Dict[str, Any]]:
     return sections
 
 
+def _normalize_ts_agents_command(command: str) -> str:
+    normalized = " ".join(command.strip().split())
+    if normalized.startswith("uv run ts-agents "):
+        return "ts-agents " + normalized[len("uv run ts-agents ") :]
+    return normalized
+
+
+def _extract_command_sequences(lines: List[str]) -> List[str]:
+    commands: List[str] = []
+    current: List[str] = []
+
+    def _maybe_finalize() -> None:
+        if not current:
+            return
+        commands.append(_normalize_ts_agents_command(" ".join(current)))
+        current.clear()
+
+    for raw_line in lines:
+        stripped = raw_line.strip()
+        if not stripped:
+            _maybe_finalize()
+            continue
+
+        is_start = stripped.startswith("uv run ts-agents ") or stripped.startswith("ts-agents ")
+        if not current and not is_start:
+            continue
+
+        continuation = stripped.endswith("\\")
+        chunk = stripped[:-1].rstrip() if continuation else stripped
+        current.append(chunk)
+
+        if not continuation:
+            _maybe_finalize()
+
+    _maybe_finalize()
+    return commands
+
+
 def _extract_ts_agents_commands(body: str) -> List[str]:
     commands: List[str] = []
+    in_fence = False
+    fence_lines: List[str] = []
+    prose_lines: List[str] = []
+
     for raw_line in body.splitlines():
-        line = raw_line.strip()
-        if line.startswith("uv run ts-agents ") or line.startswith("ts-agents ") or line.startswith("python -m ts_agents "):
-            commands.append(line)
-    return commands
+        stripped = raw_line.strip()
+        if stripped.startswith("```"):
+            if in_fence:
+                commands.extend(_extract_command_sequences(fence_lines))
+                fence_lines = []
+                in_fence = False
+            else:
+                in_fence = True
+            continue
+
+        if in_fence:
+            fence_lines.append(raw_line)
+        else:
+            prose_lines.append(raw_line)
+
+    if fence_lines:
+        commands.extend(_extract_command_sequences(fence_lines))
+
+    commands.extend(_extract_command_sequences(prose_lines))
+
+    unique_commands: List[str] = []
+    for command in commands:
+        if command not in unique_commands:
+            unique_commands.append(command)
+    return unique_commands
 
 
 def get_skill_details(
@@ -221,6 +284,7 @@ def get_skill_details(
         raise ValueError(f"SKILL.md not found in {skill_dir}")
 
     frontmatter, body = parse_skill_frontmatter(skill_file)
+    commands = _extract_ts_agents_commands(body)
     return {
         "name": skill_dir.name,
         "path": str(skill_file),
@@ -229,7 +293,8 @@ def get_skill_details(
         "metadata": frontmatter.get("metadata", {}),
         "frontmatter": frontmatter,
         "sections": _extract_markdown_sections(body),
-        "commands": _extract_ts_agents_commands(body),
+        "commands": commands,
+        "command_templates": commands,
         "body": body,
     }
 
