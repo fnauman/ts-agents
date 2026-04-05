@@ -1,7 +1,16 @@
 """Tests for the comparison module."""
 
+import importlib.util
+
 import numpy as np
 import pytest
+
+
+HAS_STATSFORECAST = importlib.util.find_spec("statsforecast") is not None
+requires_statsforecast = pytest.mark.skipif(
+    not HAS_STATSFORECAST,
+    reason="statsforecast not installed",
+)
 
 
 class TestComparisonResult:
@@ -162,6 +171,7 @@ class TestDecompositionComparison:
 class TestForecastingComparison:
     """Tests for forecasting method comparison."""
 
+    @requires_statsforecast
     def test_compare_forecasting_methods(self):
         """Test comparing forecasting methods."""
         from ts_agents.core.comparison import compare_forecasting_methods
@@ -180,6 +190,7 @@ class TestForecastingComparison:
         assert len(result.methods) >= 1
         assert result.recommendation is not None
 
+    @requires_statsforecast
     def test_forecasting_metrics(self):
         """Test that forecasting comparison includes error metrics."""
         from ts_agents.core.comparison import compare_forecasting_methods

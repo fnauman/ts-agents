@@ -1892,6 +1892,16 @@ def _handle_tool_command(args: argparse.Namespace) -> Tuple[Any, str]:
             lines.append(f"Required extras: {', '.join(result['required_extras'])}")
         if install_hint:
             lines.append(f"Install hint: {install_hint}")
+        optional_features = availability.get("optional_features") or []
+        if optional_features:
+            lines.append("Optional features:")
+            for feature in optional_features:
+                state = "available" if feature.get("available") else "unavailable"
+                extras = feature.get("required_extras") or []
+                extras_suffix = f" extras={','.join(extras)}" if extras else ""
+                note = feature.get("note")
+                detail = f": {note}" if note else ""
+                lines.append(f"- {feature['name']} [{state}]{extras_suffix}{detail}")
         if tool.parameters:
             lines.append("Parameters:")
             for param in tool.parameters:

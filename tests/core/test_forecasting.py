@@ -1,13 +1,23 @@
 """Tests for the forecasting module."""
 
+import importlib.util
+
 import numpy as np
 import pytest
 import pandas as pd
 
 
+HAS_STATSFORECAST = importlib.util.find_spec("statsforecast") is not None
+requires_statsforecast = pytest.mark.skipif(
+    not HAS_STATSFORECAST,
+    reason="statsforecast not installed",
+)
+
+
 class TestForecasting:
     """Tests for forecasting functions."""
 
+    @requires_statsforecast
     def test_forecast_arima(self):
         """Test ARIMA forecasting."""
         from ts_agents.core.forecasting import forecast_arima
@@ -21,6 +31,7 @@ class TestForecasting:
         assert len(result.forecast) == 20
         assert result.horizon == 20
 
+    @requires_statsforecast
     def test_forecast_ets(self):
         """Test ETS forecasting."""
         from ts_agents.core.forecasting import forecast_ets
@@ -32,6 +43,7 @@ class TestForecasting:
         assert result.method == "auto_ets"
         assert len(result.forecast) == 20
 
+    @requires_statsforecast
     def test_forecast_theta(self):
         """Test Theta forecasting."""
         from ts_agents.core.forecasting import forecast_theta
@@ -76,6 +88,7 @@ class TestForecasting:
         assert result.method == "seasonal_naive"
         np.testing.assert_allclose(result.forecast, np.array([1, 2, 3, 4, 1, 2], dtype=float))
 
+    @requires_statsforecast
     def test_forecast_ensemble(self):
         """Test ensemble forecasting."""
         from ts_agents.core.forecasting import forecast_ensemble
@@ -139,6 +152,7 @@ class TestForecasting:
             np.array([1, 2, 3, 4], dtype=float),
         )
 
+    @requires_statsforecast
     def test_forecast_arima_with_season_length(self):
         """Test ARIMA forecasting with season_length parameter."""
         from ts_agents.core.forecasting import forecast_arima
@@ -152,6 +166,7 @@ class TestForecasting:
         assert result.method == "auto_arima"
         assert len(result.forecast) == 12
 
+    @requires_statsforecast
     def test_forecast_ensemble_with_season_length(self):
         """Test ensemble forecasting with season_length parameter."""
         from ts_agents.core.forecasting import forecast_ensemble
@@ -169,6 +184,22 @@ class TestForecasting:
         import ts_agents.core.forecasting.statistical as statistical
 
         captured_freqs = []
+
+        class DummyModel:
+            def __init__(self, season_length=None):
+                self.season_length = season_length
+
+        class AutoARIMA(DummyModel):
+            pass
+
+        class AutoETS(DummyModel):
+            pass
+
+        class AutoTheta(DummyModel):
+            pass
+
+        class SeasonalNaive(DummyModel):
+            pass
 
         class DummyStatsForecast:
             def __init__(self, models, freq, n_jobs):
@@ -188,7 +219,17 @@ class TestForecasting:
                         data[f"{name}-hi-{level[0]}"] = np.zeros(h)
                 return pd.DataFrame(data)
 
-        monkeypatch.setattr(statistical, "StatsForecast", DummyStatsForecast)
+        monkeypatch.setattr(
+            statistical,
+            "_get_statsforecast_components",
+            lambda: (
+                DummyStatsForecast,
+                AutoARIMA,
+                AutoETS,
+                AutoTheta,
+                SeasonalNaive,
+            ),
+        )
 
         t = np.arange(120)
         x = np.sin(2 * np.pi * t / 12)
@@ -208,6 +249,7 @@ class TestForecasting:
         assert captured_freqs == [1, 1, 1, 1, 1]
         assert all(isinstance(freq, int) for freq in captured_freqs)
 
+    @requires_statsforecast
     def test_compare_forecasts(self):
         """Test forecast comparison."""
         from ts_agents.core.forecasting import compare_forecasts

@@ -100,6 +100,30 @@ class TestToolRegistry:
         assert availability["required_extras"] == []
         assert availability["optional_features"][0]["name"] == "statsforecast_backend"
 
+    def test_forecast_seasonal_naive_omits_install_hint_when_only_optional_backend_is_missing(
+        self,
+        monkeypatch,
+    ):
+        """Missing optional backends should not look like missing required deps."""
+        from ts_agents.tools.registry import ToolRegistry, tool_availability
+        import ts_agents.tools.registry as registry_mod
+
+        real_available = registry_mod._module_available
+
+        def fake_available(module_name: str) -> bool:
+            if module_name == "statsforecast":
+                return False
+            return real_available(module_name)
+
+        monkeypatch.setattr(registry_mod, "_module_available", fake_available)
+
+        tool = ToolRegistry.get("forecast_seasonal_naive")
+        availability = tool_availability(tool)
+
+        assert availability["available"] is True
+        assert availability["install_hint"] is None
+        assert availability["optional_features"][0]["available"] is False
+
     def test_segment_changepoint_with_data_has_expected_params(self):
         """Test segment_changepoint_with_data exposes core controls + compatibility alias."""
         from ts_agents.tools.registry import ToolRegistry
