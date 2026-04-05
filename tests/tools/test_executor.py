@@ -1,6 +1,7 @@
 """Tests for tool executor serialization and context handling."""
 
 import json
+import subprocess
 import shutil
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from ts_agents.tools.executor import (
     ToolExecutor,
     _persist_docker_artifacts,
     _persist_subprocess_artifacts,
+    describe_sandbox_backend,
 )
 from ts_agents.tools.results import DecompositionResult as ToolDecompositionResult
 
@@ -202,6 +204,35 @@ def test_local_backend_formats_tool_payload_with_artifacts():
     assert "/tmp/peaks.png" in result.formatted_output
 
 
+def test_describe_sandbox_backend_docker_reports_missing_image(monkeypatch):
+    import ts_agents.tools.executor as executor_mod
+
+    monkeypatch.setattr(executor_mod.shutil, "which", lambda name: "/usr/bin/docker")
+
+    def fake_run(cmd, capture_output=True, text=True, timeout=5):
+        if cmd[:3] == ["docker", "version", "--format"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="29.3.1\n", stderr="")
+        if cmd[:3] == ["docker", "image", "inspect"]:
+            return subprocess.CompletedProcess(
+                cmd,
+                1,
+                stdout="",
+                stderr="Error: No such image: ts-agents-sandbox:latest\n",
+            )
+        raise AssertionError(f"Unexpected command: {cmd}")
+
+    monkeypatch.setattr(executor_mod.subprocess, "run", fake_run)
+
+    status = describe_sandbox_backend("docker")
+
+    assert status["backend"] == "docker"
+    assert status["available"] is False
+    assert status["reason"] == "Docker image 'ts-agents-sandbox:latest' is not available locally."
+    assert "Build or pull 'ts-agents-sandbox:latest'" in status["suggested_fix"]
+    assert status["details"]["image"] == "ts-agents-sandbox:latest"
+    assert "No such image" in status["details"]["image_probe_error"]
+
+
 def test_tool_executor_returns_backend_unavailable_without_fallback(monkeypatch):
     import ts_agents.tools.executor as executor_mod
 
@@ -243,6 +274,53 @@ def test_tool_executor_returns_backend_unavailable_without_fallback(monkeypatch)
     assert result.metadata["backend_requested"] == "docker"
     assert result.metadata["backend_actual"] is None
     assert result.metadata["fallback_allowed"] is False
+
+
+def test_tool_executor_can_fallback_to_local_when_docker_image_is_missing(monkeypatch):
+    import ts_agents.tools.executor as executor_mod
+
+    executor = ToolExecutor(default_backend=SandboxMode.LOCAL)
+
+    def fake_describe(mode):
+        if mode == SandboxMode.DOCKER:
+            return {
+                "backend": "docker",
+                "available": False,
+                "reason": "Docker image 'ts-agents-sandbox:latest' is not available locally.",
+                "suggested_fix": "Build or pull 'ts-agents-sandbox:latest', set TS_AGENTS_DOCKER_IMAGE to an available image, or run with --sandbox local.",
+                "requirements": [],
+                "details": {"image": "ts-agents-sandbox:latest"},
+                "description": "Containerized execution through Docker.",
+            }
+        return {
+            "backend": mode.value,
+            "available": True,
+            "reason": None,
+            "suggested_fix": None,
+            "requirements": [],
+            "details": {},
+            "description": "backend",
+        }
+
+    monkeypatch.setattr(executor_mod, "describe_sandbox_backend", fake_describe)
+    monkeypatch.setattr(executor.backends[SandboxMode.DOCKER], "is_available", lambda: True)
+    monkeypatch.setattr(executor.backends[SandboxMode.LOCAL], "is_available", lambda: True)
+
+    result = executor.execute(
+        "describe_series",
+        {"series": [1, 2, 3]},
+        context=ExecutionContext(
+            sandbox_mode="docker",
+            allow_fallback=True,
+            fallback_backend="local",
+        ),
+    )
+
+    assert result.success is True
+    assert result.metadata["backend_requested"] == "docker"
+    assert result.metadata["backend_actual"] == "local"
+    assert result.metadata["fallback_used"] is True
+    assert result.metadata["fallback_allowed"] is True
 
 
 def test_tool_executor_can_fallback_to_local_when_allowed(monkeypatch):
