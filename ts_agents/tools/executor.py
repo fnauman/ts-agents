@@ -77,6 +77,10 @@ def _first_nonempty_line(*chunks: str) -> Optional[str]:
     return None
 
 
+def _docker_image_name() -> str:
+    return os.environ.get("TS_AGENTS_DOCKER_IMAGE", "ts-agents-sandbox:latest")
+
+
 def describe_sandbox_backend(mode: Union["SandboxMode", str]) -> Dict[str, Any]:
     """Return a structured readiness probe for one sandbox backend."""
     sandbox_mode = _coerce_sandbox_mode(mode)
@@ -137,10 +141,48 @@ def describe_sandbox_backend(mode: Union["SandboxMode", str]) -> Dict[str, Any]:
             status["suggested_fix"] = "Start Docker and retry, or run with --sandbox local."
             return status
 
+        image = _docker_image_name()
+        try:
+            image_probe = subprocess.run(
+                ["docker", "image", "inspect", image, "--format", "{{.Id}}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except Exception as exc:
+            status["available"] = False
+            status["reason"] = f"Docker image probe failed: {exc}"
+            status["suggested_fix"] = (
+                f"Build or pull '{image}', set TS_AGENTS_DOCKER_IMAGE to an available image, "
+                "or run with --sandbox local."
+            )
+            status["details"] = {
+                "docker_path": docker_path,
+                "server_version": probe.stdout.strip() or None,
+                "image": image,
+            }
+            return status
+
+        if image_probe.returncode != 0:
+            status["available"] = False
+            status["reason"] = f"Docker image '{image}' is not available locally."
+            status["suggested_fix"] = (
+                f"Build or pull '{image}', set TS_AGENTS_DOCKER_IMAGE to an available image, "
+                "or run with --sandbox local."
+            )
+            status["details"] = {
+                "docker_path": docker_path,
+                "server_version": probe.stdout.strip() or None,
+                "image": image,
+                "image_probe_error": _first_nonempty_line(image_probe.stderr, image_probe.stdout),
+            }
+            return status
+
         status["details"] = {
             "docker_path": docker_path,
             "server_version": probe.stdout.strip() or None,
-            "image": os.environ.get("TS_AGENTS_DOCKER_IMAGE", "ts-agents-sandbox:latest"),
+            "image": image,
+            "image_id": image_probe.stdout.strip() or None,
         }
         return status
 
