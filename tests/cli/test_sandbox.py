@@ -41,6 +41,35 @@ def test_sandbox_doctor_local_json_returns_backend_status(capsys):
     assert payload["result"]["available"] is True
 
 
+def test_sandbox_doctor_docker_json_reports_missing_image(monkeypatch, capsys):
+    def fake_describe(_backend, context=None, backend=None):
+        return {
+            "backend": "docker",
+            "description": "Containerized execution through Docker.",
+            "available": False,
+            "reason": "Docker image 'ts-agents-sandbox:latest' is not available locally.",
+            "suggested_fix": "Build or pull 'ts-agents-sandbox:latest', set TS_AGENTS_DOCKER_IMAGE to an available image, or run with --sandbox local.",
+            "requirements": [
+                "Docker CLI installed.",
+                "Docker daemon running.",
+                "Sandbox image available.",
+            ],
+            "details": {"image": "ts-agents-sandbox:latest"},
+        }
+
+    import ts_agents.tools.executor as executor_mod
+    monkeypatch.setattr(executor_mod, "describe_sandbox_backend", fake_describe)
+
+    code = run(["sandbox", "doctor", "docker", "--json"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["name"] == "docker"
+    assert payload["result"]["available"] is False
+    assert payload["result"]["reason"] == "Docker image 'ts-agents-sandbox:latest' is not available locally."
+
+
 def test_tool_run_backend_unavailable_returns_typed_json(monkeypatch, capsys):
     import ts_agents.tools.executor as executor_mod
 

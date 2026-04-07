@@ -372,6 +372,7 @@ def test_workflow_executor_skips_host_availability_gate_for_docker(monkeypatch):
     from ts_agents.tools.executor import ExecutionContext, ExecutionResult, ExecutionStatus, SandboxMode
 
     backend_calls = {}
+    probe_calls = {}
 
     class FakeDockerBackend:
         def is_available(self):
@@ -408,7 +409,9 @@ def test_workflow_executor_skips_host_availability_gate_for_docker(monkeypatch):
     monkeypatch.setattr(
         workflow_executor_mod,
         "describe_sandbox_backend",
-        lambda mode: {
+        lambda mode, context=None, backend=None: probe_calls.update(
+            {"mode": mode, "context": context, "backend": backend}
+        ) or {
             "backend": mode.value,
             "available": True,
             "reason": None,
@@ -419,15 +422,19 @@ def test_workflow_executor_skips_host_availability_gate_for_docker(monkeypatch):
         },
     )
 
+    context = ExecutionContext(sandbox_mode="docker")
     result = executor.execute(
         "forecast-series",
         SeriesInput(series=np.array([1.0, 2.0, 3.0]), source_type="inline_json", label="series"),
         {"output_dir": "outputs/forecast", "horizon": 2, "methods": ["arima"]},
-        context=ExecutionContext(sandbox_mode="docker"),
+        context=context,
     )
 
     assert result.success is True
     assert backend_calls["tool_name"] == "workflow:forecast-series"
+    assert probe_calls["mode"] == SandboxMode.DOCKER
+    assert probe_calls["context"] is context
+    assert probe_calls["backend"] is executor.backends[SandboxMode.DOCKER]
 
 
 def test_run_serialized_workflow_bundles_remote_artifacts(monkeypatch, tmp_path):
@@ -601,7 +608,7 @@ def test_workflow_executor_materializes_remote_artifacts_to_requested_output_dir
     monkeypatch.setattr(
         workflow_executor_mod,
         "describe_sandbox_backend",
-        lambda mode: {
+        lambda mode, context=None, backend=None: {
             "backend": mode.value,
             "available": True,
             "reason": None,

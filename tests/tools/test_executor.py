@@ -2,6 +2,7 @@
 
 import json
 import shutil
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -18,6 +19,7 @@ from ts_agents.tools.executor import (
     ToolExecutor,
     _persist_docker_artifacts,
     _persist_subprocess_artifacts,
+    describe_sandbox_backend,
 )
 from ts_agents.tools.results import DecompositionResult as ToolDecompositionResult
 
@@ -202,12 +204,156 @@ def test_local_backend_formats_tool_payload_with_artifacts():
     assert "/tmp/peaks.png" in result.formatted_output
 
 
+def test_describe_sandbox_backend_docker_reports_missing_image(monkeypatch):
+    import ts_agents.tools.executor as executor_mod
+
+    monkeypatch.setattr(executor_mod.shutil, "which", lambda name: "/usr/bin/docker")
+
+    def fake_run(cmd, capture_output=True, text=True, timeout=5):
+        if cmd[:3] == ["docker", "version", "--format"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="29.3.1\n", stderr="")
+        if cmd[:3] == ["docker", "image", "inspect"]:
+            return subprocess.CompletedProcess(
+                cmd,
+                1,
+                stdout="",
+                stderr="Error: No such image: ts-agents-sandbox:latest\n",
+            )
+        raise AssertionError(f"Unexpected command: {cmd}")
+
+    monkeypatch.setattr(executor_mod.subprocess, "run", fake_run)
+
+    status = describe_sandbox_backend("docker")
+
+    assert status["backend"] == "docker"
+    assert status["available"] is False
+    assert status["reason"] == "Docker image 'ts-agents-sandbox:latest' is not available locally."
+    assert "Build or pull 'ts-agents-sandbox:latest'" in status["suggested_fix"]
+    assert status["details"]["image"] == "ts-agents-sandbox:latest"
+    assert "No such image" in status["details"]["image_probe_error"]
+
+
+def test_describe_sandbox_backend_docker_honors_context_image_override(monkeypatch):
+    import ts_agents.tools.executor as executor_mod
+
+    seen_images = []
+
+    monkeypatch.setattr(executor_mod.shutil, "which", lambda name: "/usr/bin/docker")
+
+    def fake_run(cmd, capture_output=True, text=True, timeout=5):
+        if cmd[:3] == ["docker", "version", "--format"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="29.3.1\n", stderr="")
+        if cmd[:3] == ["docker", "image", "inspect"]:
+            seen_images.append(cmd[3])
+            return subprocess.CompletedProcess(cmd, 0, stdout="sha256:custom\n", stderr="")
+        raise AssertionError(f"Unexpected command: {cmd}")
+
+    monkeypatch.setattr(executor_mod.subprocess, "run", fake_run)
+
+    status = describe_sandbox_backend(
+        "docker",
+        context=ExecutionContext(sandbox_mode="docker", docker_image="custom:ready"),
+    )
+
+    assert status["available"] is True
+    assert status["details"]["image"] == "custom:ready"
+    assert status["details"]["image_id"] == "sha256:custom"
+    assert seen_images == ["custom:ready"]
+
+
+def test_describe_sandbox_backend_docker_honors_backend_image_default(monkeypatch):
+    import ts_agents.tools.executor as executor_mod
+
+    seen_images = []
+
+    monkeypatch.delenv("TS_AGENTS_DOCKER_IMAGE", raising=False)
+    monkeypatch.setattr(executor_mod.shutil, "which", lambda name: "/usr/bin/docker")
+
+    def fake_run(cmd, capture_output=True, text=True, timeout=5):
+        if cmd[:3] == ["docker", "version", "--format"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="29.3.1\n", stderr="")
+        if cmd[:3] == ["docker", "image", "inspect"]:
+            seen_images.append(cmd[3])
+            return subprocess.CompletedProcess(cmd, 0, stdout="sha256:backend\n", stderr="")
+        raise AssertionError(f"Unexpected command: {cmd}")
+
+    monkeypatch.setattr(executor_mod.subprocess, "run", fake_run)
+
+    status = describe_sandbox_backend(
+        "docker",
+        backend=executor_mod.DockerBackend(image="backend:ready"),
+    )
+
+    assert status["available"] is True
+    assert status["details"]["image"] == "backend:ready"
+    assert status["details"]["image_id"] == "sha256:backend"
+    assert seen_images == ["backend:ready"]
+
+
+def test_tool_executor_passes_context_and_backend_to_readiness_probe(monkeypatch):
+    import ts_agents.tools.executor as executor_mod
+
+    class FakeDockerBackend:
+        image = "backend:ready"
+
+        def is_available(self):
+            return True
+
+        def execute(self, tool_name, func, params, context):
+            return ExecutionResult(
+                status=ExecutionStatus.SUCCESS,
+                result={"kind": "analysis", "data": {}, "artifacts": []},
+                formatted_output="ok",
+                metadata={"backend": "docker"},
+            )
+
+    executor = ToolExecutor(
+        default_backend=SandboxMode.LOCAL,
+        backends={
+            SandboxMode.LOCAL: LocalBackend(),
+            SandboxMode.DOCKER: FakeDockerBackend(),
+            SandboxMode.DAYTONA: executor_mod.DaytonaBackend(),
+            SandboxMode.MODAL: executor_mod.ModalBackend(),
+            SandboxMode.SUBPROCESS: executor_mod.SubprocessBackend(),
+        },
+    )
+    observed = {}
+
+    def fake_describe(mode, context=None, backend=None):
+        observed["mode"] = mode
+        observed["context"] = context
+        observed["backend"] = backend
+        return {
+            "backend": mode.value,
+            "available": True,
+            "reason": None,
+            "suggested_fix": None,
+            "requirements": [],
+            "details": {},
+            "description": "backend",
+        }
+
+    monkeypatch.setattr(executor_mod, "describe_sandbox_backend", fake_describe)
+
+    context = ExecutionContext(sandbox_mode="docker", docker_image="custom:ready")
+    result = executor.execute(
+        "describe_series",
+        {"series": [1, 2, 3]},
+        context=context,
+    )
+
+    assert result.success is True
+    assert observed["mode"] == SandboxMode.DOCKER
+    assert observed["context"] is context
+    assert observed["backend"] is executor.backends[SandboxMode.DOCKER]
+
+
 def test_tool_executor_returns_backend_unavailable_without_fallback(monkeypatch):
     import ts_agents.tools.executor as executor_mod
 
     executor = ToolExecutor(default_backend=SandboxMode.LOCAL)
 
-    def fake_describe(mode):
+    def fake_describe(mode, context=None, backend=None):
         if mode == SandboxMode.DOCKER:
             return {
                 "backend": "docker",
@@ -245,12 +391,59 @@ def test_tool_executor_returns_backend_unavailable_without_fallback(monkeypatch)
     assert result.metadata["fallback_allowed"] is False
 
 
+def test_tool_executor_can_fallback_to_local_when_docker_image_is_missing(monkeypatch):
+    import ts_agents.tools.executor as executor_mod
+
+    executor = ToolExecutor(default_backend=SandboxMode.LOCAL)
+
+    def fake_describe(mode, context=None, backend=None):
+        if mode == SandboxMode.DOCKER:
+            return {
+                "backend": "docker",
+                "available": False,
+                "reason": "Docker image 'ts-agents-sandbox:latest' is not available locally.",
+                "suggested_fix": "Build or pull 'ts-agents-sandbox:latest', set TS_AGENTS_DOCKER_IMAGE to an available image, or run with --sandbox local.",
+                "requirements": [],
+                "details": {"image": "ts-agents-sandbox:latest"},
+                "description": "Containerized execution through Docker.",
+            }
+        return {
+            "backend": mode.value,
+            "available": True,
+            "reason": None,
+            "suggested_fix": None,
+            "requirements": [],
+            "details": {},
+            "description": "backend",
+        }
+
+    monkeypatch.setattr(executor_mod, "describe_sandbox_backend", fake_describe)
+    monkeypatch.setattr(executor.backends[SandboxMode.DOCKER], "is_available", lambda: True)
+    monkeypatch.setattr(executor.backends[SandboxMode.LOCAL], "is_available", lambda: True)
+
+    result = executor.execute(
+        "describe_series",
+        {"series": [1, 2, 3]},
+        context=ExecutionContext(
+            sandbox_mode="docker",
+            allow_fallback=True,
+            fallback_backend="local",
+        ),
+    )
+
+    assert result.success is True
+    assert result.metadata["backend_requested"] == "docker"
+    assert result.metadata["backend_actual"] == "local"
+    assert result.metadata["fallback_used"] is True
+    assert result.metadata["fallback_allowed"] is True
+
+
 def test_tool_executor_can_fallback_to_local_when_allowed(monkeypatch):
     import ts_agents.tools.executor as executor_mod
 
     executor = ToolExecutor(default_backend=SandboxMode.LOCAL)
 
-    def fake_describe(mode):
+    def fake_describe(mode, context=None, backend=None):
         if mode == SandboxMode.DOCKER:
             return {
                 "backend": "docker",
@@ -296,7 +489,7 @@ def test_tool_executor_rejects_unavailable_fallback_backend(monkeypatch):
 
     executor = ToolExecutor(default_backend=SandboxMode.LOCAL)
 
-    def fake_describe(mode):
+    def fake_describe(mode, context=None, backend=None):
         if mode == SandboxMode.DOCKER:
             return {
                 "backend": "docker",
