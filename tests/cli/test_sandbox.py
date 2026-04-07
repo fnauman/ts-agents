@@ -42,7 +42,7 @@ def test_sandbox_doctor_local_json_returns_backend_status(capsys):
 
 
 def test_sandbox_doctor_docker_json_reports_missing_image(monkeypatch, capsys):
-    def fake_describe(_backend):
+    def fake_describe(_backend, context=None, backend=None):
         return {
             "backend": "docker",
             "description": "Containerized execution through Docker.",

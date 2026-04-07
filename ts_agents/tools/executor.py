@@ -77,11 +77,26 @@ def _first_nonempty_line(*chunks: str) -> Optional[str]:
     return None
 
 
-def _docker_image_name() -> str:
-    return os.environ.get("TS_AGENTS_DOCKER_IMAGE", "ts-agents-sandbox:latest")
+def _docker_image_name(
+    *,
+    context: Optional["ExecutionContext"] = None,
+    backend: Optional["ExecutorBackend"] = None,
+) -> str:
+    """Resolve the Docker image using the same precedence as execution."""
+    return (
+        getattr(context, "docker_image", None)
+        or os.environ.get("TS_AGENTS_DOCKER_IMAGE")
+        or getattr(backend, "image", None)
+        or "ts-agents-sandbox:latest"
+    )
 
 
-def describe_sandbox_backend(mode: Union["SandboxMode", str]) -> Dict[str, Any]:
+def describe_sandbox_backend(
+    mode: Union["SandboxMode", str],
+    *,
+    context: Optional["ExecutionContext"] = None,
+    backend: Optional["ExecutorBackend"] = None,
+) -> Dict[str, Any]:
     """Return a structured readiness probe for one sandbox backend."""
     sandbox_mode = _coerce_sandbox_mode(mode)
     requirements = {
@@ -141,7 +156,7 @@ def describe_sandbox_backend(mode: Union["SandboxMode", str]) -> Dict[str, Any]:
             status["suggested_fix"] = "Start Docker and retry, or run with --sandbox local."
             return status
 
-        image = _docker_image_name()
+        image = _docker_image_name(context=context, backend=backend)
         try:
             image_probe = subprocess.run(
                 ["docker", "image", "inspect", image, "--format", "{{.Id}}"],
@@ -832,11 +847,7 @@ class DockerBackend(ExecutorBackend):
                 metadata={"tool_name": tool_name, "backend": "docker"},
             )
 
-        image = (
-            context.docker_image
-            or os.environ.get("TS_AGENTS_DOCKER_IMAGE")
-            or self.image
-        )
+        image = _docker_image_name(context=context, backend=self)
         timeout_s = context.timeout_seconds or int(os.environ.get("TS_AGENTS_DOCKER_TIMEOUT", "300"))
 
         # Resource defaults (best-effort; Docker may enforce its own limits)
@@ -1806,8 +1817,12 @@ class ToolExecutor:
         # Get execution backend
         requested_backend = context.sandbox_mode
         actual_backend = context.sandbox_mode
-        requested_status = describe_sandbox_backend(requested_backend)
         backend = self.backends.get(requested_backend)
+        requested_status = describe_sandbox_backend(
+            requested_backend,
+            context=context,
+            backend=backend,
+        )
         fallback_backend = context.fallback_backend or SandboxMode.LOCAL
 
         if backend is None or not requested_status["available"] or not backend.is_available():
@@ -1839,8 +1854,12 @@ class ToolExecutor:
                     },
                 )
 
-            fallback_status = describe_sandbox_backend(fallback_backend)
             backend = self.backends.get(fallback_backend)
+            fallback_status = describe_sandbox_backend(
+                fallback_backend,
+                context=context,
+                backend=backend,
+            )
             if backend is None or not fallback_status["available"] or not backend.is_available():
                 return ExecutionResult(
                     status=ExecutionStatus.FAILED,

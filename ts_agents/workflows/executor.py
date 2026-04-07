@@ -281,8 +281,12 @@ class WorkflowExecutor:
 
         requested_backend = context.sandbox_mode
         actual_backend = context.sandbox_mode
-        requested_status = describe_sandbox_backend(requested_backend)
         backend = self.backends.get(requested_backend)
+        requested_status = describe_sandbox_backend(
+            requested_backend,
+            context=context,
+            backend=backend,
+        )
         fallback_backend = context.fallback_backend or SandboxMode.LOCAL
 
         if backend is None or not requested_status["available"] or not backend.is_available():
@@ -314,8 +318,12 @@ class WorkflowExecutor:
                     },
                 )
 
-            fallback_status = describe_sandbox_backend(fallback_backend)
             backend = self.backends.get(fallback_backend)
+            fallback_status = describe_sandbox_backend(
+                fallback_backend,
+                context=context,
+                backend=backend,
+            )
             if backend is None or not fallback_status["available"] or not backend.is_available():
                 return ExecutionResult(
                     status=ExecutionStatus.FAILED,
