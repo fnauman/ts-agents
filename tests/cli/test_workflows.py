@@ -125,6 +125,42 @@ def test_workflow_run_inspect_series_accepts_stdin_json(monkeypatch, capsys, tmp
     assert payload["result"]["data"]["autocorrelation"]["requested_max_lag"] == 8
 
 
+def test_workflow_run_manifest_sync_write_failure_does_not_fail_cli(monkeypatch, capsys, tmp_path):
+    import importlib
+
+    cli_main = importlib.import_module("ts_agents.cli.main")
+    original_write_output = cli_main.write_output
+
+    def flaky_write_output(content, path):
+        if str(path).endswith("run_manifest.json"):
+            raise OSError("disk full")
+        return original_write_output(content, path)
+
+    monkeypatch.setattr(cli_main, "write_output", flaky_write_output)
+
+    output_dir = tmp_path / "inspect"
+    code = cli_main.run(
+        [
+            "workflow",
+            "run",
+            "inspect-series",
+            "--input-json",
+            '{"series":[1,2,3,4,5]}',
+            "--output-dir",
+            str(output_dir),
+            "--skip-plots",
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["result"]["data"]["execution"]["backend_requested"] == "local"
+    assert payload["result"]["data"]["execution"]["backend_actual"] == "local"
+    assert (output_dir / "run_manifest.json").exists()
+
+
 def test_workflow_run_inspect_series_supports_subprocess_sandbox(capsys, tmp_path):
     output_dir = tmp_path / "inspect_subprocess"
     code = run(

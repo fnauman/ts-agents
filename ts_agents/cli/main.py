@@ -676,7 +676,10 @@ def _synchronize_workflow_manifest(result: Any, execution: Any) -> None:
         manifest_payload["execution"] = dict(execution_metadata)
 
     payload_text = render_output(to_jsonable(manifest_payload), json_output=True)
-    write_output(payload_text, str(manifest_path))
+    try:
+        write_output(payload_text, str(manifest_path))
+    except OSError:
+        return
 
 
 def _quality_payload(result: Any) -> Tuple[Optional[str], Optional[bool], Optional[bool]]:
