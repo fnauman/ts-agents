@@ -4,12 +4,15 @@ title: "Project Philosophy"
 
 ## Scope
 
-`ts-agents` aims to be a practical "personal assistant data scientist" workbench
-for time-series tasks: fast, repeatable analysis with inspectable outputs.
+`ts-agents` aims to be a CLI toolkit that lets **autonomous agents** do real,
+reproducible time-series work over long, multi-turn sessions. The same surface
+doubles as a practical "personal assistant data scientist" workbench for
+humans: fast, repeatable analysis with inspectable outputs.
 
 It is not intended to be a monolithic end-user GUI product, and it is not
-"just an agent framework." The durable value is in tool contracts, domain
-priors, and reproducible execution.
+"just an agent framework." The durable value is in machine-readable tool
+contracts, domain priors, and reproducible execution that outlives any
+specific agent runtime.
 
 ## Core Principles
 
@@ -22,7 +25,41 @@ Why:
 
 - easy scripting and CI integration
 - easy debugging from command/log/artifact traces
-- easier harness swaps (Codex, Claude Code, custom agents)
+- easier harness swaps (Codex, Claude Code, custom agents) — the CLI outlives
+  the agent runtime
+
+### 1b. Machine-Readable Envelope For Autonomous Agents
+
+`--json` output is versioned (`schema_version`), strict (no raw `NaN`), and
+typed. CLI envelopes carry top-level `quality_status`, `degraded`, and
+`requires_review`; workflow payloads carry `result.status` and
+`result.data.quality_flags`. Exit codes are typed for validation, dependency,
+permission, and timeout failures.
+
+`ts-agents capabilities --json`, `workflow show --json`, and `tool show --json`
+are the agent bootstrap and discovery surface: they expose `cli_templates`,
+`source_options`, `global_options`, `status_contract`, and
+`default_output_behavior` so an agent can plan commands from metadata rather
+than hardcoded knowledge.
+
+Why:
+
+- agents can branch on failure mode instead of parsing prose
+- bootstrap and discovery are a single round-trip
+- new agent runtimes can integrate without code changes in `ts-agents`
+
+### 1c. Run Lifecycle As First-Class Metadata
+
+Every workflow run gets a generated run ID, a run-scoped directory under
+`outputs/<workflow>/<run-id>/`, a `run_manifest.json` capturing inputs/params/
+execution backend metadata/artifacts, and non-clobbering defaults with explicit
+`--overwrite` / `--resume` semantics.
+
+Why:
+
+- long autonomous sessions remain reproducible and resumable
+- retry loops don't corrupt previous outputs
+- downstream steps can materialize artifacts from any working directory
 
 ### 2. Framework Adapters, Not Framework Lock-In
 

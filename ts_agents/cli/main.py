@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from difflib import get_close_matches
 from functools import partial
+from importlib.util import find_spec
 import json
 import os
 from pathlib import Path
@@ -24,6 +25,65 @@ from .output import (
     to_jsonable,
     write_output,
 )
+
+
+_INSTALL_EXTRA_METADATA: Dict[str, Dict[str, Any]] = {
+    "viz": {
+        "install_spec": "ts-agents[viz]",
+        "dependencies": ["matplotlib"],
+        "description": "Plot artifacts and visualization helpers.",
+    },
+    "ui": {
+        "install_spec": "ts-agents[ui]",
+        "dependencies": ["gradio", "matplotlib"],
+        "description": "Gradio UI and hosted/manual demo entrypoints.",
+    },
+    "agents": {
+        "install_spec": "ts-agents[agents]",
+        "dependencies": ["langchain", "langchain_core", "langchain_openai"],
+        "description": "Built-in agent entrypoints and orchestration adapters.",
+    },
+    "decomposition": {
+        "install_spec": "ts-agents[decomposition]",
+        "dependencies": ["statsmodels"],
+        "description": "Statsmodels-backed decomposition methods.",
+    },
+    "forecasting": {
+        "install_spec": "ts-agents[forecasting]",
+        "dependencies": ["statsforecast"],
+        "description": "StatsForecast-backed ARIMA/ETS/Theta forecasting methods.",
+    },
+    "patterns": {
+        "install_spec": "ts-agents[patterns]",
+        "dependencies": ["ruptures", "stumpy"],
+        "description": "Pattern, changepoint, and matrix-profile tooling.",
+    },
+    "classification": {
+        "install_spec": "ts-agents[classification]",
+        "dependencies": ["aeon", "sklearn"],
+        "description": "Activity-recognition and classifier evaluation workflows.",
+    },
+}
+
+_INSTALL_PROFILE_GROUPS: Dict[str, List[str]] = {
+    "recommended": [
+        "classification",
+        "ui",
+        "agents",
+        "viz",
+        "forecasting",
+        "decomposition",
+    ],
+    "all": [
+        "classification",
+        "ui",
+        "agents",
+        "viz",
+        "forecasting",
+        "decomposition",
+        "patterns",
+    ],
+}
 
 
 def _parse_bool(raw: str) -> bool:
@@ -48,6 +108,68 @@ class TSArgumentParser(argparse.ArgumentParser):
             partial(type(self), exit_on_error=self._ts_exit_on_error),
         )
         return super().add_subparsers(**kwargs)
+
+
+def _module_is_available(module_name: str) -> bool:
+    return find_spec(module_name) is not None
+
+
+def _detect_install_profile() -> Dict[str, Any]:
+    extras: Dict[str, Dict[str, Any]] = {}
+    active_extras: List[str] = []
+    for extra, metadata in _INSTALL_EXTRA_METADATA.items():
+        missing_dependencies = [
+            dependency
+            for dependency in metadata["dependencies"]
+            if not _module_is_available(dependency)
+        ]
+        available = not missing_dependencies
+        if available:
+            active_extras.append(extra)
+        extras[extra] = {
+            "install_spec": metadata["install_spec"],
+            "description": metadata["description"],
+            "available": available,
+            "missing_dependencies": missing_dependencies,
+        }
+
+    if all(extras[extra]["available"] for extra in _INSTALL_PROFILE_GROUPS["all"]):
+        current_profile = "all"
+    elif all(extras[extra]["available"] for extra in _INSTALL_PROFILE_GROUPS["recommended"]):
+        current_profile = "recommended"
+    elif active_extras:
+        current_profile = "custom"
+    else:
+        current_profile = "base"
+
+    return {
+        "package": "ts-agents",
+        "base_install": "ts-agents",
+        "current_profile": current_profile,
+        "recommended_install": "ts-agents[recommended]",
+        "all_features_install": "ts-agents[all]",
+        "active_extras": active_extras,
+        "profiles": {
+            "base": {
+                "install_spec": "ts-agents",
+                "description": (
+                    "CLI-first base install with discovery, inspect-series, and the "
+                    "seasonal_naive forecasting baseline."
+                ),
+            },
+            "recommended": {
+                "install_spec": "ts-agents[recommended]",
+                "description": "Demo-friendly profile covering the main workflow stack.",
+                "extras": list(_INSTALL_PROFILE_GROUPS["recommended"]),
+            },
+            "all": {
+                "install_spec": "ts-agents[all]",
+                "description": "Full optional feature set, including patterns tooling.",
+                "extras": list(_INSTALL_PROFILE_GROUPS["all"]),
+            },
+        },
+        "extras": extras,
+    }
 
 
 def _maybe_number(raw: str) -> Any:
@@ -476,6 +598,85 @@ def _execution_payload(execution: Any) -> Optional[CLIExecution]:
         duration_ms=getattr(execution, "duration_ms", None),
         metadata=metadata,
     )
+
+
+def _workflow_execution_metadata(execution: Any) -> Dict[str, Any]:
+    metadata = getattr(execution, "metadata", {}) or {}
+    backend_requested = metadata.get("backend_requested")
+    backend_actual = metadata.get("backend_actual") or metadata.get("backend")
+    execution_metadata = {
+        "backend_requested": backend_requested,
+        "backend_actual": backend_actual,
+        "fallback_allowed": metadata.get("fallback_allowed"),
+        "fallback_used": metadata.get("fallback_used"),
+        "fallback_backend": metadata.get("fallback_backend"),
+    }
+    return {key: value for key, value in execution_metadata.items() if value is not None}
+
+
+def _synchronize_workflow_manifest(result: Any, execution: Any) -> None:
+    if isinstance(result, dict):
+        data = result.get("data")
+        status = result.get("status")
+        summary = result.get("summary")
+        warnings = result.get("warnings") or []
+        artifacts = result.get("artifacts")
+        provenance = result.get("provenance")
+    else:
+        data = getattr(result, "data", None)
+        status = getattr(result, "status", None)
+        summary = getattr(result, "summary", None)
+        warnings = getattr(result, "warnings", []) or []
+        artifacts = getattr(result, "artifacts", None)
+        provenance = getattr(result, "provenance", None)
+
+    if not isinstance(data, dict):
+        return
+
+    execution_metadata = _workflow_execution_metadata(execution)
+    if execution_metadata:
+        data["execution"] = dict(execution_metadata)
+        run_metadata = data.get("run")
+        if isinstance(run_metadata, dict):
+            run_metadata["execution"] = dict(execution_metadata)
+
+    manifest_path_raw = data.get("manifest_path")
+    if not isinstance(manifest_path_raw, str):
+        return
+
+    manifest_path = Path(manifest_path_raw)
+    if not manifest_path.exists():
+        return
+
+    try:
+        manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return
+    if not isinstance(manifest_payload, dict):
+        return
+
+    if isinstance(status, str):
+        manifest_payload["status"] = status
+    if isinstance(summary, str):
+        manifest_payload["summary"] = summary
+    if isinstance(data.get("output_dir"), str):
+        manifest_payload["output_dir"] = data["output_dir"]
+    manifest_payload["manifest_path"] = str(manifest_path)
+    if isinstance(data.get("run_id"), str):
+        manifest_payload["run_id"] = data["run_id"]
+    if isinstance(data.get("source"), dict):
+        manifest_payload["source"] = to_jsonable(data["source"])
+    manifest_payload["warnings"] = to_jsonable(warnings)
+    manifest_payload["quality_flags"] = to_jsonable(data.get("quality_flags") or [])
+    if isinstance(artifacts, list):
+        manifest_payload["artifacts"] = to_jsonable(artifacts)
+    if provenance is not None:
+        manifest_payload["provenance"] = to_jsonable(provenance)
+    if execution_metadata:
+        manifest_payload["execution"] = dict(execution_metadata)
+
+    payload_text = render_output(to_jsonable(manifest_payload), json_output=True)
+    write_output(payload_text, str(manifest_path))
 
 
 def _quality_payload(result: Any) -> Tuple[Optional[str], Optional[bool], Optional[bool]]:
@@ -1758,6 +1959,7 @@ def _handle_capabilities_command(args: argparse.Namespace) -> Tuple[Any, str]:
     tools = ToolRegistry.list_all()
     available_tools = sum(1 for tool in tools if tool_availability(tool)["available"])
     tools_by_category = ToolRegistry.get_tools_for_category_summary()
+    install_profile = _detect_install_profile()
 
     result = {
         "entrypoints": {
@@ -1780,6 +1982,7 @@ def _handle_capabilities_command(args: argparse.Namespace) -> Tuple[Any, str]:
                 "ts-agents sandbox doctor <backend> --json",
             ],
         },
+        "install_profile": install_profile,
         "status_contract": _capabilities_status_contract(),
         "recommended_entrypoints": [
             "Start with `workflow list --json` for public workflows.",
@@ -1807,6 +2010,7 @@ def _handle_capabilities_command(args: argparse.Namespace) -> Tuple[Any, str]:
         "- Start with workflow discovery for public automation surfaces.",
         f"- Workflows: {len(workflows)}",
         f"- Tools: {len(tools)} total, {available_tools} currently available",
+        f"- Install profile: {install_profile['current_profile']}",
         f"- Default sandbox backend: {result['sandboxes']['default_backend']}",
     ]
     return result, "\n".join(lines)
@@ -2150,6 +2354,7 @@ def _handle_workflow_command(args: argparse.Namespace) -> Tuple[Any, Optional[st
             raise execution.error
         raise RuntimeError(execution.formatted_output or "Workflow execution failed")
 
+    _synchronize_workflow_manifest(execution.result, execution)
     return execution.result, execution.formatted_output or None
 
 

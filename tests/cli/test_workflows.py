@@ -114,6 +114,13 @@ def test_workflow_run_inspect_series_accepts_stdin_json(monkeypatch, capsys, tmp
     manifest_payload = json.loads((output_dir / "run_manifest.json").read_text())
     manifest_artifact_paths = {artifact["path"] for artifact in manifest_payload["artifacts"]}
     assert str(output_dir / "run_manifest.json") in manifest_artifact_paths
+    assert payload["result"]["data"]["execution"]["backend_requested"] == "local"
+    assert payload["result"]["data"]["execution"]["backend_actual"] == "local"
+    assert payload["result"]["data"]["run"]["execution"]["fallback_used"] is False
+    assert manifest_payload["execution"]["backend_requested"] == "local"
+    assert manifest_payload["execution"]["backend_actual"] == "local"
+    assert manifest_payload["execution"]["fallback_allowed"] is False
+    assert manifest_payload["execution"]["fallback_used"] is False
     assert payload["result"]["data"]["autocorrelation"]["max_lag"] == 4
     assert payload["result"]["data"]["autocorrelation"]["requested_max_lag"] == 8
 
