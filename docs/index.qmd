@@ -2,13 +2,39 @@
 title: "ts-agents docs"
 ---
 
-`ts-agents` is a CLI-first toolkit for time-series analysis and agent
-automation. It wraps statistical forecasting methods, sandboxed code
-execution, and LLM-driven agents behind a stable workflow/tool contract so you
-can go from raw data to evaluated artifacts without writing glue code.
+`ts-agents` is a CLI toolkit for **long-running autonomous agentic workflows**
+on time-series data. It gives agent runtimes a stable, machine-readable surface
+so a model can bootstrap, discover what's available, execute real work, and
+produce inspectable artifacts — without hand-written glue code per project.
 
-These docs capture the project's durable design choices so interfaces can evolve
-without rewriting the core toolchain.
+It wraps statistical forecasting methods, sandboxed code execution, and
+LLM-driven agents behind a stable workflow/tool contract so you can go from
+raw data to evaluated artifacts without writing glue code. These docs capture
+the project's durable design choices so interfaces can evolve without
+rewriting the core toolchain.
+
+## Why Autonomous Agents Like It
+
+- **Bootstrap with one call:** `ts-agents capabilities --json` returns the full
+  agent-facing bootstrap surface (workflows, tools, sandboxes, `install_profile`,
+  status-contract guidance).
+- **Discover before acting:** `workflow show --json` / `tool show --json`
+  expose `cli_templates`, `source_options`, `global_options`,
+  `default_output_behavior`, required extras, and availability in the current
+  environment.
+- **Strict machine envelopes:** every `--json` response carries
+  `schema_version: "1.0"`, strict JSON (no raw `NaN`), and typed exit codes for
+  validation / dependency / permission / timeout failures.
+- **Quality signals:** workflow payloads expose `result.status`
+  (`ok` / `degraded`) and `result.data.quality_flags`, while the CLI envelope exposes top-level
+  `quality_status`, `degraded`, and `requires_review`.
+- **Run lifecycle metadata:** generated run IDs, `run_manifest.json`, and
+  non-clobbering default output directories with `--overwrite` / `--resume`
+  semantics — so long multi-turn sessions remain reproducible and resumable.
+- **Sandbox parity + explicit fallback:** `local`, `subprocess`, `docker`,
+  `daytona`, and `modal` all stage workflow artifacts back to the host output
+  directory; `sandbox doctor` probes readiness; the executor never silently
+  downgrades isolation.
 
 ## Get Started
 
@@ -20,7 +46,7 @@ without rewriting the core toolchain.
 
 - [Skills Guide](skills-guide.qmd) — using, customizing, and creating skills
 - [Evaluation](evaluation.qmd) — benchmark evidence and rerun instructions
-- [Design](philosophy.qmd) — why the project is structured around a stable CLI contract
+- [Design](philosophy.qmd) — why the project is structured around a stable CLI contract for agents
 - [Distribution](distribution.qmd) — packaging, release, and publishing workflow
 
 ---

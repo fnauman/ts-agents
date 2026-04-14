@@ -25,9 +25,15 @@ def test_capabilities_json_returns_bootstrap_surface(capsys):
     assert payload["command"] == "capabilities"
     assert "entrypoints" in payload["result"]
     assert "status_contract" in payload["result"]
+    assert "install_profile" in payload["result"]
     assert "workflows" in payload["result"]
     assert "tools" in payload["result"]
     assert "sandboxes" in payload["result"]
+    install_profile = payload["result"]["install_profile"]
+    assert install_profile["package"] == "ts-agents"
+    assert "current_profile" in install_profile
+    assert install_profile["recommended_install"] == "ts-agents[recommended]"
+    assert "forecasting" in install_profile["extras"]
 
 
 def test_sandbox_doctor_local_json_returns_backend_status(capsys):

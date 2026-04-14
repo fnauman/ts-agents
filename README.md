@@ -4,14 +4,18 @@
 [![Python](https://img.shields.io/badge/python-3.11--3.13-3776AB)](#installation)
 [![License](https://img.shields.io/badge/license-MIT-2EA44F)](https://github.com/fnauman/ts-agents/blob/main/LICENSE)
 
-`ts-agents` provides time-series skills, workflow contracts, and sandboxes for
-agentic workflows.
+`ts-agents` is a CLI toolkit for **long-running autonomous agentic workflows**
+on time-series data. It gives agent runtimes a stable, machine-readable surface
+so a model can bootstrap, discover what's available, execute real work, and
+produce inspectable artifacts — without hand-written glue code per project.
 
 It is built around:
-- a stable CLI contract for discovery and execution (`ts-agents workflow ...`, `ts-agents tool ...`)
-- inspectable artifacts instead of chat-only outputs (plots, JSON, reports)
-- reusable skills that encode time-series workflow guidance
-- optional sandboxes for safer, reproducible execution (`local`, `subprocess`, `docker`, `daytona`, `modal`)
+- a stable CLI contract for bootstrap, discovery, and execution (`ts-agents capabilities`, `ts-agents workflow ...`, `ts-agents tool ...`)
+- strict JSON envelopes with `schema_version`, typed exit codes, top-level `quality_status`/`degraded`/`requires_review`, and nested workflow `result.status`/`result.data.quality_flags`
+- run lifecycle metadata: generated run IDs, `run_manifest.json`, non-clobbering default output directories, and `--resume` / `--overwrite` semantics
+- inspectable artifacts instead of chat-only outputs (plots as `ArtifactRef` files, JSON payloads, Markdown reports)
+- reusable skills that encode time-series workflow guidance as install-agnostic command templates
+- optional sandboxes for safer, reproducible execution (`local`, `subprocess`, `docker`, `daytona`, `modal`) with readiness probes and explicit fallback flags
 - optional adapters on top, including Gradio and built-in agent entrypoints
 
 It ships with three first-class workflows:
@@ -32,6 +36,7 @@ separately and are not part of the published wheel.
 ## Table of Contents
 
 - [Choose your path](#choose-your-path)
+- [For autonomous agents](#for-autonomous-agents)
 - [Why ts-agents instead of using statsforecast/sktime/aeon directly?](#why-ts-agents-instead-of-using-statsforecastsktimeaeon-directly)
 - [Design principles](#design-principles)
 - [Quickstart](#quickstart)
@@ -99,6 +104,92 @@ Configure `HOST`, `PORT`, `GRADIO_SHARE`, `TS_AGENTS_ENABLE_AGENT`,
 `TS_AGENTS_AGENT_TYPE`, `TS_AGENTS_PERSIST_SESSIONS`, and
 `TS_AGENTS_UI_TITLE` before launch if you need non-default behavior.
 
+## For Autonomous Agents
+
+`ts-agents` is designed so an autonomous agent can bootstrap itself, plan, and
+run multi-step time-series work against a stable contract — even across long,
+multi-turn sessions.
+
+### 1. Bootstrap with one command
+
+```bash
+ts-agents capabilities --json
+```
+
+Returns the full agent-facing surface: available workflows, tools, sandboxes,
+workflow discovery metadata, the current `install_profile` block, and
+status-contract guidance. Use this as the first call of any new agent session.
+
+### 2. Discover execution metadata before running anything
+
+```bash
+ts-agents workflow show forecast-series --json
+ts-agents tool show forecast_theta_with_data --json
+```
+
+Both `show` commands return `cli_templates`, `source_options`, `global_options`,
+`status_contract`, `default_output_behavior`, required extras, availability in
+the current environment, input modes, and artifact behavior. Agents can plan
+commands from this metadata rather than guessing flags.
+
+### 3. Strict machine-readable envelopes
+
+Every `--json` response is:
+
+- wrapped in a stable envelope with `schema_version: "1.0"`
+- strict JSON (no raw `NaN`/`Infinity`, `allow_nan=False`)
+- accompanied by typed exit codes for validation, dependency, permission, and
+  timeout errors — so agents can branch on failure mode instead of parsing
+  prose
+- tagged with top-level `quality_status`, `degraded`, and `requires_review`,
+  while workflow payloads expose `result.status` and
+  `result.data.quality_flags` for workflow-specific review signals
+
+### 4. Run lifecycle and provenance
+
+Workflow runs produce:
+
+- a generated run ID and run-scoped output directory under `outputs/<workflow>/<run-id>/`
+- a `run_manifest.json` capturing inputs, parameters, execution backend
+  metadata, and emitted artifacts
+- absolute paths on every `ArtifactRef` so an agent can materialize files from
+  any working directory
+- non-clobbering defaults, plus `--overwrite` / `--resume` semantics for retry
+  loops and long sessions
+
+### 5. Artifacts over chat
+
+Tool/workflow outputs are written to real files (PNG plots, JSON, CSV,
+Markdown reports) and returned as `ArtifactRef` entries. Chat is the control
+plane; the files are the product — they can be inspected, diffed, cached, and
+fed into the next step by the agent.
+
+### 6. Sandbox parity and explicit fallback
+
+```bash
+ts-agents sandbox list
+ts-agents sandbox doctor docker --json
+ts-agents workflow run inspect-series \
+  --input-json '{"series":[1,2,3,4]}' \
+  --sandbox docker --allow-fallback --fallback-backend local
+```
+
+`sandbox doctor` probes readiness (including Docker image presence). Docker,
+Daytona, and Modal all stage workflow artifacts back to the host output
+directory so `result.artifacts[*].path` and `result.data.output_dir` are
+always host-accessible. Fallback is explicit — the executor refuses to silently
+switch backends unless `--allow-fallback` is passed.
+
+### 7. Skills as install-agnostic command templates
+
+```bash
+ts-agents skills list
+ts-agents skills show forecasting --json
+```
+
+Skill catalogs export normalized `ts-agents ...` command templates with no
+checkout-specific prefixes, so agents can copy them verbatim into tool calls.
+
 ## Why ts-agents Instead of Using statsforecast/sktime/aeon Directly?
 
 Those libraries are excellent algorithm/toolkit layers, and `ts-agents`
@@ -117,11 +208,13 @@ Use `ts-agents` when you want:
 
 ## Design Principles
 
-- **CLI as the stable contract**: `ts-agents` is the primary interface for automation and reproducibility.
+- **CLI as the stable contract**: `ts-agents` is the primary interface for automation and reproducibility. Autonomous agents plan against `capabilities`, `workflow show`, and `tool show` instead of hardcoded knowledge.
+- **Strict machine envelopes**: `--json` output is versioned, strict, and typed — with status, quality flags, and exit codes — so agents can branch on failure mode rather than parsing prose.
 - **Framework adapters, not framework lock-in**: LangChain/deep-agent wrappers are convenience layers over the same tool registry.
 - **Artifacts over chat**: tools produce inspectable files (plots, JSON, reports), and agents return summaries plus paths.
+- **Run lifecycle as first-class metadata**: every workflow run gets a run ID, a `run_manifest.json`, and non-clobbering defaults — so long, multi-turn sessions remain reproducible and resumable.
 - **Swappable front-ends**: CLI agents, custom agents, and Gradio are interfaces around the same core tools.
-- **Sandboxed execution**: backends can isolate dependencies and scale heavier workloads.
+- **Sandboxed execution with explicit fallback**: backends isolate dependencies and scale heavier workloads; the executor never silently downgrades isolation.
 
 Canonical design doc:
 - `docs/philosophy.qmd`

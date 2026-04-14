@@ -30,6 +30,33 @@ and a dependency-light `seasonal_naive` forecast baseline. Use
 `ts-agents[recommended]` or a source checkout with `uv sync` for the full
 three-workflow experience.
 
+## Bootstrap for autonomous agents
+
+If you are wiring `ts-agents` into an agent runtime, make these three calls
+first — they tell the agent exactly what is available in the current
+environment:
+
+```bash
+# 1. Top-level capabilities: workflows, tools, sandboxes, install_profile
+ts-agents capabilities --json
+
+# 2. Per-workflow execution metadata: CLI templates, options, status contract
+ts-agents workflow show forecast-series --json
+ts-agents workflow show inspect-series --json
+ts-agents workflow show activity-recognition --json
+
+# 3. Sandbox readiness for isolated execution
+ts-agents sandbox list
+ts-agents sandbox doctor local --json
+```
+
+Agents should plan commands from `cli_templates` in the `workflow show`
+response, watch the top-level `quality_status` / `degraded` /
+`requires_review` fields on every run, inspect workflow-level
+`result.status` / `result.data.quality_flags` for partial-success details, and
+read `run_manifest.json` inside the workflow output directory to enumerate
+artifacts.
+
 ## First run (base install, no LLM required)
 
 These commands work immediately with `python -m pip install ts-agents` — no API
