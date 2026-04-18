@@ -1860,6 +1860,14 @@ def _tool_summary_dict(tool: Any) -> Dict[str, Any]:
         "availability": tool_availability(tool),
         "writes_artifacts": bool(tool.artifact_kinds),
         "artifact_kinds": list(tool.artifact_kinds),
+        "prior_diagnostics": [
+            {
+                "kind": hint.kind,
+                "name": hint.name,
+                "reason": hint.reason,
+            }
+            for hint in tool.prior_diagnostics
+        ],
     }
 
 
@@ -1911,6 +1919,14 @@ def _tool_detail_dict(tool: Any) -> Dict[str, Any]:
         "cli_templates": _tool_cli_templates(tool),
         "writes_artifacts": bool(tool.artifact_kinds),
         "artifact_kinds": list(tool.artifact_kinds),
+        "prior_diagnostics": [
+            {
+                "kind": hint.kind,
+                "name": hint.name,
+                "reason": hint.reason,
+            }
+            for hint in tool.prior_diagnostics
+        ],
         "status_contract": _tool_status_contract(tool),
         "resources": {
             "timeout_seconds": tool.timeout_seconds,
@@ -2099,6 +2115,10 @@ def _handle_tool_command(args: argparse.Namespace) -> Tuple[Any, str]:
             lines.append(f"Required extras: {', '.join(result['required_extras'])}")
         if install_hint:
             lines.append(f"Install hint: {install_hint}")
+        if result.get("prior_diagnostics"):
+            lines.append("Prior diagnostics:")
+            for hint in result["prior_diagnostics"]:
+                lines.append(f"- {hint['kind']} {hint['name']}: {hint['reason']}")
         optional_features = availability.get("optional_features") or []
         if optional_features:
             lines.append("Optional features:")

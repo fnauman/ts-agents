@@ -8,7 +8,8 @@ the workflow/tool grammar that new automation should prefer.
 
 Profile note:
 - Base install supports `inspect-series` plus a light `seasonal_naive` forecast baseline.
-- Use `ts-agents[recommended]` or `uv sync` for the full forecasting and activity-recognition walkthroughs below.
+- Use `ts-agents[recommended]` for the full forecasting and activity-recognition walkthroughs below.
+- From a source checkout, plain `uv sync` matches the base CLI-first profile; use `uv sync --extra recommended` for the same recommended workflow stack.
 
 ## Inspect a series {#inspect}
 
@@ -24,7 +25,7 @@ This single command:
 
 1. computes descriptive statistics
 2. estimates periodicity and autocorrelation
-3. writes a structured JSON summary
+3. writes a structured JSON summary plus a findings ledger
 4. writes a Markdown report and an autocorrelation plot
 
 ### 2. Interpret the outputs
@@ -33,7 +34,8 @@ All artifacts land in `outputs/inspect/` by default.
 
 | Artifact | What it tells you |
 |----------|-------------------|
-| `summary.json` | Stats, periodicity, autocorrelation, and recommended next steps |
+| `summary.json` | Stats, periodicity, autocorrelation, forecast recommendation, and recommended next steps |
+| `ledger.json` | Structured findings ledger for downstream agent/model-selection steps |
 | `autocorrelation.png` | Visual lag structure for the inspected series |
 | `report.md` | Markdown summary of the diagnostic run |
 

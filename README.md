@@ -64,9 +64,10 @@ ts-agents workflow run forecast-series --input-json '{"series":[1,2,3,4,5,6,7,8,
 
 Base install is guaranteed to support workflow discovery plus `inspect-series`.
 It also supports a light `seasonal_naive` forecasting baseline. Install
-`ts-agents[recommended]` (or use `uv sync` from a source checkout) for the full
-three-workflow experience, including ARIMA/ETS/Theta forecasting and
-`activity-recognition`.
+`ts-agents[recommended]` for the full three-workflow experience, including
+ARIMA/ETS/Theta forecasting and `activity-recognition`. From a source
+checkout, plain `uv sync` matches the base CLI-first install; use
+`uv sync --extra recommended` for the same recommended workflow stack.
 
 ### 2. Use the low-level CLI on bundled or custom data
 
@@ -92,7 +93,8 @@ ts-agents-ui
 ts-agents-hosted
 ```
 
-From a source checkout (`git clone ...` + `uv sync`), use the root wrappers:
+From a source checkout with UI dependencies synced (for example,
+`uv sync --extra ui` or `uv sync --extra recommended`), use the root wrappers:
 
 ```bash
 uv run python main.py
@@ -230,7 +232,7 @@ ts-agents workflow run inspect-series --input-json '{"series":[1,2,3,4]}'
 ts-agents workflow run forecast-series --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' --horizon 3 --methods seasonal_naive
 
 # Full workflow stack from a source checkout
-uv sync
+uv sync --extra recommended
 uv run ts-agents workflow run forecast-series --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' --horizon 3 --methods seasonal_naive,arima,theta
 uv run python data/make_synthetic_labeled_stream.py --scenario gait --seconds 40 --seed 1337 --out data/demo_labeled_stream.csv
 uv run ts-agents workflow run activity-recognition --input data/demo_labeled_stream.csv --label-col label --value-cols x,y,z
@@ -301,6 +303,8 @@ Install profiles:
 - `ts-agents[forecasting]`: unlocks ARIMA, ETS, and Theta for `forecast-series`
 - `ts-agents[classification]`: unlocks `activity-recognition`
 - `ts-agents[recommended]`: the documented three-workflow experience used in walkthroughs and demos
+- `source checkout + uv sync`: same base CLI-first profile as `ts-agents`
+- `source checkout + uv sync --extra recommended`: same recommended profile as `ts-agents[recommended]`
 
 Run the packaged entrypoints:
 
@@ -316,8 +320,8 @@ ts-agents-ui --help
 ts-agents-hosted
 ```
 
-If you are running from a source checkout with `uv sync`, prefix the CLI
-commands below with `uv run`.
+If you are running from a source checkout, prefix the CLI commands below with
+`uv run` after syncing the extras you need.
 
 Source checkout setup:
 
@@ -325,6 +329,15 @@ Source checkout setup:
 git clone https://github.com/fnauman/ts-agents.git
 cd ts-agents
 uv sync
+```
+
+Plain `uv sync` matches the base CLI-first install profile. Add extras as
+needed:
+
+```bash
+uv sync --extra recommended
+uv sync --extra ui
+uv sync --all-extras
 ```
 
 Local editable install from a source checkout:

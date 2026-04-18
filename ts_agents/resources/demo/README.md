@@ -76,6 +76,7 @@ Outputs (under `outputs/demo_wisdm/`):
 - `window_scores.png`
 - `eval.json`
 - `confusion_matrix.png`
+- `report.md`
 
 ---
 
@@ -97,8 +98,11 @@ uv run ts-agents demo forecasting --full-data --horizon 12 --methods arima,ets,t
 Outputs (under `outputs/demo/` by default):
 
 - `forecast_comparison.json`
-- `forecast_comparison.png`
+- `forecast.json`
+- `forecast.csv`
+- `report.md`
 - `forecasting_report.md`
+- `forecast_comparison.png` (when plotting is available)
 
 ---
 
