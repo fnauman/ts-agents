@@ -14,6 +14,15 @@ The goal of this file is to make coding agents effective and safe in this codeba
 uv sync
 ```
 
+Plain `uv sync` matches the base CLI-first install profile. Add extras as
+needed for optional surfaces:
+
+```bash
+uv sync --extra recommended
+uv sync --extra ui
+uv sync --all-extras
+```
+
 ### Inspect the CLI
 ```bash
 uv run ts-agents --help
@@ -21,6 +30,7 @@ uv run ts-agents --help
 
 ### Run the interactive UI
 ```bash
+uv sync --extra ui
 uv run ts-agents-ui
 ```
 

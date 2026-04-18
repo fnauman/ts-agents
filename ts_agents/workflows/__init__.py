@@ -475,6 +475,7 @@ _WORKFLOWS = {
         ],
         artifacts=[
             WorkflowArtifact("summary.json", "json", "Inspection summary JSON."),
+            WorkflowArtifact("ledger.json", "json", "Structured findings ledger for the inspection workflow."),
             WorkflowArtifact("report.md", "markdown", "Inspection workflow markdown report."),
             WorkflowArtifact(
                 "autocorrelation.png",
@@ -512,7 +513,7 @@ _WORKFLOWS = {
             "ts-agents workflow run inspect-series --run-id Re200Rm200 --variable bx001_real",
         ],
         capabilities={
-            "writes_artifacts": ["summary.json", "report.md", "autocorrelation.png"],
+            "writes_artifacts": ["summary.json", "ledger.json", "report.md", "autocorrelation.png"],
         },
         availability_fn=_inspect_workflow_availability,
     ),

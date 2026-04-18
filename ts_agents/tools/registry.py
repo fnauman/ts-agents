@@ -8,7 +8,7 @@ This module provides:
 """
 
 from dataclasses import dataclass, field
-from typing import Callable, List, Optional, Dict, Any, Sequence
+from typing import Callable, List, Optional, Dict, Any
 from enum import Enum
 import inspect
 from importlib.util import find_spec
@@ -86,6 +86,13 @@ class ToolParameter:
 
 
 @dataclass
+class ToolPreconditionHint:
+    kind: str
+    name: str
+    reason: str
+
+
+@dataclass
 class ToolMetadata:
     """Metadata for a registered tool.
 
@@ -117,6 +124,14 @@ class ToolMetadata:
         Disk limit in MB (for sandbox)
     input_validation_fn : Callable, optional
         Custom validation function for parameters
+    install_hint : Optional[str], optional
+        Hint for installing missing dependencies
+    optional_dependency_note : Optional[str], optional
+        Note for optional dependencies
+    artifact_kinds : List[str], optional
+        Artifact kinds produced by the tool
+    prior_diagnostics : List[ToolPreconditionHint], optional
+        Precondition hints for the tool
     """
     name: str
     description: str
@@ -135,6 +150,7 @@ class ToolMetadata:
     install_hint: Optional[str] = None
     optional_dependency_note: Optional[str] = None
     artifact_kinds: List[str] = field(default_factory=list)
+    prior_diagnostics: List[ToolPreconditionHint] = field(default_factory=list)
 
     def get_signature(self) -> str:
         """Get function signature as string."""
@@ -597,6 +613,7 @@ def _register_default_tools() -> None:
         install_hint: Optional[str] = None,
         optional_dependency_note: Optional[str] = None,
         artifact_kinds: Optional[List[str]] = None,
+        prior_diagnostics: Optional[List[ToolPreconditionHint]] = None,
     ) -> None:
         ToolRegistry.register(ToolMetadata(
             name=name,
@@ -612,6 +629,7 @@ def _register_default_tools() -> None:
             install_hint=install_hint,
             optional_dependency_note=optional_dependency_note,
             artifact_kinds=list(artifact_kinds or []),
+            prior_diagnostics=list(prior_diagnostics or []),
         ))
 
     def _register_with_data(
@@ -628,6 +646,7 @@ def _register_default_tools() -> None:
         install_hint: Optional[str] = None,
         optional_dependency_note: Optional[str] = None,
         artifact_kinds: Optional[List[str]] = None,
+        prior_diagnostics: Optional[List[ToolPreconditionHint]] = None,
     ) -> None:
         resolved_artifact_kinds = artifact_kinds
         if resolved_artifact_kinds is None and dependencies and "matplotlib" in dependencies:
@@ -646,7 +665,11 @@ def _register_default_tools() -> None:
             install_hint=install_hint,
             optional_dependency_note=optional_dependency_note,
             artifact_kinds=resolved_artifact_kinds,
+            prior_diagnostics=prior_diagnostics,
         )
+
+    def _hint(kind: str, name: str, reason: str) -> ToolPreconditionHint:
+        return ToolPreconditionHint(kind=kind, name=name, reason=reason)
 
     # ---------------------------------------------------------------------
     # Data Loading Tool
@@ -793,6 +816,18 @@ def _register_default_tools() -> None:
         ],
         examples=["Forecast a series for the next 20 steps"],
         returns="ForecastResult with predictions",
+        prior_diagnostics=[
+            _hint(
+                "workflow",
+                "inspect-series",
+                "Inspect period, lag structure, and baseline recommendations before choosing ARIMA.",
+            ),
+            _hint(
+                "tool",
+                "detect_periodicity",
+                "Estimate season_length before fitting seasonal statistical models.",
+            ),
+        ],
     )
     _register_with_data(
         base_name="forecast_arima",
@@ -809,6 +844,18 @@ def _register_default_tools() -> None:
         ],
         examples=["Forecast bx001_real for next 20 steps"],
         returns="ForecastResult with structured forecast data",
+        prior_diagnostics=[
+            _hint(
+                "workflow",
+                "inspect-series",
+                "Inspect period, lag structure, and baseline recommendations before choosing ARIMA.",
+            ),
+            _hint(
+                "tool",
+                "detect_periodicity_with_data",
+                "Estimate season_length before fitting seasonal statistical models.",
+            ),
+        ],
     )
 
     _register_tool(
@@ -859,6 +906,13 @@ def _register_default_tools() -> None:
         ],
         examples=["Forecast using Theta method"],
         returns="ForecastResult with predictions",
+        prior_diagnostics=[
+            _hint(
+                "workflow",
+                "inspect-series",
+                "Use inspect-series first so Theta is chosen as an informed baseline rather than a blind default.",
+            ),
+        ],
     )
     _register_with_data(
         base_name="forecast_theta",
@@ -875,6 +929,13 @@ def _register_default_tools() -> None:
         ],
         examples=["Forecast using Theta method"],
         returns="ForecastResult with structured forecast data",
+        prior_diagnostics=[
+            _hint(
+                "workflow",
+                "inspect-series",
+                "Use inspect-series first so Theta is chosen as an informed baseline rather than a blind default.",
+            ),
+        ],
     )
 
     _register_tool(
@@ -970,6 +1031,18 @@ def _register_default_tools() -> None:
         ],
         examples=["Compare ARIMA vs ETS accuracy"],
         returns="Comparison results with metrics",
+        prior_diagnostics=[
+            _hint(
+                "workflow",
+                "inspect-series",
+                "Run inspect-series first to estimate seasonality and narrow the method set before comparison.",
+            ),
+            _hint(
+                "tool",
+                "forecast_seasonal_naive",
+                "Check a cheap seasonal baseline before comparing heavier forecasting backends.",
+            ),
+        ],
     )
     _register_with_data(
         base_name="compare_forecasts",
@@ -988,6 +1061,18 @@ def _register_default_tools() -> None:
         ],
         examples=["Compare ARIMA vs ETS accuracy"],
         returns="Comparison results with metrics",
+        prior_diagnostics=[
+            _hint(
+                "workflow",
+                "inspect-series",
+                "Run inspect-series first to estimate seasonality and narrow the method set before comparison.",
+            ),
+            _hint(
+                "tool",
+                "forecast_seasonal_naive_with_data",
+                "Check a cheap seasonal baseline before comparing heavier forecasting backends.",
+            ),
+        ],
     )
 
     # ---------------------------------------------------------------------
@@ -1501,6 +1586,13 @@ def _register_default_tools() -> None:
         ],
         examples=["Evaluate minirocket on windows of size 64"],
         returns="WindowedClassificationEvaluation with metric + embedded ClassificationResult",
+        prior_diagnostics=[
+            _hint(
+                "tool",
+                "select_window_size",
+                "Pick a stable window size before running the final classifier evaluation.",
+            ),
+        ],
     )
 
     _register_tool(
@@ -1544,6 +1636,13 @@ def _register_default_tools() -> None:
         ],
         examples=["Evaluate classifier directly from labeled CSV"],
         returns="WindowedClassificationEvaluation",
+        prior_diagnostics=[
+            _hint(
+                "tool",
+                "select_window_size_from_csv",
+                "Pick a stable window size before running the final classifier evaluation.",
+            ),
+        ],
     )
 
     # ---------------------------------------------------------------------

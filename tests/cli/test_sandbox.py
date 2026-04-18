@@ -36,6 +36,15 @@ def test_capabilities_json_returns_bootstrap_surface(capsys):
     assert "forecasting" in install_profile["extras"]
 
 
+def test_capabilities_text_reports_install_profile_on_its_own_line(capsys):
+    code = run(["capabilities"])
+
+    assert code == 0
+    output = capsys.readouterr().out
+    assert "- Tools:" in output
+    assert "\n- Install profile: " in output
+
+
 def test_sandbox_doctor_local_json_returns_backend_status(capsys):
     code = run(["sandbox", "doctor", "local", "--json"])
 

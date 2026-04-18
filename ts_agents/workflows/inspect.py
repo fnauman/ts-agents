@@ -8,12 +8,13 @@ import numpy as np
 
 from ts_agents.cli.input_parsing import SeriesInput
 from ts_agents.cli.output import to_jsonable
-from ts_agents.contracts import ToolPayload
+from ts_agents.contracts import AnalysisLedgerEntry, ForecastRecommendation, ToolPayload
 
 from .common import (
     attach_workflow_run_metadata,
     ensure_output_dir,
     write_json_artifact,
+    write_ledger_artifact,
     write_plot_artifact,
     write_text_artifact,
 )
@@ -30,6 +31,7 @@ def run_inspect_series_workflow(
     output_dir_mode: str = "explicit",
 ) -> ToolPayload:
     """Run a lightweight diagnostics workflow on an arbitrary series."""
+    from ts_agents.core.recommendations import recommend_forecasting_method
     from ts_agents.core.spectral import detect_periodicity
     from ts_agents.core.statistics import compute_autocorrelation, describe_series
 
@@ -40,6 +42,11 @@ def run_inspect_series_workflow(
 
     resolved_max_lag = max_lag if max_lag is not None else min(64, max(8, len(series_input.series) // 4))
     acf = compute_autocorrelation(series_input.series, max_lag=resolved_max_lag)
+    forecast_recommendation = recommend_forecasting_method(
+        stats=stats,
+        periodicity=periodicity,
+        acf=acf,
+    )
 
     recommended_next_steps = _recommend_next_steps(
         periodicity=periodicity,
@@ -47,6 +54,13 @@ def run_inspect_series_workflow(
         length=len(series_input.series),
     )
     effective_max_lag = max(len(acf) - 1, 0)
+    lag_one = float(acf[1]) if len(acf) > 1 else None
+    ledger_entries = _build_analysis_ledger(
+        stats=to_jsonable(stats),
+        periodicity=to_jsonable(periodicity),
+        lag_one=lag_one,
+        forecast_recommendation=forecast_recommendation,
+    )
     summary_data = {
         "workflow": workflow_name,
         "source": series_input.provenance.get("series_ref", {}),
@@ -56,8 +70,9 @@ def run_inspect_series_workflow(
         "autocorrelation": {
             "max_lag": int(effective_max_lag),
             "requested_max_lag": int(resolved_max_lag),
-            "lag_1": float(acf[1]) if len(acf) > 1 else None,
+            "lag_1": lag_one,
         },
+        "forecast_recommendation": to_jsonable(forecast_recommendation),
         "recommended_next_steps": recommended_next_steps,
         "output_dir": str(output_path),
     }
@@ -68,7 +83,12 @@ def run_inspect_series_workflow(
             path=output_path / "summary.json",
             description="Inspection summary JSON.",
             created_by=workflow_name,
-        )
+        ),
+        write_ledger_artifact(
+            entries=ledger_entries,
+            path=output_path / "ledger.json",
+            created_by=workflow_name,
+        ),
     ]
     warnings: List[str] = []
 
@@ -96,8 +116,9 @@ def run_inspect_series_workflow(
 
     report = _build_report(
         series_input=series_input,
-        stats=to_jsonable(stats),
-        periodicity=to_jsonable(periodicity),
+        stats=summary_data["stats"],
+        periodicity=summary_data["periodicity"],
+        forecast_recommendation=summary_data["forecast_recommendation"],
         recommended_next_steps=recommended_next_steps,
     )
     artifacts.append(
@@ -111,10 +132,12 @@ def run_inspect_series_workflow(
 
     dominant_period = summary_data["periodicity"].get("dominant_period")
     lag_one = summary_data["autocorrelation"].get("lag_1")
+    recommended_method = summary_data["forecast_recommendation"].get("choice")
     summary = (
         f"Inspect-series workflow completed for {series_input.label}. "
         f"Dominant period: {_format_number(dominant_period)}; "
-        f"lag-1 autocorrelation: {_format_number(lag_one)}."
+        f"lag-1 autocorrelation: {_format_number(lag_one)}; "
+        f"forecast start: {recommended_method or 'n/a'}."
     )
     payload = ToolPayload(
         kind="workflow",
@@ -160,15 +183,64 @@ def _recommend_next_steps(
     return steps
 
 
+def _build_analysis_ledger(
+    *,
+    stats: dict[str, Any],
+    periodicity: dict[str, Any],
+    lag_one: float | None,
+    forecast_recommendation: ForecastRecommendation,
+) -> List[AnalysisLedgerEntry]:
+    entries: List[AnalysisLedgerEntry] = [
+        AnalysisLedgerEntry(
+            kind="finding",
+            key="series_length",
+            value=int(stats.get("length") or 0),
+            confidence=1.0,
+            evidence=["summary.json#stats"],
+        ),
+        AnalysisLedgerEntry(
+            kind="finding",
+            key="dominant_period",
+            value=periodicity.get("dominant_period"),
+            confidence=_optional_float(periodicity.get("confidence")),
+            evidence=["summary.json#periodicity"],
+            notes="Dominant FFT-derived period estimate from inspect-series.",
+        ),
+        AnalysisLedgerEntry(
+            kind="finding",
+            key="lag_1_autocorrelation",
+            value=lag_one,
+            confidence=min(abs(lag_one), 1.0) if lag_one is not None else None,
+            evidence=["summary.json#autocorrelation"],
+        ),
+        AnalysisLedgerEntry(
+            kind="recommendation",
+            key="forecasting_method",
+            value=forecast_recommendation.choice,
+            confidence=forecast_recommendation.confidence,
+            evidence=[
+                "summary.json#stats",
+                "summary.json#periodicity",
+                "summary.json#autocorrelation",
+            ],
+            notes="; ".join(forecast_recommendation.rationale),
+        ),
+    ]
+    return entries
+
+
 def _build_report(
     *,
     series_input: SeriesInput,
     stats: dict[str, Any],
     periodicity: dict[str, Any],
+    forecast_recommendation: dict[str, Any],
     recommended_next_steps: List[str],
 ) -> str:
     top_periods = periodicity.get("top_periods") or []
     next_steps_lines = [f"- {step}" for step in recommended_next_steps]
+    rationale = forecast_recommendation.get("rationale") or []
+    rationale_lines = [f"- {item}" for item in rationale]
     return "\n".join(
         [
             "### Report on Inspect-Series Workflow",
@@ -181,6 +253,11 @@ def _build_report(
             f"- **Dominant Period**: {_format_number(periodicity.get('dominant_period'))}",
             f"- **Periodicity Confidence**: {_format_number(periodicity.get('confidence'))}",
             f"- **Top Periods**: {', '.join(_format_number(value) for value in top_periods) if top_periods else 'n/a'}",
+            f"- **Forecast Start Method**: {forecast_recommendation.get('choice', 'n/a')}",
+            f"- **Recommendation Confidence**: {_format_number(forecast_recommendation.get('confidence'))}",
+            "",
+            "#### Forecast Recommendation Rationale",
+            *(rationale_lines or ["- n/a"]),
             "",
             "#### Recommended Next Steps",
             *next_steps_lines,
@@ -194,3 +271,9 @@ def _format_number(value: Any) -> str:
     if isinstance(value, (int, float)):
         return f"{value:.4f}"
     return str(value)
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    return float(value)

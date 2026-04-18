@@ -422,6 +422,33 @@ def test_tool_show_json_reports_optional_backend_for_seasonal_naive(capsys):
     assert result["availability"]["optional_features"][0]["name"] == "statsforecast_backend"
 
 
+def test_tool_show_json_includes_prior_diagnostics(capsys):
+    code = run(["tool", "show", "forecast_arima", "--json"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    prior_diagnostics = payload["result"]["prior_diagnostics"]
+    assert len(prior_diagnostics) == 2
+    assert prior_diagnostics[0]["kind"] == "workflow"
+    assert prior_diagnostics[0]["name"] == "inspect-series"
+    assert "Inspect period, lag structure" in prior_diagnostics[0]["reason"]
+    assert prior_diagnostics[1]["kind"] == "tool"
+    assert prior_diagnostics[1]["name"] == "detect_periodicity"
+    assert "Estimate season_length" in prior_diagnostics[1]["reason"]
+
+
+def test_tool_search_json_includes_prior_diagnostics_in_summary(capsys):
+    code = run(["tool", "search", "arima", "--json"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    forecast_arima = next(
+        tool for tool in payload["result"]["tools"] if tool["name"] == "forecast_arima"
+    )
+    assert forecast_arima["prior_diagnostics"]
+    assert forecast_arima["prior_diagnostics"][0]["name"] == "inspect-series"
+
+
 def test_tool_show_text_reports_optional_backend_without_install_hint_when_backend_missing(
     monkeypatch,
     capsys,

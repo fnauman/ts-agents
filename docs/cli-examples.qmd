@@ -7,7 +7,9 @@ current workflow/tool grammar rather than the deprecated compatibility aliases.
 
 Install notes:
 - `ts-agents`: workflow discovery, `inspect-series`, and `forecast-series --methods seasonal_naive`
-- `ts-agents[recommended]` or `uv sync`: full forecasting comparisons plus `activity-recognition`
+- `ts-agents[recommended]`: full forecasting comparisons plus `activity-recognition`
+- `source checkout + uv sync`: same base CLI-first profile as `ts-agents`
+- `source checkout + uv sync --extra recommended`: same recommended profile as `ts-agents[recommended]`
 
 ## Data discovery
 

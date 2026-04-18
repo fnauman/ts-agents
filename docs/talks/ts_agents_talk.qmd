@@ -102,7 +102,7 @@ Add richer GUI interactions (artifact browser + job monitor + review UX) — but
 #### Quickstart
 
 ```bash
-uv sync
+uv sync --extra recommended
 uv run ts-agents workflow list
 uv run ts-agents tool list
 uv run ts-agents workflow run forecast-series \

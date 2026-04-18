@@ -20,6 +20,27 @@ class ArtifactRef:
 
 
 @dataclass
+class AnalysisLedgerEntry:
+    kind: str
+    key: str
+    value: Any
+    confidence: Optional[float] = None
+    evidence: List[str] = field(default_factory=list)
+    ruled_out: List[str] = field(default_factory=list)
+    notes: Optional[str] = None
+
+
+@dataclass
+class ForecastRecommendation:
+    choice: str
+    rationale: List[str] = field(default_factory=list)
+    preconditions_met: List[str] = field(default_factory=list)
+    preconditions_missing: List[str] = field(default_factory=list)
+    confidence: Optional[float] = None
+    alternatives: List[str] = field(default_factory=list)
+
+
+@dataclass
 class ToolPayload:
     """Structured payload returned by machine-oriented tool wrappers."""
 

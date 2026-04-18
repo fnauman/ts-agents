@@ -10,7 +10,7 @@ from typing import Any
 import uuid
 
 from ts_agents.cli.output import render_output, to_jsonable, write_output
-from ts_agents.contracts import ArtifactRef, CLI_SCHEMA_VERSION, ToolPayload
+from ts_agents.contracts import AnalysisLedgerEntry, ArtifactRef, CLI_SCHEMA_VERSION, ToolPayload
 
 WORKFLOW_MANIFEST_FILENAME = "run_manifest.json"
 
@@ -80,6 +80,27 @@ def write_json_artifact(
         path=output_path,
         mime_type="application/json",
         description=description,
+        created_by=created_by,
+    )
+
+
+def write_ledger_artifact(
+    *,
+    entries: list[AnalysisLedgerEntry],
+    path: str | Path,
+    created_by: str,
+) -> ArtifactRef:
+    payload = {
+        "schema_version": CLI_SCHEMA_VERSION,
+        "kind": "analysis_ledger",
+        "workflow": created_by,
+        "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "entries": entries,
+    }
+    return write_json_artifact(
+        data=payload,
+        path=path,
+        description="Structured analysis ledger for workflow findings and recommendations.",
         created_by=created_by,
     )
 

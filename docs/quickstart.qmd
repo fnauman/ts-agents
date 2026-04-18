@@ -27,8 +27,9 @@ uv sync
 
 Base install gives you workflow discovery, `workflow show`, `inspect-series`,
 and a dependency-light `seasonal_naive` forecast baseline. Use
-`ts-agents[recommended]` or a source checkout with `uv sync` for the full
-three-workflow experience.
+`ts-agents[recommended]` for the full three-workflow experience. From a source
+checkout, plain `uv sync` matches the base CLI-first install; use
+`uv sync --extra recommended` for the same recommended workflow stack.
 
 ## Bootstrap for autonomous agents
 
@@ -91,7 +92,7 @@ Use this path when you want ARIMA/ETS/Theta forecasting comparisons plus
 `activity-recognition`.
 
 ```bash
-uv sync
+uv sync --extra recommended
 
 # Compare multiple forecasting baselines
 uv run ts-agents workflow run forecast-series \

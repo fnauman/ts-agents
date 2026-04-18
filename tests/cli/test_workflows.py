@@ -106,13 +106,17 @@ def test_workflow_run_inspect_series_accepts_stdin_json(monkeypatch, capsys, tmp
     assert payload["result"]["data"]["manifest_path"] == str(output_dir / "run_manifest.json")
     assert (output_dir / "run_manifest.json").exists()
     assert (output_dir / "summary.json").exists()
+    assert (output_dir / "ledger.json").exists()
     assert (output_dir / "report.md").exists()
+    assert payload["result"]["data"]["forecast_recommendation"]["choice"]
     artifact_paths = {artifact["path"] for artifact in payload["result"]["artifacts"]}
     assert str(output_dir / "summary.json") in artifact_paths
+    assert str(output_dir / "ledger.json") in artifact_paths
     assert str(output_dir / "report.md") in artifact_paths
     assert str(output_dir / "run_manifest.json") in artifact_paths
     manifest_payload = json.loads((output_dir / "run_manifest.json").read_text())
     manifest_artifact_paths = {artifact["path"] for artifact in manifest_payload["artifacts"]}
+    assert str(output_dir / "ledger.json") in manifest_artifact_paths
     assert str(output_dir / "run_manifest.json") in manifest_artifact_paths
     assert payload["result"]["data"]["execution"]["backend_requested"] == "local"
     assert payload["result"]["data"]["execution"]["backend_actual"] == "local"
@@ -187,6 +191,7 @@ def test_workflow_run_inspect_series_supports_subprocess_sandbox(capsys, tmp_pat
     assert payload["result"]["data"]["output_dir"] == str(output_dir.resolve())
     assert payload["result"]["data"]["manifest_path"] == str((output_dir / "run_manifest.json").resolve())
     assert (output_dir / "summary.json").exists()
+    assert (output_dir / "ledger.json").exists()
     assert (output_dir / "report.md").exists()
 
 

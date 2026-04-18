@@ -69,12 +69,24 @@ WISDM accelerometer subset (2 subjects, 6 activities, ~33 k rows).
 bash demo/run_demo_wisdm.sh
 ```
 
-Outputs (under `outputs/demo_wisdm/`):
+Outputs from the legacy shell script (under `outputs/demo_wisdm/`):
 
 - `window_selection.json`
 - `window_scores.png`
 - `eval.json`
 - `confusion_matrix.png`
+
+If you also want `report.md`, use the deprecated CLI alias directly:
+
+```bash
+uv run ts-agents demo window-classification --no-llm \
+  --no-generate \
+  --csv-path data/wisdm_subset.csv \
+  --output-dir outputs/demo_wisdm \
+  --report-path outputs/demo_wisdm/report.md
+```
+
+That compatibility path writes the same core artifacts plus `outputs/demo_wisdm/report.md`.
 
 ---
 
@@ -86,11 +98,17 @@ Compares forecasting methods on the MHD shearing-box dataset (`data/short_real.c
 bash demo/run_demo_forecasting.sh
 ```
 
+The legacy shell script overrides the raw CLI defaults and writes its artifacts to
+`outputs/demo_forecasting/`, including `forecasting_report.md`.
+
 Or via the deprecated compatibility alias:
 
 ```bash
 uv run ts-agents demo forecasting --no-llm
 ```
+
+The raw CLI alias defaults to `outputs/demo/` for workflow artifacts and
+`outputs/demo/forecasting_report.md` for the compatibility report.
 
 The CLI default method set is `arima,theta` for stable behavior on the tiny
 built-in test data. To include ETS, prefer a larger setup:
@@ -99,11 +117,16 @@ built-in test data. To include ETS, prefer a larger setup:
 uv run ts-agents demo forecasting --full-data --horizon 12 --methods arima,ets,theta --no-llm
 ```
 
-Outputs (under `outputs/demo_forecasting/`):
+Outputs from the raw CLI alias (under `outputs/demo/` by default):
 
 - `forecast_comparison.json`
-- `forecast_comparison.png`
+- `forecast.json`
+- `forecast.csv`
+- `report.md`
 - `forecasting_report.md`
+- `forecast_comparison.png` (when plotting is available)
+
+The legacy shell script writes the same artifact set under `outputs/demo_forecasting/`.
 
 ---
 
