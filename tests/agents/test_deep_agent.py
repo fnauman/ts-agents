@@ -353,6 +353,10 @@ class TestSystemPrompts:
 
         # Should mention cost awareness
         assert "cost" in prompt.lower()
+        assert "inspect" in prompt.lower()
+        assert "availability" in prompt.lower()
+        assert "Re200Rm200" not in prompt
+        assert "bx001_real" not in prompt
 
     def test_decomposition_system_prompt(self):
         """Test decomposition agent system prompt."""

@@ -18,6 +18,7 @@ class EvaluationResult:
     # Scores (0.0 to 1.0)
     tool_score: float = 0.0
     content_score: float = 0.0
+    reasoning_score: float = 0.0
     format_score: float = 0.0
     overall_score: float = 0.0
 
@@ -29,6 +30,8 @@ class EvaluationResult:
 
     content_matches: List[str] = field(default_factory=list)
     content_misses: List[str] = field(default_factory=list)
+    reasoning_matches: List[str] = field(default_factory=list)
+    reasoning_misses: List[str] = field(default_factory=list)
 
     # Pass/fail
     passed: bool = False
@@ -75,14 +78,21 @@ def evaluate_response(
     result.content_matches = content_details["matches"]
     result.content_misses = content_details["misses"]
 
+    # Evaluate reasoning quality
+    reasoning_score, reasoning_details = _evaluate_reasoning(response, expected)
+    result.reasoning_score = reasoning_score
+    result.reasoning_matches = reasoning_details["matches"]
+    result.reasoning_misses = reasoning_details["misses"]
+
     # Evaluate format
     format_score = _evaluate_format(response, expected)
     result.format_score = format_score
 
     # Calculate overall score (weighted average)
     result.overall_score = (
-        0.4 * tool_score +
-        0.4 * content_score +
+        0.3 * tool_score +
+        0.3 * content_score +
+        0.2 * reasoning_score +
         0.2 * format_score
     )
 
@@ -101,6 +111,10 @@ def evaluate_response(
     if result.content_misses:
         result.failure_reasons.append(
             f"Missing required content: {result.content_misses}"
+        )
+    if result.reasoning_misses:
+        result.failure_reasons.append(
+            f"Missing required reasoning cues: {result.reasoning_misses}"
         )
 
     return result
@@ -200,6 +214,48 @@ def _evaluate_content(
     return max(0.0, score), details
 
 
+def _evaluate_reasoning(
+    response: str,
+    expected: ExpectedOutcome,
+) -> tuple:
+    """Evaluate reasoning quality cues against expectations."""
+    details = {"matches": [], "misses": []}
+    response_lower = response.lower()
+
+    must_contain_score = 0.0
+    if expected.reasoning_must_contain:
+        matches = []
+        for term in expected.reasoning_must_contain:
+            if term.lower() in response_lower:
+                matches.append(term)
+        details["matches"].extend(matches)
+        details["misses"] = [
+            term for term in expected.reasoning_must_contain if term.lower() not in response_lower
+        ]
+        must_contain_score = len(matches) / len(expected.reasoning_must_contain)
+    else:
+        must_contain_score = 1.0
+
+    should_contain_score = 0.0
+    if expected.reasoning_should_contain:
+        matches = []
+        for term in expected.reasoning_should_contain:
+            if term.lower() in response_lower:
+                matches.append(term)
+        details["matches"].extend(matches)
+        should_contain_score = len(matches) / len(expected.reasoning_should_contain)
+    else:
+        should_contain_score = 1.0
+
+    must_not_penalty = 0.0
+    for term in expected.reasoning_must_not_contain:
+        if term.lower() in response_lower:
+            must_not_penalty += 0.2
+
+    score = (0.7 * must_contain_score + 0.3 * should_contain_score) - must_not_penalty
+    return max(0.0, score), details
+
+
 def _evaluate_format(
     response: str,
     expected: ExpectedOutcome,
@@ -257,6 +313,9 @@ def _determine_pass(
         if must_misses:
             return False
 
+    if result.reasoning_misses:
+        return False
+
     # Pass if overall score is above threshold
     return result.overall_score >= 0.5
 
@@ -294,6 +353,7 @@ def compute_agent_metrics(
     # Aggregate scores
     tool_scores = [e.tool_score for e in evaluations]
     content_scores = [e.content_score for e in evaluations]
+    reasoning_scores = [e.reasoning_score for e in evaluations]
     overall_scores = [e.overall_score for e in evaluations]
     pass_count = sum(1 for e in evaluations if e.passed)
 
@@ -319,10 +379,13 @@ def compute_agent_metrics(
 
         "tool_score_mean": sum(tool_scores) / len(tool_scores),
         "content_score_mean": sum(content_scores) / len(content_scores),
+        "reasoning_score_mean": sum(reasoning_scores) / len(reasoning_scores),
         "overall_score_mean": sum(overall_scores) / len(overall_scores),
 
         "tool_score_min": min(tool_scores),
         "tool_score_max": max(tool_scores),
+        "reasoning_score_min": min(reasoning_scores),
+        "reasoning_score_max": max(reasoning_scores),
         "overall_score_min": min(overall_scores),
         "overall_score_max": max(overall_scores),
 
@@ -369,6 +432,7 @@ def summarize_evaluations(
 
         "avg_tool_score": sum(e.tool_score for e in evaluations) / len(evaluations),
         "avg_content_score": sum(e.content_score for e in evaluations) / len(evaluations),
+        "avg_reasoning_score": sum(e.reasoning_score for e in evaluations) / len(evaluations),
         "avg_format_score": sum(e.format_score for e in evaluations) / len(evaluations),
         "avg_overall_score": sum(e.overall_score for e in evaluations) / len(evaluations),
 

@@ -67,10 +67,12 @@ def create_simple_agent(
     tool_bundle: str = "standard",
     custom_tools: Optional[List[str]] = None,
     temperature: float = 0,
-    include_data_info: bool = True,
+    include_data_info: bool = False,
     enable_logging: bool = True,
     capture_results: bool = False,
     log_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+    *,
+    data_context_prompt: Optional[str] = None,
 ) -> Any:
     """Create a simple LangChain agent for time series analysis.
 
@@ -90,13 +92,15 @@ def create_simple_agent(
     temperature : float
         LLM temperature (0 = deterministic)
     include_data_info : bool
-        Include CFD data info in system prompt
+        Include the bundled CFD/MHD data context in the system prompt
     enable_logging : bool
         Enable logging of tool calls and decisions
     capture_results : bool
         Capture JSON-serializable tool results in log entries (may be large)
     log_callback : Callable, optional
         Custom callback for logging events
+    data_context_prompt : str, optional
+        Explicit domain or dataset context to append to the system prompt
 
     Returns
     -------
@@ -148,6 +152,7 @@ def create_simple_agent(
     system_prompt = get_system_prompt(
         tool_names=tool_names,
         include_data_info=include_data_info,
+        data_context_prompt=data_context_prompt,
     )
     bundle_prompt = get_bundle_prompt(bundle_name)
     full_prompt = system_prompt + "\n" + bundle_prompt
@@ -288,6 +293,10 @@ class SimpleAgentChat:
         Custom tool list
     enable_logging : bool
         Enable detailed logging
+    capture_results : bool
+        Capture JSON-serializable tool outputs in the session log
+    data_context_prompt : str, optional
+        Explicit domain or dataset context to pass through to create_simple_agent
 
     Examples
     --------
@@ -307,6 +316,8 @@ class SimpleAgentChat:
         custom_tools: Optional[List[str]] = None,
         enable_logging: bool = True,
         capture_results: bool = False,
+        *,
+        data_context_prompt: Optional[str] = None,
     ):
         self._tool_calls: List[ToolCallRecord] = []
 
@@ -329,6 +340,7 @@ class SimpleAgentChat:
             enable_logging=enable_logging,
             capture_results=capture_results,
             log_callback=log_callback,
+            data_context_prompt=data_context_prompt,
         )
 
         self.messages: List[Any] = []

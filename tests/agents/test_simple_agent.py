@@ -14,6 +14,8 @@ class TestPrompts:
 
         assert "time series" in prompt.lower()
         assert "analysis" in prompt.lower()
+        assert "Re200Rm200" not in prompt
+        assert "bx001_real" not in prompt
 
     def test_get_system_prompt_with_tools(self):
         """Test system prompt includes tool names."""
@@ -43,6 +45,19 @@ class TestPrompts:
 
         # Should still have basic content but not data-specific info
         assert "time series" in prompt.lower()
+        assert "Re200Rm200" not in prompt
+        assert "bx001_real" not in prompt
+
+    def test_get_system_prompt_with_explicit_data_context_prompt(self):
+        """Test system prompt can accept explicit caller-provided data context."""
+        from ts_agents.agents.simple.prompts import get_system_prompt
+
+        prompt = get_system_prompt(
+            data_context_prompt="## Available Data\n- Dataset: battery_cells.csv"
+        )
+
+        assert "Available Data" in prompt
+        assert "battery_cells.csv" in prompt
 
     def test_get_system_prompt_custom_instructions(self):
         """Test system prompt with custom instructions."""
@@ -169,9 +184,35 @@ class TestAgentCreationConfiguration:
         assert "full" in bundles
         assert "all" in bundles
 
+    def test_create_simple_agent_signature_preserves_positional_compatibility(self):
+        """Test create_simple_agent keeps new data context as keyword-only."""
+        import inspect
+        from ts_agents.agents.simple.agent import create_simple_agent
+
+        params = inspect.signature(create_simple_agent).parameters
+
+        assert list(params)[5] == "enable_logging"
+        assert params["data_context_prompt"].kind is inspect.Parameter.KEYWORD_ONLY
+
 
 class TestSimpleAgentChatDataStructures:
     """Tests for SimpleAgentChat supporting data structures."""
+
+    def test_simple_agent_chat_forwards_data_context_prompt(self, monkeypatch):
+        """Test SimpleAgentChat forwards explicit data context to agent creation."""
+        import ts_agents.agents.simple.agent as agent_module
+
+        captured = {}
+
+        def fake_create_simple_agent(**kwargs):
+            captured.update(kwargs)
+            return object()
+
+        monkeypatch.setattr(agent_module, "create_simple_agent", fake_create_simple_agent)
+
+        agent_module.SimpleAgentChat(data_context_prompt="## Available Data\n- Dataset: batteries.csv")
+
+        assert captured["data_context_prompt"] == "## Available Data\n- Dataset: batteries.csv"
 
     def test_get_tool_stats_empty(self):
         """Test tool stats with no calls."""
