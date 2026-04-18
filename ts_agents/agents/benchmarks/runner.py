@@ -66,6 +66,7 @@ class BenchmarkResult:
             "evaluation": {
                 "tool_score": self.evaluation.tool_score,
                 "content_score": self.evaluation.content_score,
+                "reasoning_score": self.evaluation.reasoning_score,
                 "format_score": self.evaluation.format_score,
                 "overall_score": self.evaluation.overall_score,
                 "passed": self.evaluation.passed,

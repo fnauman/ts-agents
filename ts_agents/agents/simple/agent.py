@@ -67,7 +67,8 @@ def create_simple_agent(
     tool_bundle: str = "standard",
     custom_tools: Optional[List[str]] = None,
     temperature: float = 0,
-    include_data_info: bool = True,
+    include_data_info: bool = False,
+    data_context_prompt: Optional[str] = None,
     enable_logging: bool = True,
     capture_results: bool = False,
     log_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
@@ -90,7 +91,9 @@ def create_simple_agent(
     temperature : float
         LLM temperature (0 = deterministic)
     include_data_info : bool
-        Include CFD data info in system prompt
+        Include the bundled CFD/MHD data context in the system prompt
+    data_context_prompt : str, optional
+        Explicit domain or dataset context to append to the system prompt
     enable_logging : bool
         Enable logging of tool calls and decisions
     capture_results : bool
@@ -148,6 +151,7 @@ def create_simple_agent(
     system_prompt = get_system_prompt(
         tool_names=tool_names,
         include_data_info=include_data_info,
+        data_context_prompt=data_context_prompt,
     )
     bundle_prompt = get_bundle_prompt(bundle_name)
     full_prompt = system_prompt + "\n" + bundle_prompt

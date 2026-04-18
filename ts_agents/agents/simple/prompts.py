@@ -10,7 +10,8 @@ from ...config import AVAILABLE_RUNS, REAL_VARIABLES, IMAG_VARIABLES
 
 def get_system_prompt(
     tool_names: Optional[List[str]] = None,
-    include_data_info: bool = True,
+    include_data_info: bool = False,
+    data_context_prompt: Optional[str] = None,
     custom_instructions: Optional[str] = None,
 ) -> str:
     """Generate system prompt for the simple agent.
@@ -20,7 +21,9 @@ def get_system_prompt(
     tool_names : List[str], optional
         List of available tool names (for context in prompt)
     include_data_info : bool
-        Whether to include CFD data information
+        Whether to include the bundled CFD/MHD data context
+    data_context_prompt : str, optional
+        Explicit domain or dataset context to append to the prompt
     custom_instructions : str, optional
         Additional instructions to append
 
@@ -31,8 +34,10 @@ def get_system_prompt(
     """
     parts = [BASE_PROMPT]
 
-    if include_data_info:
-        parts.append(DATA_INFO_PROMPT)
+    if data_context_prompt:
+        parts.append(data_context_prompt)
+    elif include_data_info:
+        parts.append(MHD_DATA_CONTEXT_PROMPT)
 
     parts.append(CAPABILITIES_PROMPT)
 
@@ -52,14 +57,14 @@ def get_system_prompt(
 # Prompt Components
 # -----------------------------------------------------------------------------
 
-BASE_PROMPT = """You are a time series analysis agent specializing in scientific data analysis.
+BASE_PROMPT = """You are a time series analysis agent.
 
 Your role is to help users analyze time series data using a variety of statistical
 and machine learning techniques. You have access to tools for decomposition,
 forecasting, pattern detection, classification, spectral analysis, and more."""
 
 
-DATA_INFO_PROMPT = f"""
+MHD_DATA_CONTEXT_PROMPT = f"""
 ## Available Data
 
 The data comes from MHD (Magnetohydrodynamic) simulations with different Reynolds
@@ -131,21 +136,29 @@ GUIDELINES_PROMPT = """
 3. **Start Simple**: Begin with basic tools (describe_series, detect_peaks) before
    using more complex ones.
 
-4. **Explain Results**: Provide clear interpretations of analysis results in
+4. **Use Exploration-First Reasoning**: When method choice is unclear, inspect
+   basic statistics, periodicity, and other lightweight diagnostics before
+   recommending an expensive or specialized approach.
+
+5. **Explain Results**: Provide clear interpretations of analysis results in
    scientific terms.
 
-5. **Handle Errors Gracefully**: If a tool fails, explain what went wrong and
+6. **Handle Errors Gracefully**: If a tool fails, explain what went wrong and
    suggest alternatives.
 
-6. **Ask for Clarification**: If the user doesn't specify a run ID or variable,
-   ask them or suggest Re200Rm200 as a good starting point (most turbulent case).
+7. **Ask for Clarification**: If the user doesn't identify the input series,
+   file, run, or variable, ask for it. Only suggest domain-specific bundled
+   data when the prompt explicitly includes that context.
 
-7. **Consider Computational Cost**: Some tools (like HC2 classification or
+8. **Consider Computational Cost**: Some tools (like HC2 classification or
    ensemble forecasting) are computationally expensive. Mention this before
    running them.
 
-8. **Compare When Useful**: When the user wants to understand which method is
-   best, use comparison tools to evaluate multiple approaches."""
+9. **Compare When Useful**: When the user wants to understand which method is
+   best, use comparison tools to evaluate multiple approaches.
+
+10. **Call Out Caveats**: If confidence is weak or a method depends on optional
+    extras, say so explicitly instead of pretending the result is unconditional."""
 
 
 # -----------------------------------------------------------------------------

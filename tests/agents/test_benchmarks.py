@@ -51,6 +51,8 @@ class TestBenchmarkScenarios:
         assert "query" in data
         assert "difficulty" in data
         assert "expected" in data
+        assert "reasoning_must_contain" in data["expected"]
+        assert "reasoning_should_contain" in data["expected"]
 
     def test_get_scenarios_by_difficulty(self):
         """Test filtering scenarios by difficulty."""
@@ -128,6 +130,8 @@ class TestExpectedOutcome:
         assert expected.required_tools == []
         assert expected.optional_tools == []
         assert expected.must_contain == []
+        assert expected.reasoning_must_contain == []
+        assert expected.reasoning_should_contain == []
         assert expected.expects_number is False
         assert expected.min_tool_calls == 0
         assert expected.max_tool_calls == 10
@@ -139,12 +143,14 @@ class TestExpectedOutcome:
         expected = ExpectedOutcome(
             required_tools=["detect_peaks"],
             must_contain=["peak"],
+            reasoning_should_contain=["inspect"],
             expects_number=True,
             min_tool_calls=1,
         )
 
         assert expected.required_tools == ["detect_peaks"]
         assert expected.must_contain == ["peak"]
+        assert expected.reasoning_should_contain == ["inspect"]
         assert expected.expects_number is True
         assert expected.min_tool_calls == 1
 
@@ -256,6 +262,48 @@ class TestMetrics:
 
         assert result_with_number.format_score > result_without_number.format_score
 
+    def test_evaluate_response_reasoning_quality(self):
+        """Test evaluation of reasoning quality expectations."""
+        from ts_agents.agents.benchmarks.metrics import evaluate_response
+        from ts_agents.agents.benchmarks.scenarios import ExpectedOutcome
+
+        expected = ExpectedOutcome(
+            reasoning_must_contain=["inspect", "availability"],
+            reasoning_should_contain=["confidence"],
+        )
+
+        result = evaluate_response(
+            response=(
+                "Inspect seasonality first, then compare heavier methods "
+                "only after checking availability and confidence."
+            ),
+            tool_calls=[],
+            expected=expected,
+        )
+
+        assert result.reasoning_score > 0.9
+        assert "inspect" in result.reasoning_matches
+        assert "availability" in result.reasoning_matches
+
+    def test_evaluate_response_missing_required_reasoning_fails(self):
+        """Test missing required reasoning cues fail evaluation."""
+        from ts_agents.agents.benchmarks.metrics import evaluate_response
+        from ts_agents.agents.benchmarks.scenarios import ExpectedOutcome
+
+        expected = ExpectedOutcome(
+            reasoning_must_contain=["inspect", "availability"],
+        )
+
+        result = evaluate_response(
+            response="Run the heaviest model immediately.",
+            tool_calls=[],
+            expected=expected,
+        )
+
+        assert result.passed is False
+        assert "inspect" in result.reasoning_misses
+        assert "availability" in result.reasoning_misses
+
     def test_evaluation_result_dataclass(self):
         """Test EvaluationResult dataclass."""
         from ts_agents.agents.benchmarks.metrics import EvaluationResult
@@ -263,6 +311,7 @@ class TestMetrics:
         result = EvaluationResult(
             tool_score=0.8,
             content_score=0.9,
+            reasoning_score=0.7,
             format_score=1.0,
             overall_score=0.87,
             tools_used=["detect_peaks"],
@@ -270,6 +319,7 @@ class TestMetrics:
         )
 
         assert result.tool_score == 0.8
+        assert result.reasoning_score == 0.7
         assert result.passed is True
         assert len(result.failure_reasons) == 0
 
@@ -283,11 +333,13 @@ class TestMetrics:
         evaluations = [
             EvaluationResult(
                 tool_score=0.8, content_score=0.9,
-                format_score=1.0, overall_score=0.87, passed=True,
+                reasoning_score=0.7, format_score=1.0,
+                overall_score=0.87, passed=True,
             ),
             EvaluationResult(
                 tool_score=0.5, content_score=0.5,
-                format_score=0.5, overall_score=0.5, passed=False,
+                reasoning_score=0.4, format_score=0.5,
+                overall_score=0.5, passed=False,
                 failure_reasons=["Missing content"],
             ),
         ]
@@ -299,6 +351,7 @@ class TestMetrics:
         assert summary["failed"] == 1
         assert summary["pass_rate"] == 0.5
         assert "avg_overall_score" in summary
+        assert "avg_reasoning_score" in summary
 
     def test_summarize_evaluations_empty(self):
         """Test summarizing empty evaluation list."""
@@ -347,7 +400,8 @@ class TestBenchmarkResult:
             duration_ms=1500.0,
             evaluation=EvaluationResult(
                 tool_score=1.0, content_score=1.0,
-                format_score=1.0, overall_score=1.0, passed=True,
+                reasoning_score=1.0, format_score=1.0,
+                overall_score=1.0, passed=True,
             ),
         )
 
@@ -356,6 +410,7 @@ class TestBenchmarkResult:
         assert data["scenario_name"] == "simple_peak_count"
         assert data["success"] is True
         assert data["evaluation"]["passed"] is True
+        assert data["evaluation"]["reasoning_score"] == 1.0
 
 
 class TestAgentConfig:
@@ -431,7 +486,8 @@ class TestAgentBenchmarkInfrastructure:
                 duration_ms=100.0,
                 evaluation=EvaluationResult(
                     tool_score=1.0, content_score=1.0,
-                    format_score=1.0, overall_score=1.0, passed=True,
+                    reasoning_score=1.0, format_score=1.0,
+                    overall_score=1.0, passed=True,
                 ),
             ),
             BenchmarkResult(
@@ -445,7 +501,8 @@ class TestAgentBenchmarkInfrastructure:
                 duration_ms=200.0,
                 evaluation=EvaluationResult(
                     tool_score=0.5, content_score=0.5,
-                    format_score=0.5, overall_score=0.5, passed=False,
+                    reasoning_score=0.5, format_score=0.5,
+                    overall_score=0.5, passed=False,
                 ),
             ),
         ]

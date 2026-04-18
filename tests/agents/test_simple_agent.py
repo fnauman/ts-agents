@@ -14,6 +14,8 @@ class TestPrompts:
 
         assert "time series" in prompt.lower()
         assert "analysis" in prompt.lower()
+        assert "Re200Rm200" not in prompt
+        assert "bx001_real" not in prompt
 
     def test_get_system_prompt_with_tools(self):
         """Test system prompt includes tool names."""
@@ -43,6 +45,19 @@ class TestPrompts:
 
         # Should still have basic content but not data-specific info
         assert "time series" in prompt.lower()
+        assert "Re200Rm200" not in prompt
+        assert "bx001_real" not in prompt
+
+    def test_get_system_prompt_with_explicit_data_context_prompt(self):
+        """Test system prompt can accept explicit caller-provided data context."""
+        from ts_agents.agents.simple.prompts import get_system_prompt
+
+        prompt = get_system_prompt(
+            data_context_prompt="## Available Data\n- Dataset: battery_cells.csv"
+        )
+
+        assert "Available Data" in prompt
+        assert "battery_cells.csv" in prompt
 
     def test_get_system_prompt_custom_instructions(self):
         """Test system prompt with custom instructions."""

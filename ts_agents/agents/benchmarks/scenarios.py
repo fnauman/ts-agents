@@ -36,6 +36,9 @@ class ExpectedOutcome:
     must_contain: List[str] = field(default_factory=list)
     should_contain: List[str] = field(default_factory=list)
     must_not_contain: List[str] = field(default_factory=list)
+    reasoning_must_contain: List[str] = field(default_factory=list)
+    reasoning_should_contain: List[str] = field(default_factory=list)
+    reasoning_must_not_contain: List[str] = field(default_factory=list)
 
     # Format expectations
     expects_number: bool = False
@@ -77,6 +80,8 @@ class BenchmarkScenario:
                 "required_tools": self.expected.required_tools,
                 "optional_tools": self.expected.optional_tools,
                 "must_contain": self.expected.must_contain,
+                "reasoning_must_contain": self.expected.reasoning_must_contain,
+                "reasoning_should_contain": self.expected.reasoning_should_contain,
                 "expects_number": self.expected.expects_number,
             },
         }
@@ -250,6 +255,7 @@ register_scenario(BenchmarkScenario(
         required_tools=["compare_forecasts"],
         optional_tools=["forecast_arima", "forecast_ets", "forecast_theta", "forecast_ensemble"],
         must_contain=["arima", "ets"],
+        reasoning_should_contain=["compare", "confidence", "availability"],
         expects_recommendation=True,
         min_tool_calls=1,
         max_tool_calls=5,
@@ -286,6 +292,7 @@ register_scenario(BenchmarkScenario(
     expected=ExpectedOutcome(
         required_tools=["stl_decompose", "mstl_decompose", "holt_winters_decompose"],
         must_contain=["stl", "trend"],
+        reasoning_should_contain=["because", "seasonal", "inspect"],
         expects_recommendation=True,
         min_tool_calls=1,
         max_tool_calls=5,
