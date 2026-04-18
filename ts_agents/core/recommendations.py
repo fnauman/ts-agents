@@ -118,13 +118,11 @@ def _as_mapping(value: Any) -> dict[str, Any]:
     return {}
 
 
-
 def _normalize_methods(methods: Iterable[str] | None) -> tuple[str, ...]:
     if methods is None:
         return _DEFAULT_AVAILABLE_METHODS
-    normalized = tuple(str(method) for method in methods if str(method))
+    normalized = tuple(s for method in methods if (s := str(method)))
     return normalized or _DEFAULT_AVAILABLE_METHODS
-
 
 
 def _lag_one_autocorrelation(acf: Sequence[float]) -> float:
@@ -136,13 +134,12 @@ def _lag_one_autocorrelation(acf: Sequence[float]) -> float:
     return value
 
 
-
 def _first_available(preferred: Sequence[str], available: Sequence[str]) -> str:
     for name in preferred:
         if name in available:
             return name
+    # _normalize_methods guarantees a non-empty sequence for this fallback path.
     return available[0]
-
 
 
 def _present(preferred: Sequence[str], available: Sequence[str], *, exclude: set[str]) -> list[str]:
@@ -156,7 +153,6 @@ def _present(preferred: Sequence[str], available: Sequence[str], *, exclude: set
             continue
         result.append(name)
     return result
-
 
 
 def _recommendation_confidence(

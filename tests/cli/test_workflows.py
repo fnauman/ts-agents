@@ -195,6 +195,42 @@ def test_workflow_run_inspect_series_supports_subprocess_sandbox(capsys, tmp_pat
     assert (output_dir / "report.md").exists()
 
 
+def test_workflow_run_inspect_series_restricts_recommendation_to_available_methods(
+    monkeypatch,
+    capsys,
+    tmp_path,
+):
+    import ts_agents.workflows.inspect as inspect_mod
+
+    monkeypatch.setattr(inspect_mod, "_available_forecasting_methods", lambda: ["seasonal_naive"])
+
+    output_dir = tmp_path / "inspect_base_profile"
+    code = run(
+        [
+            "workflow",
+            "run",
+            "inspect-series",
+            "--input-json",
+            '{"series":[1,2,3,4,5,6,7,8,9,10,11,12]}',
+            "--output-dir",
+            str(output_dir),
+            "--skip-plots",
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    recommendation = payload["result"]["data"]["forecast_recommendation"]
+    assert recommendation["choice"] == "seasonal_naive"
+    assert recommendation["alternatives"] == []
+    ledger_payload = json.loads((output_dir / "ledger.json").read_text())
+    recommendation_entry = next(
+        entry for entry in ledger_payload["entries"] if entry["key"] == "forecasting_method"
+    )
+    assert recommendation_entry["value"] == "seasonal_naive"
+
+
 def test_workflow_run_generates_run_scoped_output_dir_by_default(monkeypatch, capsys, tmp_path):
     monkeypatch.chdir(tmp_path)
 

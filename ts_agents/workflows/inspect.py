@@ -46,6 +46,7 @@ def run_inspect_series_workflow(
         stats=stats,
         periodicity=periodicity,
         acf=acf,
+        available_methods=_available_forecasting_methods(),
     )
 
     recommended_next_steps = _recommend_next_steps(
@@ -161,6 +162,15 @@ def run_inspect_series_workflow(
         resumed=resumed,
         output_dir_mode=output_dir_mode,
     )
+
+
+def _available_forecasting_methods() -> list[str]:
+    from ts_agents.workflows import get_workflow
+
+    availability = get_workflow("forecast-series").availability()
+    methods = availability.get("available_methods") or ["seasonal_naive"]
+    normalized = [str(method) for method in methods if str(method)]
+    return normalized or ["seasonal_naive"]
 
 
 def _recommend_next_steps(
