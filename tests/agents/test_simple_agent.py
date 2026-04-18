@@ -184,9 +184,35 @@ class TestAgentCreationConfiguration:
         assert "full" in bundles
         assert "all" in bundles
 
+    def test_create_simple_agent_signature_preserves_positional_compatibility(self):
+        """Test create_simple_agent keeps new data context as keyword-only."""
+        import inspect
+        from ts_agents.agents.simple.agent import create_simple_agent
+
+        params = inspect.signature(create_simple_agent).parameters
+
+        assert list(params)[5] == "enable_logging"
+        assert params["data_context_prompt"].kind is inspect.Parameter.KEYWORD_ONLY
+
 
 class TestSimpleAgentChatDataStructures:
     """Tests for SimpleAgentChat supporting data structures."""
+
+    def test_simple_agent_chat_forwards_data_context_prompt(self, monkeypatch):
+        """Test SimpleAgentChat forwards explicit data context to agent creation."""
+        import ts_agents.agents.simple.agent as agent_module
+
+        captured = {}
+
+        def fake_create_simple_agent(**kwargs):
+            captured.update(kwargs)
+            return object()
+
+        monkeypatch.setattr(agent_module, "create_simple_agent", fake_create_simple_agent)
+
+        agent_module.SimpleAgentChat(data_context_prompt="## Available Data\n- Dataset: batteries.csv")
+
+        assert captured["data_context_prompt"] == "## Available Data\n- Dataset: batteries.csv"
 
     def test_get_tool_stats_empty(self):
         """Test tool stats with no calls."""

@@ -38,6 +38,7 @@ class ExpectedOutcome:
     must_not_contain: List[str] = field(default_factory=list)
     reasoning_must_contain: List[str] = field(default_factory=list)
     reasoning_should_contain: List[str] = field(default_factory=list)
+    # Soft penalty only; this discourages overclaiming without forcing a hard fail.
     reasoning_must_not_contain: List[str] = field(default_factory=list)
 
     # Format expectations
@@ -82,6 +83,7 @@ class BenchmarkScenario:
                 "must_contain": self.expected.must_contain,
                 "reasoning_must_contain": self.expected.reasoning_must_contain,
                 "reasoning_should_contain": self.expected.reasoning_should_contain,
+                "reasoning_must_not_contain": self.expected.reasoning_must_not_contain,
                 "expects_number": self.expected.expects_number,
             },
         }
@@ -256,6 +258,7 @@ register_scenario(BenchmarkScenario(
         optional_tools=["forecast_arima", "forecast_ets", "forecast_theta", "forecast_ensemble"],
         must_contain=["arima", "ets"],
         reasoning_should_contain=["compare", "confidence", "availability"],
+        reasoning_must_not_contain=["guarantee"],
         expects_recommendation=True,
         min_tool_calls=1,
         max_tool_calls=5,

@@ -314,11 +314,7 @@ def _determine_pass(
             return False
 
     if result.reasoning_misses:
-        must_reasoning_misses = [
-            miss for miss in result.reasoning_misses if miss in expected.reasoning_must_contain
-        ]
-        if must_reasoning_misses:
-            return False
+        return False
 
     # Pass if overall score is above threshold
     return result.overall_score >= 0.5

@@ -53,6 +53,15 @@ class TestBenchmarkScenarios:
         assert "expected" in data
         assert "reasoning_must_contain" in data["expected"]
         assert "reasoning_should_contain" in data["expected"]
+        assert "reasoning_must_not_contain" in data["expected"]
+
+    def test_forecast_comparison_documents_reasoning_guardrail(self):
+        """Test forecast comparison scenario documents a soft reasoning guardrail."""
+        from ts_agents.agents.benchmarks.scenarios import BENCHMARK_SCENARIOS
+
+        scenario = BENCHMARK_SCENARIOS["forecast_comparison"]
+
+        assert scenario.expected.reasoning_must_not_contain == ["guarantee"]
 
     def test_get_scenarios_by_difficulty(self):
         """Test filtering scenarios by difficulty."""
@@ -132,6 +141,7 @@ class TestExpectedOutcome:
         assert expected.must_contain == []
         assert expected.reasoning_must_contain == []
         assert expected.reasoning_should_contain == []
+        assert expected.reasoning_must_not_contain == []
         assert expected.expects_number is False
         assert expected.min_tool_calls == 0
         assert expected.max_tool_calls == 10
@@ -144,6 +154,7 @@ class TestExpectedOutcome:
             required_tools=["detect_peaks"],
             must_contain=["peak"],
             reasoning_should_contain=["inspect"],
+            reasoning_must_not_contain=["guarantee"],
             expects_number=True,
             min_tool_calls=1,
         )
@@ -151,6 +162,7 @@ class TestExpectedOutcome:
         assert expected.required_tools == ["detect_peaks"]
         assert expected.must_contain == ["peak"]
         assert expected.reasoning_should_contain == ["inspect"]
+        assert expected.reasoning_must_not_contain == ["guarantee"]
         assert expected.expects_number is True
         assert expected.min_tool_calls == 1
 
@@ -303,6 +315,25 @@ class TestMetrics:
         assert result.passed is False
         assert "inspect" in result.reasoning_misses
         assert "availability" in result.reasoning_misses
+
+    def test_evaluate_response_reasoning_must_not_contain_is_soft_penalty(self):
+        """Test reasoning must-not terms lower score without creating hard misses."""
+        from ts_agents.agents.benchmarks.metrics import evaluate_response
+        from ts_agents.agents.benchmarks.scenarios import ExpectedOutcome
+
+        expected = ExpectedOutcome(
+            reasoning_must_not_contain=["guarantee"],
+        )
+
+        result = evaluate_response(
+            response="I can guarantee this forecast will be best.",
+            tool_calls=[],
+            expected=expected,
+        )
+
+        assert result.reasoning_score == pytest.approx(0.8)
+        assert result.reasoning_misses == []
+        assert result.passed is True
 
     def test_evaluation_result_dataclass(self):
         """Test EvaluationResult dataclass."""
