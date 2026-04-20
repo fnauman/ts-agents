@@ -1820,6 +1820,90 @@ def test_workflow_run_activity_recognition_report_surfaces_retention_drops(
     assert "No obvious pathologies" not in report_text
 
 
+def test_workflow_run_activity_recognition_surfaces_classifier_backend_warnings(
+    monkeypatch,
+    capsys,
+    tmp_path,
+):
+    import ts_agents.core.windowing as windowing
+
+    class FakeSelection:
+        best_window_size = 64
+        metric = "balanced_accuracy"
+
+        def to_dict(self):
+            return {
+                "method": "window_size_selection",
+                "best_window_size": 64,
+                "metric": "balanced_accuracy",
+                "scores_by_window": {64: 0.8},
+                "n_windows_by_window": {64: 20},
+                "details": {"n_splits": 3, "window_diagnostics": {64: {"n_windows": 20, "retained_classes": ["idle", "walk"], "dropped_classes": [], "valid_split_count": 3}}},
+            }
+
+    class FakeEval:
+        metric = "balanced_accuracy"
+        score = 0.8
+
+        def to_dict(self):
+            return {
+                "method": "windowed_classification",
+                "window_size": 64,
+                "stride": 32,
+                "classifier": "minirocket",
+                "metric": "balanced_accuracy",
+                "score": 0.8,
+                "n_windows": 20,
+                "n_splits": 3,
+                "split_scores": [0.8],
+                "retained_classes": ["idle", "walk"],
+                "dropped_classes": [],
+                "class_counts": {"idle": 10, "walk": 10},
+                "classification": {
+                    "method": "rocket_fallback",
+                    "warnings": ["ROCKET backend fallback activated during fit/predict: RuntimeError: broken aeon"],
+                    "accuracy": 0.8,
+                    "f1_score": 0.8,
+                    "confusion_matrix": [[4, 1], [1, 4]],
+                    "predictions": ["idle", "walk"],
+                },
+            }
+
+    monkeypatch.setattr(windowing, "select_window_size", lambda *args, **kwargs: FakeSelection())
+    monkeypatch.setattr(windowing, "evaluate_windowed_classifier", lambda *args, **kwargs: FakeEval())
+
+    csv_path = tmp_path / "stream.csv"
+    csv_path.write_text(
+        "x,y,z,label\n"
+        "0,0,0,idle\n"
+        "1,1,1,idle\n"
+        "2,2,2,walk\n"
+        "3,3,3,walk\n"
+    )
+
+    code = run(
+        [
+            "workflow",
+            "run",
+            "activity-recognition",
+            "--input",
+            str(csv_path),
+            "--label-col",
+            "label",
+            "--value-cols",
+            "x,y,z",
+            "--skip-plots",
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["degraded"] is True
+    assert "classifier_backend_warning" in payload["result"]["data"]["quality_flags"]
+    assert any("fallback activated" in warning for warning in payload["result"]["warnings"])
+
+
 def test_handle_workflow_command_uses_registry_runner(monkeypatch):
     import importlib
     import ts_agents.workflows as workflows

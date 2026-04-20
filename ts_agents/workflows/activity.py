@@ -91,10 +91,18 @@ def run_activity_recognition_workflow(
     evaluation_classifier = evaluation_payload.get("classifier")
     classification_method = classification.get("method")
     effective_backend = classification_method or evaluation_classifier or selected_classifier
+    warnings: List[str] = []
+    for warning in classification.get("warnings") or []:
+        warning_text = str(warning)
+        if warning_text not in warnings:
+            warnings.append(warning_text)
+
     quality_flags = _activity_quality_flags(
         selection_payload=selection_payload,
         evaluation_payload=evaluation_payload,
     )
+    if warnings and "classifier_backend_warning" not in quality_flags:
+        quality_flags.append("classifier_backend_warning")
     score = evaluation_payload.get("score")
     summary_data = {
         "workflow": workflow_name,
@@ -137,7 +145,6 @@ def run_activity_recognition_workflow(
             created_by=workflow_name,
         ),
     ]
-    warnings: List[str] = []
 
     if not skip_plots:
         selection_fig = None

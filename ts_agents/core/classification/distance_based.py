@@ -11,6 +11,13 @@ from ..base import ClassificationResult
 from .utils import ensure_3d
 
 
+def _knn_fallback_warning(context: str, exc: Exception) -> str:
+    return (
+        "Time-series KNN backend fallback activated during "
+        f"{context}: {type(exc).__name__}: {exc}"
+    )
+
+
 def knn_classify(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -62,8 +69,14 @@ def knn_classify(
     """
     try:
         from aeon.classification.distance_based import KNeighborsTimeSeriesClassifier
-    except Exception:
-        return _fallback_knn_classify(X_train, y_train, X_test, y_test)
+    except Exception as exc:
+        return _fallback_knn_classify(
+            X_train,
+            y_train,
+            X_test,
+            y_test,
+            warning_message=_knn_fallback_warning("import", exc),
+        )
 
     # Ensure 3D format for aeon
     X_train = ensure_3d(X_train)
@@ -78,8 +91,14 @@ def knn_classify(
         )
         clf.fit(X_train, y_train)
         predictions = clf.predict(X_test)
-    except Exception:
-        return _fallback_knn_classify(X_train, y_train, X_test, y_test)
+    except Exception as exc:
+        return _fallback_knn_classify(
+            X_train,
+            y_train,
+            X_test,
+            y_test,
+            warning_message=_knn_fallback_warning("fit/predict", exc),
+        )
 
     # Get probabilities if available
     probabilities = None
@@ -108,6 +127,7 @@ def _fallback_knn_classify(
     y_train: np.ndarray,
     X_test: np.ndarray,
     y_test: Optional[np.ndarray] = None,
+    warning_message: Optional[str] = None,
 ) -> ClassificationResult:
     """Fallback KNN implementation when aeon is not available."""
     from sklearn.neighbors import KNeighborsClassifier
@@ -131,6 +151,7 @@ def _fallback_knn_classify(
         predictions=predictions,
         probabilities=probabilities,
         accuracy=accuracy,
+        warnings=[warning_message] if warning_message else [],
     )
 
 

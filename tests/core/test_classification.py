@@ -100,6 +100,7 @@ class TestKNNClassification:
 
         assert result.method == "knn_euclidean_fallback"
         assert len(result.predictions) == 5
+        assert any("fallback activated" in warning for warning in result.warnings)
 
 
 class TestROCKETClassification:
@@ -143,6 +144,7 @@ class TestROCKETClassification:
 
         assert result.method == "rocket_fallback"
         assert len(result.predictions) == 5
+        assert any("fallback activated" in warning for warning in result.warnings)
 
 
 class TestEnsure3D:

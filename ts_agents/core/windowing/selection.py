@@ -742,6 +742,7 @@ def evaluate_windowed_classifier(
     pooled_true: List[np.ndarray] = []
     pooled_pred: List[np.ndarray] = []
     classification_method: Optional[str] = None
+    classification_warnings: List[str] = []
     for train_idx, test_idx in splits:
         X_train, X_test = X[train_idx], X[test_idx]
         y_train, y_test = y[train_idx], y[test_idx]
@@ -758,6 +759,9 @@ def evaluate_windowed_classifier(
         pooled_pred.append(np.asarray(y_pred))
         if classification_method is None:
             classification_method = str(getattr(clf_res, "method", classifier))
+        for warning in getattr(clf_res, "warnings", []) or []:
+            if warning not in classification_warnings:
+                classification_warnings.append(str(warning))
 
     y_true = np.concatenate(pooled_true, axis=0)
     y_pred = np.concatenate(pooled_pred, axis=0)
@@ -773,6 +777,8 @@ def evaluate_windowed_classifier(
         "f1_score": float(f1_score(y_true, y_pred, average="macro", zero_division=0)),
         "confusion_matrix": confusion_matrix(y_true, y_pred, labels=labels_order).tolist(),
     }
+    if classification_warnings:
+        classification["warnings"] = classification_warnings
     class_counts = _class_count_dict(y)
 
     return WindowedClassificationEvaluation(

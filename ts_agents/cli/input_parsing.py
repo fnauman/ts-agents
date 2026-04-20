@@ -354,21 +354,25 @@ def _merge_labeled_stream_sources(
             "Provide both --labels-start-col and --labels-end-col when using segment labels."
         )
 
-    auto_start_col = label_start_col
-    auto_end_col = label_end_col
-    if auto_start_col is None and auto_end_col is None:
-        if "start" in labels_df.columns and "end" in labels_df.columns:
-            auto_start_col = "start"
-            auto_end_col = "end"
-
-    if auto_start_col and auto_end_col:
+    if label_start_col and label_end_col:
         return _merge_segment_labels(
             signal_df=signal_df,
             labels_df=labels_df,
             time_col=time_col,
             label_col=label_col,
-            label_start_col=auto_start_col,
-            label_end_col=auto_end_col,
+            label_start_col=label_start_col,
+            label_end_col=label_end_col,
+        )
+
+    if labels_time_col is not None:
+        if time_col is None:
+            raise ValueError("Using --labels-time-col requires --time-col on the signal input.")
+        return _merge_labels_by_time_alignment(
+            signal_df=signal_df,
+            labels_df=labels_df,
+            time_col=time_col,
+            labels_time_col=labels_time_col,
+            label_col=label_col,
         )
 
     if len(labels_df) == len(signal_df):
@@ -378,15 +382,12 @@ def _merge_labeled_stream_sources(
             label_col=label_col,
         )
 
-    resolved_labels_time_col = labels_time_col
-    if resolved_labels_time_col is None and time_col and time_col in labels_df.columns:
-        resolved_labels_time_col = time_col
-    if time_col and resolved_labels_time_col:
+    if time_col and time_col in labels_df.columns:
         return _merge_labels_by_time_alignment(
             signal_df=signal_df,
             labels_df=labels_df,
             time_col=time_col,
-            labels_time_col=resolved_labels_time_col,
+            labels_time_col=time_col,
             label_col=label_col,
         )
 
@@ -508,10 +509,10 @@ def _merge_segment_labels(
         signal_axis = None
         mode = "segment_index_labels"
 
-    for row_index, row in enumerate(labels_df.itertuples(index=False), start=1):
-        start_value = getattr(row, label_start_col)
-        end_value = getattr(row, label_end_col)
-        label_value = getattr(row, label_col)
+    for row_index, (_, row) in enumerate(labels_df.iterrows(), start=1):
+        start_value = row[label_start_col]
+        end_value = row[label_end_col]
+        label_value = row[label_col]
         if pd.isna(start_value) or pd.isna(end_value):
             raise ValueError(
                 f"Separate labels input contains missing segment boundaries in row {row_index}."

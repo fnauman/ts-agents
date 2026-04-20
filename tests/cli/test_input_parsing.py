@@ -86,6 +86,58 @@ def test_load_labeled_stream_input_merges_row_aligned_labels_from_separate_file(
     assert stream_input.provenance["stream_ref"]["preparation"]["mode"] == "row_aligned_labels"
 
 
+def test_load_labeled_stream_input_prefers_row_alignment_over_incidental_start_end_columns(tmp_path):
+    signal_path = tmp_path / "signals.csv"
+    signal_path.write_text(
+        "x,y,z\n"
+        "0,0,0\n"
+        "1,1,1\n"
+    )
+    labels_path = tmp_path / "labels.csv"
+    labels_path.write_text(
+        "label,start,end\n"
+        "idle,100,200\n"
+        "walk,300,400\n"
+    )
+
+    stream_input = load_labeled_stream_input(
+        input_path=str(signal_path),
+        value_cols=["x", "y", "z"],
+        label_col="label",
+        labels_input_path=str(labels_path),
+    )
+
+    assert stream_input.labels.tolist() == ["idle", "walk"]
+    assert stream_input.provenance["stream_ref"]["preparation"]["mode"] == "row_aligned_labels"
+
+
+def test_load_labeled_stream_input_prefers_explicit_time_alignment_over_row_alignment(tmp_path):
+    signal_path = tmp_path / "signals.csv"
+    signal_path.write_text(
+        "ts,x,y,z\n"
+        "1,0,0,0\n"
+        "2,1,1,1\n"
+    )
+    labels_path = tmp_path / "labels.csv"
+    labels_path.write_text(
+        "observed_at,label\n"
+        "2,walk\n"
+        "1,idle\n"
+    )
+
+    stream_input = load_labeled_stream_input(
+        input_path=str(signal_path),
+        time_col="ts",
+        value_cols=["x", "y", "z"],
+        label_col="label",
+        labels_input_path=str(labels_path),
+        labels_time_col="observed_at",
+    )
+
+    assert stream_input.labels.tolist() == ["idle", "walk"]
+    assert stream_input.provenance["stream_ref"]["preparation"]["mode"] == "time_joined_labels"
+
+
 def test_load_labeled_stream_input_expands_segment_labels_by_time_column(tmp_path):
     signal_path = tmp_path / "signals.csv"
     signal_path.write_text(
@@ -114,3 +166,32 @@ def test_load_labeled_stream_input_expands_segment_labels_by_time_column(tmp_pat
 
     assert stream_input.labels.tolist() == ["idle", "idle", "walk", "walk"]
     assert stream_input.provenance["stream_ref"]["preparation"]["mode"] == "segment_time_labels"
+
+
+def test_load_labeled_stream_input_segment_labels_support_non_identifier_column_names(tmp_path):
+    signal_path = tmp_path / "signals.csv"
+    signal_path.write_text(
+        "x,y,z\n"
+        "0,0,0\n"
+        "1,1,1\n"
+        "2,2,2\n"
+        "3,3,3\n"
+    )
+    labels_path = tmp_path / "segments.csv"
+    labels_path.write_text(
+        "segment start,segment-end,activity label\n"
+        "0,2,idle\n"
+        "2,4,walk\n"
+    )
+
+    stream_input = load_labeled_stream_input(
+        input_path=str(signal_path),
+        value_cols=["x", "y", "z"],
+        label_col="activity label",
+        labels_input_path=str(labels_path),
+        label_start_col="segment start",
+        label_end_col="segment-end",
+    )
+
+    assert stream_input.labels.tolist() == ["idle", "idle", "walk", "walk"]
+    assert stream_input.provenance["stream_ref"]["preparation"]["mode"] == "segment_index_labels"
