@@ -324,6 +324,11 @@ def _load_activity_workflow_input(args: Any):
         time_col=getattr(args, "time_col", None),
         value_cols=getattr(args, "value_cols", None),
         label_col=getattr(args, "label_col", "label"),
+        labels_input_path=getattr(args, "labels_input", None),
+        labels_input_json=getattr(args, "labels_input_json", None),
+        labels_time_col=getattr(args, "labels_time_col", None),
+        label_start_col=getattr(args, "labels_start_col", None),
+        label_end_col=getattr(args, "labels_end_col", None),
     )
 
 
@@ -357,9 +362,12 @@ def _build_activity_runner_kwargs(args: Any) -> Dict[str, Any]:
         "window_sizes": getattr(args, "window_sizes", None),
         "metric": args.metric,
         "classifier": args.classifier,
+        "labeling": args.labeling,
         "balance": args.balance,
         "max_windows_per_segment": args.max_windows_per_segment,
         "test_size": args.test_size,
+        "stride": args.stride,
+        "n_splits": args.n_splits,
         "seed": args.seed,
         "skip_plots": args.skip_plots,
     }
@@ -596,11 +604,29 @@ _WORKFLOWS = {
         runner=run_activity_recognition_workflow,
         load_input=_load_activity_workflow_input,
         build_runner_kwargs=_build_activity_runner_kwargs,
-        source_requirement="Exactly one of --input, --input-json, or --stdin is required.",
+        source_requirement=(
+            "Exactly one of --input, --input-json, or --stdin is required. "
+            "Use --labels-input/--labels-input-json for an optional separate labels table."
+        ),
         supported_input_modes=["input_file", "input_json", "stdin"],
         options=[
             WorkflowOption("output_dir", "string", "Output directory for workflow artifacts.", default="outputs/activity"),
             WorkflowOption("label_col", "string", "Label column containing activity labels.", default="label"),
+            WorkflowOption("labels_input", "string", "Optional separate labels file.", default=None),
+            WorkflowOption("labels_input_json", "string", "Optional separate labels JSON payload or file path.", default=None),
+            WorkflowOption("labels_time_col", "string", "Time column in separate labels input for pointwise joins.", default=None),
+            WorkflowOption(
+                "labels_start_col",
+                "string",
+                "Segment start column in separate labels input; intervals are [start, end).",
+                default=None,
+            ),
+            WorkflowOption(
+                "labels_end_col",
+                "string",
+                "Segment end column in separate labels input; intervals are [start, end).",
+                default=None,
+            ),
             WorkflowOption("value_cols", "array", "Comma-separated value columns.", default=["x", "y", "z"]),
             WorkflowOption("window_sizes", "array", "Candidate window sizes.", default=[32, 64, 96, 128, 160]),
             WorkflowOption(
@@ -618,6 +644,13 @@ _WORKFLOWS = {
                 choices=["auto", "minirocket", "rocket", "knn"],
             ),
             WorkflowOption(
+                "labeling",
+                "string",
+                "Window labeling strategy.",
+                default="strict",
+                choices=["strict", "majority"],
+            ),
+            WorkflowOption(
                 "balance",
                 "string",
                 "Window balancing strategy.",
@@ -625,6 +658,8 @@ _WORKFLOWS = {
                 choices=["none", "undersample", "segment_cap"],
             ),
             WorkflowOption("max_windows_per_segment", "integer", "Cap windows per segment when balance=segment_cap.", default=25),
+            WorkflowOption("stride", "integer", "Window stride; defaults to window_size // 2.", default=None),
+            WorkflowOption("n_splits", "integer", "Number of grouped splits for selection and evaluation.", default=3),
             WorkflowOption("test_size", "number", "Test fraction per split.", default=0.25),
             WorkflowOption("seed", "integer", "Random seed for selection and evaluation.", default=1337),
             WorkflowOption("skip_plots", "boolean", "Skip plot generation.", default=False),
@@ -665,7 +700,7 @@ _WORKFLOWS = {
                 },
                 {
                     "type": "tabular",
-                    "description": "CSV/parquet/JSON data with feature columns and a label column.",
+                    "description": "CSV/parquet/JSON data with feature columns and a label column, optionally paired with a separate labels/segments table.",
                 },
             ]
         },
@@ -673,10 +708,12 @@ _WORKFLOWS = {
         examples=[
             "ts-agents workflow show activity-recognition --json",
             "ts-agents workflow run activity-recognition --input data/demo_labeled_stream.csv --label-col label --value-cols x,y,z",
+            "ts-agents workflow run activity-recognition --input signals.csv --time-col ts --value-cols x,y,z --labels-input segments.csv --labels-start-col start --labels-end-col end --label-col activity",
         ],
         capabilities={
             "supported_metrics": ["accuracy", "balanced_accuracy", "f1_macro"],
             "supported_classifiers": ["auto", "minirocket", "rocket", "knn"],
+            "supported_labeling": ["strict", "majority"],
             "supported_balance_strategies": ["none", "undersample", "segment_cap"],
         },
         availability_fn=_activity_workflow_availability,

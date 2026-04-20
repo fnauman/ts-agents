@@ -1,5 +1,6 @@
 import numpy as np
 import warnings
+import json
 
 from ts_agents.core.base import ClassificationResult
 from ts_agents.core.windowing import select_window_size, evaluate_windowed_classifier
@@ -134,3 +135,65 @@ def test_balanced_accuracy_single_class_no_warning():
         score = window_selection._score_metric("balanced_accuracy", y_true, y_pred)
 
     assert score == 1.0
+
+
+def test_evaluate_windowed_classifier_supports_multiple_group_splits(monkeypatch):
+    series, labels = _make_series()
+
+    observed = {}
+
+    def fake_iter_valid_group_splits(X, y, groups, *, n_splits, **kwargs):
+        observed["n_splits"] = n_splits
+        return [
+            (np.array([0, 1, 2, 3]), np.array([4, 5])),
+            (np.array([2, 3, 4, 5]), np.array([0, 1])),
+        ]
+
+    def fake_knn(X_train, y_train, X_test, y_test, **kwargs):
+        return ClassificationResult(
+            method="knn_stub",
+            predictions=np.asarray(y_test),
+            accuracy=1.0,
+        )
+
+    monkeypatch.setattr(window_selection, "_iter_valid_group_splits", fake_iter_valid_group_splits)
+    monkeypatch.setattr(window_selection, "knn_classify", fake_knn)
+
+    result = window_selection.evaluate_windowed_classifier(
+        series,
+        labels,
+        window_size=8,
+        classifier="knn",
+        metric="accuracy",
+        balance="none",
+        n_splits=2,
+        test_size=0.34,
+    )
+
+    assert observed["n_splits"] == 2
+    assert result.n_splits == 2
+    assert result.split_scores == [1.0, 1.0]
+    assert result.classification["method"] == "knn_stub"
+
+
+def test_select_window_size_from_csv_accepts_json_records(tmp_path):
+    series, labels = _make_series()
+    records = [
+        {"value": float(value), "label": label}
+        for value, label in zip(series.tolist(), labels.tolist())
+    ]
+    json_path = tmp_path / "stream.json"
+    json_path.write_text(json.dumps(records))
+
+    result = window_selection.select_window_size_from_csv(
+        str(json_path),
+        value_columns="value",
+        label_column="label",
+        classifier="knn",
+        metric="accuracy",
+        balance="none",
+        n_splits=1,
+        test_size=0.34,
+    )
+
+    assert result.best_window_size in result.scores_by_window

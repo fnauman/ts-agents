@@ -20,6 +20,7 @@ from .common import (
 
 _SUPPORTED_CLASSIFIERS = {"auto", "minirocket", "rocket", "knn"}
 _SUPPORTED_METRICS = {"accuracy", "balanced_accuracy", "f1_macro"}
+_SUPPORTED_LABELING = {"strict", "majority"}
 _SUPPORTED_BALANCE = {"none", "undersample", "segment_cap"}
 
 
@@ -30,8 +31,11 @@ def run_activity_recognition_workflow(
     window_sizes: Optional[Iterable[int]] = None,
     metric: str = "balanced_accuracy",
     classifier: str = "auto",
+    labeling: str = "strict",
     balance: str = "segment_cap",
     max_windows_per_segment: int = 25,
+    stride: Optional[int] = None,
+    n_splits: int = 3,
     test_size: float = 0.25,
     seed: int = 1337,
     skip_plots: bool = False,
@@ -46,8 +50,11 @@ def run_activity_recognition_workflow(
     output_path = ensure_output_dir(output_dir)
     selected_classifier = _normalize_classifier(classifier)
     selected_metric = _normalize_metric(metric)
+    selected_labeling = _normalize_labeling(labeling)
     selected_balance = _normalize_balance(balance)
     candidate_windows = _normalize_window_sizes(window_sizes)
+    preparation = (stream_input.provenance.get("stream_ref") or {}).get("preparation")
+    label_source = (stream_input.provenance.get("stream_ref") or {}).get("label_source")
 
     selection = select_window_size(
         stream_input.values,
@@ -55,8 +62,11 @@ def run_activity_recognition_workflow(
         window_sizes=candidate_windows,
         metric=selected_metric,
         classifier=selected_classifier,
+        stride=stride,
+        labeling=selected_labeling,
         balance=selected_balance,
         max_windows_per_segment=max_windows_per_segment,
+        n_splits=n_splits,
         test_size=test_size,
         seed=seed,
     )
@@ -66,8 +76,11 @@ def run_activity_recognition_workflow(
         window_size=int(selection.best_window_size),
         metric=selected_metric,
         classifier=selected_classifier,
+        labeling=selected_labeling,
         balance=selected_balance,
         max_windows_per_segment=max_windows_per_segment,
+        stride=stride,
+        n_splits=n_splits,
         test_size=test_size,
         seed=seed,
     )
@@ -78,10 +91,18 @@ def run_activity_recognition_workflow(
     evaluation_classifier = evaluation_payload.get("classifier")
     classification_method = classification.get("method")
     effective_backend = classification_method or evaluation_classifier or selected_classifier
+    warnings: List[str] = []
+    for warning in classification.get("warnings") or []:
+        warning_text = str(warning)
+        if warning_text not in warnings:
+            warnings.append(warning_text)
+
     quality_flags = _activity_quality_flags(
         selection_payload=selection_payload,
         evaluation_payload=evaluation_payload,
     )
+    if warnings and "classifier_backend_warning" not in quality_flags:
+        quality_flags.append("classifier_backend_warning")
     score = evaluation_payload.get("score")
     summary_data = {
         "workflow": workflow_name,
@@ -95,10 +116,15 @@ def run_activity_recognition_workflow(
         "classification_method": classification_method,
         "classifier_used": effective_backend,
         "metric": selected_metric,
+        "labeling": selected_labeling,
         "balance": selected_balance,
+        "stride_requested": stride,
+        "n_splits": int(n_splits),
         "seed": int(seed),
         "best_window_size": int(selection.best_window_size),
         "score": float(score) if isinstance(score, (int, float)) else None,
+        "preparation": preparation,
+        "label_source": label_source,
         "quality_flags": quality_flags,
         "window_selection": selection_payload,
         "evaluation": evaluation_payload,
@@ -119,7 +145,6 @@ def run_activity_recognition_workflow(
             created_by=workflow_name,
         ),
     ]
-    warnings: List[str] = []
 
     if not skip_plots:
         selection_fig = None
@@ -157,6 +182,12 @@ def run_activity_recognition_workflow(
         classifier_resolved=selected_classifier,
         effective_backend=effective_backend,
         metric=selected_metric,
+        labeling=selected_labeling,
+        balance=selected_balance,
+        stride=stride,
+        n_splits=n_splits,
+        quality_flags=quality_flags,
+        warnings=warnings,
         selection_payload=selection_payload,
         evaluation_payload=evaluation_payload,
     )
@@ -194,8 +225,11 @@ def run_activity_recognition_workflow(
             "window_sizes": candidate_windows,
             "metric": selected_metric,
             "classifier": classifier,
+            "labeling": selected_labeling,
             "balance": selected_balance,
             "max_windows_per_segment": max_windows_per_segment,
+            "stride": stride,
+            "n_splits": n_splits,
             "test_size": test_size,
             "seed": seed,
             "skip_plots": skip_plots,
@@ -219,6 +253,15 @@ def _normalize_metric(raw: str) -> str:
     if normalized not in _SUPPORTED_METRICS:
         raise ValueError(
             f"Unsupported metric '{raw}'. Supported: {', '.join(sorted(_SUPPORTED_METRICS))}."
+        )
+    return normalized
+
+
+def _normalize_labeling(raw: str) -> str:
+    normalized = raw.strip().lower()
+    if normalized not in _SUPPORTED_LABELING:
+        raise ValueError(
+            f"Unsupported labeling strategy '{raw}'. Supported: {', '.join(sorted(_SUPPORTED_LABELING))}."
         )
     return normalized
 
@@ -258,6 +301,28 @@ def _activity_quality_flags(
     n_windows_by_window = selection_payload.get("n_windows_by_window") or {}
     if any(isinstance(count, int) and count < 10 for count in n_windows_by_window.values()):
         flags.append("too_few_windows")
+
+    best_window = selection_payload.get("best_window_size")
+    best_window_diagnostics = _window_diagnostic_for(
+        selection_payload,
+        best_window,
+    )
+    dropped_in_best_window = best_window_diagnostics.get("dropped_classes") or []
+    if dropped_in_best_window:
+        flags.append("best_window_dropped_classes")
+
+    dropped_in_evaluation = evaluation_payload.get("dropped_classes") or []
+    if dropped_in_evaluation:
+        flags.append("evaluation_dropped_classes")
+
+    selection_requested_splits = ((selection_payload.get("details") or {}).get("n_splits"))
+    evaluation_valid_splits = evaluation_payload.get("n_splits")
+    if (
+        isinstance(selection_requested_splits, int)
+        and isinstance(evaluation_valid_splits, int)
+        and evaluation_valid_splits < selection_requested_splits
+    ):
+        flags.append("fewer_valid_splits_than_requested")
 
     classification = evaluation_payload.get("classification") or {}
     confusion = classification.get("confusion_matrix")
@@ -380,38 +445,103 @@ def _build_report(
     classifier_resolved: str,
     effective_backend: str,
     metric: str,
+    labeling: str,
+    balance: str,
+    stride: Optional[int],
+    n_splits: int,
+    quality_flags: list[str],
+    warnings: list[str],
     selection_payload: dict[str, Any],
     evaluation_payload: dict[str, Any],
 ) -> str:
     classification = evaluation_payload.get("classification") or {}
-    note = _build_quality_note(evaluation_payload)
-    return "\n".join(
-        [
-            "### Report on Activity-Recognition Workflow",
-            "",
-            f"- **Source**: `{stream_input.label}`",
-            f"- **Value Columns**: {', '.join(stream_input.value_columns)}",
-            f"- **Label Column**: `{stream_input.label_column}`",
-            f"- **Classifier Requested**: `{classifier_requested}`",
-            f"- **Classifier Resolved**: `{classifier_resolved}`",
-            f"- **Effective Backend**: `{effective_backend}`",
-            f"- **Best Window Size**: {selection_payload.get('best_window_size')}",
-            f"- **Metric**: `{metric}` = {_format_metric(evaluation_payload.get('score'))}",
-            f"- **Accuracy**: {_format_metric(classification.get('accuracy'))}",
-            f"- **Macro F1**: {_format_metric(classification.get('f1_score'))}",
-            "",
-            "#### Note",
-            note,
-        ]
+    retained_classes = _format_label_list(evaluation_payload.get("retained_classes") or [])
+    dropped_classes = _format_label_list(evaluation_payload.get("dropped_classes") or [])
+    flag_text = ", ".join(quality_flags) if quality_flags else "none"
+    warning_text = "; ".join(warnings) if warnings else "none"
+    note = _build_quality_note(
+        selection_payload=selection_payload,
+        evaluation_payload=evaluation_payload,
+        quality_flags=quality_flags,
+        warnings=warnings,
     )
+    sections = [
+        "### Report on Activity-Recognition Workflow",
+        "",
+        "#### Inputs",
+        f"- **Source**: `{stream_input.label}`",
+        f"- **Value Columns**: {', '.join(stream_input.value_columns)}",
+        f"- **Label Column**: `{stream_input.label_column}`",
+        f"- **Preparation**: {_describe_preparation(stream_input)}",
+        "",
+        "#### Controls",
+        f"- **Classifier Requested**: `{classifier_requested}`",
+        f"- **Classifier Resolved**: `{classifier_resolved}`",
+        f"- **Effective Backend**: `{effective_backend}`",
+        f"- **Metric**: `{metric}`",
+        f"- **Labeling**: `{labeling}`",
+        f"- **Balance**: `{balance}`",
+        f"- **Stride**: {stride if stride is not None else 'auto (window_size // 2)' }",
+        f"- **Grouped Splits**: {n_splits}",
+        "",
+        "#### Results",
+        f"- **Best Window Size**: {selection_payload.get('best_window_size')}",
+        f"- **Workflow Score**: {_format_metric(evaluation_payload.get('score'))}",
+        f"- **Accuracy**: {_format_metric(classification.get('accuracy'))}",
+        f"- **Macro F1**: {_format_metric(classification.get('f1_score'))}",
+        f"- **Retained Classes**: {retained_classes}",
+        f"- **Dropped Classes**: {dropped_classes}",
+        f"- **Quality Flags**: {flag_text}",
+        f"- **Warnings**: {warning_text}",
+        "",
+        "#### Window Sweep",
+        _build_window_sweep_table(selection_payload),
+        "",
+        "#### Note",
+        note,
+    ]
+    return "\n".join(sections)
 
 
-def _build_quality_note(evaluation_payload: dict[str, Any]) -> str:
+def _build_quality_note(
+    *,
+    selection_payload: dict[str, Any],
+    evaluation_payload: dict[str, Any],
+    quality_flags: list[str],
+    warnings: list[str],
+) -> str:
+    notes: List[str] = []
+    if warnings:
+        notes.append("Warnings were emitted during artifact generation.")
+
+    best_window = selection_payload.get("best_window_size")
+    best_window_diagnostics = _window_diagnostic_for(selection_payload, best_window)
+    best_window_dropped = best_window_diagnostics.get("dropped_classes") or []
+    if best_window_dropped:
+        notes.append(
+            "Best-scoring window drops class coverage "
+            f"({', '.join(str(label) for label in best_window_dropped)})."
+        )
+
+    dropped_classes = evaluation_payload.get("dropped_classes") or []
+    if dropped_classes:
+        notes.append(
+            "Final evaluation excludes one or more classes "
+            f"({', '.join(str(label) for label in dropped_classes)})."
+        )
+
+    if "fewer_valid_splits_than_requested" in quality_flags:
+        requested = (selection_payload.get("details") or {}).get("n_splits")
+        observed = evaluation_payload.get("n_splits")
+        notes.append(
+            f"Requested {requested} grouped split(s), but only {observed} valid evaluation split(s) were available."
+        )
+
     classification = evaluation_payload.get("classification") or {}
     confusion = classification.get("confusion_matrix")
     active_rows = _count_active_confusion_rows(confusion)
     if active_rows is not None and active_rows <= 1:
-        return "Test split appears single-class; treat classifier metrics with caution."
+        notes.append("Test split appears single-class; treat classifier metrics with caution.")
 
     score = evaluation_payload.get("score")
     accuracy = classification.get("accuracy")
@@ -420,9 +550,89 @@ def _build_quality_note(evaluation_payload: dict[str, Any]) -> str:
         isinstance(value, (int, float)) and float(value) == 1.0
         for value in (score, accuracy, f1_macro)
     ):
-        return "All reported metrics are perfect; verify split balance and leakage assumptions."
+        notes.append("All reported metrics are perfect; verify split balance and leakage assumptions.")
 
+    if notes:
+        return " ".join(notes)
     return "No obvious pathologies detected in the reported classification metrics."
+
+
+def _describe_preparation(stream_input: LabeledStreamInput) -> str:
+    stream_ref = stream_input.provenance.get("stream_ref") or {}
+    preparation = stream_ref.get("preparation") or {}
+    label_source = stream_ref.get("label_source") or {}
+    mode = preparation.get("mode")
+    label_path = label_source.get("path") or label_source.get("label")
+
+    if not mode:
+        return "Used labels already present in the primary input table."
+    if mode == "row_aligned_labels":
+        return f"Merged labels from `{label_path}` by row alignment."
+    if mode == "time_joined_labels":
+        return (
+            f"Merged labels from `{label_path}` on `{preparation.get('signal_time_column')}` "
+            f"using labels column `{preparation.get('labels_time_column')}`."
+        )
+    if mode in {"segment_time_labels", "segment_index_labels"}:
+        basis = (
+            f"time column `{preparation.get('signal_time_column')}`"
+            if preparation.get("signal_time_column")
+            else "row offsets"
+        )
+        return (
+            f"Expanded segment labels from `{label_path}` using {basis}; "
+            "intervals are start-inclusive and end-exclusive."
+        )
+    return "Prepared labels from a separate labels input."
+
+
+def _build_window_sweep_table(selection_payload: dict[str, Any]) -> str:
+    window_diagnostics = (selection_payload.get("details") or {}).get("window_diagnostics") or {}
+    if not window_diagnostics:
+        return "_Window sweep diagnostics were not recorded._"
+
+    lines = [
+        "| Window | Score | Windows | Retained | Dropped | Splits |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    scores = selection_payload.get("scores_by_window") or {}
+    for window, diagnostic in _sorted_window_diagnostics(window_diagnostics):
+        score = scores.get(window)
+        if score is None and str(window) in scores:
+            score = scores[str(window)]
+        lines.append(
+            "| "
+            f"{window} | {_format_metric(score)} | {diagnostic.get('n_windows', 'n/a')} | "
+            f"{_format_label_list(diagnostic.get('retained_classes') or [])} | "
+            f"{_format_label_list(diagnostic.get('dropped_classes') or [])} | "
+            f"{diagnostic.get('valid_split_count', 0)} |"
+        )
+    return "\n".join(lines)
+
+
+def _sorted_window_diagnostics(window_diagnostics: dict[Any, Any]) -> list[tuple[int, dict[str, Any]]]:
+    items: list[tuple[int, dict[str, Any]]] = []
+    for key, value in window_diagnostics.items():
+        try:
+            window = int(key)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(value, dict):
+            items.append((window, value))
+    return sorted(items, key=lambda item: item[0])
+
+
+def _window_diagnostic_for(selection_payload: dict[str, Any], window_size: Any) -> dict[str, Any]:
+    if window_size is None:
+        return {}
+    window_diagnostics = (selection_payload.get("details") or {}).get("window_diagnostics") or {}
+    return window_diagnostics.get(window_size) or window_diagnostics.get(str(window_size)) or {}
+
+
+def _format_label_list(labels: list[Any]) -> str:
+    if not labels:
+        return "none"
+    return ", ".join(f"`{label}`" for label in labels)
 
 
 def _format_metric(value: Any) -> str:

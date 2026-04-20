@@ -1598,6 +1598,312 @@ def test_workflow_run_activity_recognition_continues_when_plot_generation_fails(
     assert not (output_dir / "confusion_matrix.png").exists()
 
 
+def test_workflow_run_activity_recognition_threads_new_windowing_controls(
+    monkeypatch,
+    capsys,
+    tmp_path,
+):
+    import ts_agents.core.windowing as windowing
+
+    observed = {}
+
+    class FakeSelection:
+        best_window_size = 64
+        metric = "balanced_accuracy"
+
+        def to_dict(self):
+            return {
+                "method": "window_size_selection",
+                "best_window_size": 64,
+                "metric": "balanced_accuracy",
+                "scores_by_window": {64: 0.78},
+                "n_windows_by_window": {64: 24},
+                "details": {
+                    "n_splits": 5,
+                    "window_diagnostics": {
+                        64: {
+                            "n_windows": 24,
+                            "retained_classes": ["idle", "walk"],
+                            "dropped_classes": [],
+                            "valid_split_count": 5,
+                        }
+                    },
+                },
+            }
+
+    class FakeEval:
+        metric = "balanced_accuracy"
+        score = 0.76
+
+        def to_dict(self):
+            return {
+                "method": "windowed_classification",
+                "window_size": 64,
+                "stride": 16,
+                "classifier": "minirocket",
+                "metric": "balanced_accuracy",
+                "score": 0.76,
+                "n_windows": 24,
+                "n_splits": 5,
+                "split_scores": [0.74, 0.78],
+                "retained_classes": ["idle", "walk"],
+                "dropped_classes": [],
+                "class_counts": {"idle": 12, "walk": 12},
+                "details": {"valid_split_count": 5},
+                "classification": {
+                    "method": "minirocket",
+                    "accuracy": 0.79,
+                    "f1_score": 0.75,
+                    "confusion_matrix": [[6, 2], [3, 5]],
+                    "predictions": ["idle", "walk"],
+                },
+            }
+
+    def fake_select_window_size(*args, **kwargs):
+        observed["selection_kwargs"] = kwargs
+        return FakeSelection()
+
+    def fake_evaluate_windowed_classifier(*args, **kwargs):
+        observed["evaluation_kwargs"] = kwargs
+        return FakeEval()
+
+    monkeypatch.setattr(windowing, "select_window_size", fake_select_window_size)
+    monkeypatch.setattr(windowing, "evaluate_windowed_classifier", fake_evaluate_windowed_classifier)
+
+    csv_path = tmp_path / "stream.csv"
+    csv_path.write_text(
+        "x,y,z,label\n"
+        "0,0,0,idle\n"
+        "1,1,1,idle\n"
+        "2,2,2,walk\n"
+        "3,3,3,walk\n"
+    )
+
+    code = run(
+        [
+            "workflow",
+            "run",
+            "activity-recognition",
+            "--input",
+            str(csv_path),
+            "--label-col",
+            "label",
+            "--value-cols",
+            "x,y,z",
+            "--labeling",
+            "majority",
+            "--stride",
+            "16",
+            "--n-splits",
+            "5",
+            "--skip-plots",
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert observed["selection_kwargs"]["labeling"] == "majority"
+    assert observed["selection_kwargs"]["stride"] == 16
+    assert observed["selection_kwargs"]["n_splits"] == 5
+    assert observed["evaluation_kwargs"]["labeling"] == "majority"
+    assert observed["evaluation_kwargs"]["stride"] == 16
+    assert observed["evaluation_kwargs"]["n_splits"] == 5
+    assert payload["result"]["data"]["labeling"] == "majority"
+    assert payload["result"]["data"]["stride_requested"] == 16
+    assert payload["result"]["data"]["n_splits"] == 5
+
+
+def test_workflow_run_activity_recognition_report_surfaces_retention_drops(
+    monkeypatch,
+    capsys,
+    tmp_path,
+):
+    import ts_agents.core.windowing as windowing
+
+    class FakeSelection:
+        best_window_size = 96
+        metric = "balanced_accuracy"
+
+        def to_dict(self):
+            return {
+                "method": "window_size_selection",
+                "best_window_size": 96,
+                "metric": "balanced_accuracy",
+                "scores_by_window": {32: 0.72, 96: 0.91},
+                "n_windows_by_window": {32: 40, 96: 12},
+                "details": {
+                    "n_splits": 3,
+                    "window_diagnostics": {
+                        32: {
+                            "n_windows": 40,
+                            "retained_classes": ["idle", "walk", "stairs"],
+                            "dropped_classes": [],
+                            "valid_split_count": 3,
+                        },
+                        96: {
+                            "n_windows": 12,
+                            "retained_classes": ["idle", "walk"],
+                            "dropped_classes": ["stairs"],
+                            "valid_split_count": 1,
+                        },
+                    },
+                },
+            }
+
+    class FakeEval:
+        metric = "balanced_accuracy"
+        score = 0.91
+
+        def to_dict(self):
+            return {
+                "method": "windowed_classification",
+                "window_size": 96,
+                "stride": 48,
+                "classifier": "minirocket",
+                "metric": "balanced_accuracy",
+                "score": 0.91,
+                "n_windows": 12,
+                "n_splits": 1,
+                "split_scores": [0.91],
+                "retained_classes": ["idle", "walk"],
+                "dropped_classes": ["stairs"],
+                "class_counts": {"idle": 7, "walk": 5},
+                "details": {"valid_split_count": 1},
+                "classification": {
+                    "method": "minirocket",
+                    "accuracy": 0.93,
+                    "f1_score": 0.9,
+                    "confusion_matrix": [[4, 1], [0, 5]],
+                    "predictions": ["idle", "walk"],
+                },
+            }
+
+    monkeypatch.setattr(windowing, "select_window_size", lambda *args, **kwargs: FakeSelection())
+    monkeypatch.setattr(windowing, "evaluate_windowed_classifier", lambda *args, **kwargs: FakeEval())
+
+    csv_path = tmp_path / "stream.csv"
+    csv_path.write_text(
+        "x,y,z,label\n"
+        "0,0,0,idle\n"
+        "1,1,1,idle\n"
+        "2,2,2,walk\n"
+        "3,3,3,walk\n"
+    )
+    output_dir = tmp_path / "activity"
+
+    code = run(
+        [
+            "workflow",
+            "run",
+            "activity-recognition",
+            "--input",
+            str(csv_path),
+            "--label-col",
+            "label",
+            "--value-cols",
+            "x,y,z",
+            "--skip-plots",
+            "--output-dir",
+            str(output_dir),
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["quality_status"] == "degraded"
+    report_text = (output_dir / "report.md").read_text()
+    assert "Window Sweep" in report_text
+    assert "Dropped Classes" in report_text
+    assert "`stairs`" in report_text
+    assert "No obvious pathologies" not in report_text
+
+
+def test_workflow_run_activity_recognition_surfaces_classifier_backend_warnings(
+    monkeypatch,
+    capsys,
+    tmp_path,
+):
+    import ts_agents.core.windowing as windowing
+
+    class FakeSelection:
+        best_window_size = 64
+        metric = "balanced_accuracy"
+
+        def to_dict(self):
+            return {
+                "method": "window_size_selection",
+                "best_window_size": 64,
+                "metric": "balanced_accuracy",
+                "scores_by_window": {64: 0.8},
+                "n_windows_by_window": {64: 20},
+                "details": {"n_splits": 3, "window_diagnostics": {64: {"n_windows": 20, "retained_classes": ["idle", "walk"], "dropped_classes": [], "valid_split_count": 3}}},
+            }
+
+    class FakeEval:
+        metric = "balanced_accuracy"
+        score = 0.8
+
+        def to_dict(self):
+            return {
+                "method": "windowed_classification",
+                "window_size": 64,
+                "stride": 32,
+                "classifier": "minirocket",
+                "metric": "balanced_accuracy",
+                "score": 0.8,
+                "n_windows": 20,
+                "n_splits": 3,
+                "split_scores": [0.8],
+                "retained_classes": ["idle", "walk"],
+                "dropped_classes": [],
+                "class_counts": {"idle": 10, "walk": 10},
+                "classification": {
+                    "method": "rocket_fallback",
+                    "warnings": ["ROCKET backend fallback activated during fit/predict: RuntimeError: broken aeon"],
+                    "accuracy": 0.8,
+                    "f1_score": 0.8,
+                    "confusion_matrix": [[4, 1], [1, 4]],
+                    "predictions": ["idle", "walk"],
+                },
+            }
+
+    monkeypatch.setattr(windowing, "select_window_size", lambda *args, **kwargs: FakeSelection())
+    monkeypatch.setattr(windowing, "evaluate_windowed_classifier", lambda *args, **kwargs: FakeEval())
+
+    csv_path = tmp_path / "stream.csv"
+    csv_path.write_text(
+        "x,y,z,label\n"
+        "0,0,0,idle\n"
+        "1,1,1,idle\n"
+        "2,2,2,walk\n"
+        "3,3,3,walk\n"
+    )
+
+    code = run(
+        [
+            "workflow",
+            "run",
+            "activity-recognition",
+            "--input",
+            str(csv_path),
+            "--label-col",
+            "label",
+            "--value-cols",
+            "x,y,z",
+            "--skip-plots",
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["degraded"] is True
+    assert "classifier_backend_warning" in payload["result"]["data"]["quality_flags"]
+    assert any("fallback activated" in warning for warning in payload["result"]["warnings"])
+
+
 def test_handle_workflow_command_uses_registry_runner(monkeypatch):
     import importlib
     import ts_agents.workflows as workflows

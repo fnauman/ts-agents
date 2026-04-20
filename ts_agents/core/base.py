@@ -198,6 +198,7 @@ class ClassificationResult(AnalysisResult):
     accuracy: Optional[float] = None
     f1_score: Optional[float] = None
     confusion_matrix: Optional[np.ndarray] = None
+    warnings: List[str] = field(default_factory=list)
 
 
 # =============================================================================

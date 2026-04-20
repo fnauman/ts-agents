@@ -63,6 +63,20 @@ This:
 3. writes plots into `outputs/activity-recognition/`
 4. writes a short report to `outputs/activity-recognition/report.md`
 
+If signals and labels live in separate files, the workflow can prepare the labeled stream directly:
+
+```bash
+uv run ts-agents workflow run activity-recognition \
+  --input signals.csv \
+  --time-col ts \
+  --value-cols x,y,z \
+  --labels-input segments.csv \
+  --labels-start-col start \
+  --labels-end-col end \
+  --label-col activity \
+  --output-dir outputs/activity-recognition
+```
+
 ## Customize the workflow
 
 ```bash
@@ -73,6 +87,9 @@ uv run ts-agents workflow run activity-recognition \
   --window-sizes 32,64,128 \
   --classifier minirocket \
   --metric balanced_accuracy \
+  --labeling majority \
+  --stride 16 \
+  --n-splits 5 \
   --output-dir outputs/activity-recognition
 ```
 

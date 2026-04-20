@@ -11,6 +11,13 @@ from ..base import ClassificationResult
 from .utils import ensure_3d
 
 
+def _rocket_fallback_warning(context: str, exc: Exception) -> str:
+    return (
+        "ROCKET backend fallback activated during "
+        f"{context}: {type(exc).__name__}: {exc}"
+    )
+
+
 def rocket_classify(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -63,8 +70,14 @@ def rocket_classify(
             MiniRocketClassifier,
             MultiRocketClassifier,
         )
-    except ImportError:
-        return _fallback_rocket_classify(X_train, y_train, X_test, y_test)
+    except Exception as exc:
+        return _fallback_rocket_classify(
+            X_train,
+            y_train,
+            X_test,
+            y_test,
+            warning_message=_rocket_fallback_warning("import", exc),
+        )
 
     # Ensure 3D format
     X_train = ensure_3d(X_train)
@@ -82,13 +95,22 @@ def rocket_classify(
 
     # Different parameter names for different variants
     try:
-        clf = clf_class(num_kernels=n_kernels)
-    except TypeError:
-        # Some variants use different parameter names
-        clf = clf_class()
+        try:
+            clf = clf_class(num_kernels=n_kernels)
+        except TypeError:
+            # Some variants use different parameter names
+            clf = clf_class()
 
-    clf.fit(X_train, y_train)
-    predictions = clf.predict(X_test)
+        clf.fit(X_train, y_train)
+        predictions = clf.predict(X_test)
+    except Exception as exc:
+        return _fallback_rocket_classify(
+            X_train,
+            y_train,
+            X_test,
+            y_test,
+            warning_message=_rocket_fallback_warning("fit/predict", exc),
+        )
 
     # Get probabilities
     probabilities = None
@@ -117,6 +139,7 @@ def _fallback_rocket_classify(
     y_train: np.ndarray,
     X_test: np.ndarray,
     y_test: Optional[np.ndarray] = None,
+    warning_message: Optional[str] = None,
 ) -> ClassificationResult:
     """Fallback implementation when aeon is not available."""
     from sklearn.linear_model import RidgeClassifierCV
@@ -165,6 +188,7 @@ def _fallback_rocket_classify(
         predictions=predictions,
         probabilities=None,
         accuracy=accuracy,
+        warnings=[warning_message] if warning_message else [],
     )
 
 

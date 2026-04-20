@@ -1,5 +1,8 @@
 """Tests for the classification module."""
 
+import sys
+import types
+
 import numpy as np
 import pytest
 
@@ -74,6 +77,31 @@ class TestKNNClassification:
         # Same series should have distance 0
         assert compute_dtw_distance(x, x) < 0.01
 
+    def test_knn_classify_falls_back_when_aeon_runtime_breaks(self, monkeypatch):
+        from ts_agents.core.classification import knn_classify
+
+        broken_module = types.ModuleType("aeon.classification.distance_based")
+
+        class BrokenKNNClassifier:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def fit(self, X, y):
+                raise RuntimeError("aeon runtime is broken")
+
+        broken_module.KNeighborsTimeSeriesClassifier = BrokenKNNClassifier
+
+        monkeypatch.setitem(sys.modules, "aeon", types.ModuleType("aeon"))
+        monkeypatch.setitem(sys.modules, "aeon.classification", types.ModuleType("aeon.classification"))
+        monkeypatch.setitem(sys.modules, "aeon.classification.distance_based", broken_module)
+
+        X, y = create_synthetic_data(n_samples=20)
+        result = knn_classify(X[:15], y[:15], X[15:], y[15:], distance="dtw")
+
+        assert result.method == "knn_euclidean_fallback"
+        assert len(result.predictions) == 5
+        assert any("fallback activated" in warning for warning in result.warnings)
+
 
 class TestROCKETClassification:
     """Tests for ROCKET classification."""
@@ -90,6 +118,33 @@ class TestROCKETClassification:
 
         assert len(result.predictions) == 10
         assert result.accuracy is not None
+
+    def test_rocket_classify_falls_back_when_aeon_runtime_breaks(self, monkeypatch):
+        from ts_agents.core.classification import rocket_classify
+
+        broken_module = types.ModuleType("aeon.classification.convolution_based")
+
+        class BrokenRocketClassifier:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def fit(self, X, y):
+                raise RuntimeError("aeon runtime is broken")
+
+        broken_module.RocketClassifier = BrokenRocketClassifier
+        broken_module.MiniRocketClassifier = BrokenRocketClassifier
+        broken_module.MultiRocketClassifier = BrokenRocketClassifier
+
+        monkeypatch.setitem(sys.modules, "aeon", types.ModuleType("aeon"))
+        monkeypatch.setitem(sys.modules, "aeon.classification", types.ModuleType("aeon.classification"))
+        monkeypatch.setitem(sys.modules, "aeon.classification.convolution_based", broken_module)
+
+        X, y = create_synthetic_data(n_samples=20)
+        result = rocket_classify(X[:15], y[:15], X[15:], y[15:], variant="rocket")
+
+        assert result.method == "rocket_fallback"
+        assert len(result.predictions) == 5
+        assert any("fallback activated" in warning for warning in result.warnings)
 
 
 class TestEnsure3D:
