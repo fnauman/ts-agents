@@ -645,6 +645,42 @@ def test_workflow_parser_rejects_conflicting_primary_sources():
         )
 
 
+def test_activity_workflow_parser_accepts_separate_labels_and_windowing_controls():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "workflow",
+            "run",
+            "activity-recognition",
+            "--input",
+            "signals.csv",
+            "--labels-input",
+            "segments.csv",
+            "--labels-start-col",
+            "start",
+            "--labels-end-col",
+            "end",
+            "--label-col",
+            "activity",
+            "--value-cols",
+            "x,y,z",
+            "--labeling",
+            "majority",
+            "--stride",
+            "16",
+            "--n-splits",
+            "5",
+        ]
+    )
+
+    assert args.labels_input == "segments.csv"
+    assert args.labels_start_col == "start"
+    assert args.labels_end_col == "end"
+    assert args.labeling == "majority"
+    assert args.stride == 16
+    assert args.n_splits == 5
+
+
 def test_tool_run_json_includes_artifact_refs_for_payload_wrappers(
     monkeypatch,
     capsys,

@@ -191,6 +191,11 @@ def load_labeled_stream_input(
     time_col: Optional[str] = None,
     value_cols: Optional[list[str]] = None,
     label_col: str = "label",
+    labels_input_path: Optional[str] = None,
+    labels_input_json: Optional[str] = None,
+    labels_time_col: Optional[str] = None,
+    label_start_col: Optional[str] = None,
+    label_end_col: Optional[str] = None,
 ) -> LabeledStreamInput:
     """Load a labeled multivariate stream for activity-recognition workflows."""
     source_count = sum(
@@ -203,12 +208,74 @@ def load_labeled_stream_input(
             "Provide exactly one activity-recognition input source: --input, --input-json, or --stdin."
         )
 
-    if use_stdin:
-        return _load_labeled_stream_from_text(
-            sys.stdin.read(),
+    label_source_count = sum(
+        1 for present in (bool(labels_input_path), bool(labels_input_json)) if present
+    )
+    if label_source_count > 1:
+        raise ValueError(
+            "Provide at most one separate labels source via --labels-input or --labels-input-json."
+        )
+
+    dataframe, source_type, label, resolved_input_path = _load_dataframe_input_source(
+        input_path=input_path,
+        input_json=input_json,
+        use_stdin=use_stdin,
+    )
+
+    label_source_ref: Optional[dict[str, Any]] = None
+    if label_source_count:
+        labels_dataframe, labels_source_type, labels_label, labels_resolved_input_path = _load_dataframe_input_source(
+            input_path=labels_input_path,
+            input_json=labels_input_json,
+            use_stdin=False,
+        )
+        dataframe, preparation = _merge_labeled_stream_sources(
+            signal_df=dataframe,
+            labels_df=labels_dataframe,
             time_col=time_col,
-            value_cols=value_cols,
             label_col=label_col,
+            labels_time_col=labels_time_col,
+            label_start_col=label_start_col,
+            label_end_col=label_end_col,
+        )
+        label_source_ref = {
+            "source_type": labels_source_type,
+            "path": labels_resolved_input_path,
+            "label": labels_label,
+            "time_column": labels_time_col,
+            "start_column": preparation.get("label_start_col"),
+            "end_column": preparation.get("label_end_col"),
+            "mode": preparation.get("mode"),
+        }
+    stream_input = _labeled_stream_input_from_dataframe(
+        dataframe,
+        source_type=source_type,
+        label=label,
+        input_path=resolved_input_path,
+        time_col=time_col,
+        value_cols=value_cols,
+        label_col=label_col,
+    )
+    if label_source_ref is not None:
+        stream_ref = stream_input.provenance.setdefault("stream_ref", {})
+        stream_ref["label_source"] = label_source_ref
+        stream_ref["preparation"] = preparation
+    return stream_input
+
+
+def _load_dataframe_input_source(
+    *,
+    input_path: Optional[str],
+    input_json: Optional[str],
+    use_stdin: bool,
+):
+    if use_stdin:
+        return _load_dataframe_from_text(
+            sys.stdin.read(),
+            source_type_json="stdin_json",
+            json_input_path="stdin.json",
+            tabular_input_path="-",
+            csv_label="stdin.csv",
         )
 
     if input_json:
@@ -223,29 +290,288 @@ def load_labeled_stream_input(
             source_type=source_type,
             input_path=input_json if source_type == "json_file" else None,
         )
-        return _labeled_stream_input_from_dataframe(
-            dataframe,
-            source_type=source_type,
-            label=label,
-            input_path=resolved_input_path,
+        return dataframe, source_type, label, resolved_input_path
+
+    if input_path is None:
+        raise RuntimeError("_load_dataframe_input_source requires an input path when no other source is set")
+
+    if input_path == "-":
+        return _load_dataframe_from_text(
+            sys.stdin.read(),
+            source_type_json="stdin_json",
+            json_input_path="stdin.json",
+            tabular_input_path="-",
+            csv_label="stdin.csv",
+        )
+
+    dataframe, source_type, label = _load_dataframe_from_path(input_path)
+    return dataframe, source_type, label, input_path
+
+
+def _load_dataframe_from_text(
+    raw_text: str,
+    *,
+    source_type_json: str,
+    json_input_path: str,
+    tabular_input_path: str,
+    csv_label: str,
+):
+    stripped = raw_text.lstrip()
+    if not stripped:
+        raise ValueError("No input data was received from stdin.")
+
+    if stripped[0] in "[{":
+        try:
+            payload = json.loads(raw_text)
+        except json.JSONDecodeError:
+            payload = None
+        if payload is not None:
+            dataframe, label, _ = _dataframe_from_json_payload(
+                payload,
+                source_type=source_type_json,
+                input_path=json_input_path,
+            )
+            return dataframe, source_type_json, label, tabular_input_path
+
+    import pandas as pd
+
+    dataframe = pd.read_csv(StringIO(raw_text))
+    return dataframe, "csv", csv_label, tabular_input_path
+
+
+def _merge_labeled_stream_sources(
+    *,
+    signal_df,
+    labels_df,
+    time_col: Optional[str],
+    label_col: str,
+    labels_time_col: Optional[str],
+    label_start_col: Optional[str],
+    label_end_col: Optional[str],
+):
+    if bool(label_start_col) ^ bool(label_end_col):
+        raise ValueError(
+            "Provide both --labels-start-col and --labels-end-col when using segment labels."
+        )
+
+    auto_start_col = label_start_col
+    auto_end_col = label_end_col
+    if auto_start_col is None and auto_end_col is None:
+        if "start" in labels_df.columns and "end" in labels_df.columns:
+            auto_start_col = "start"
+            auto_end_col = "end"
+
+    if auto_start_col and auto_end_col:
+        return _merge_segment_labels(
+            signal_df=signal_df,
+            labels_df=labels_df,
             time_col=time_col,
-            value_cols=value_cols,
+            label_col=label_col,
+            label_start_col=auto_start_col,
+            label_end_col=auto_end_col,
+        )
+
+    if len(labels_df) == len(signal_df):
+        return _merge_labels_by_row_alignment(
+            signal_df=signal_df,
+            labels_df=labels_df,
             label_col=label_col,
         )
 
-    if input_path is None:
-        raise RuntimeError("load_labeled_stream_input requires input_path when no other source is set")
+    resolved_labels_time_col = labels_time_col
+    if resolved_labels_time_col is None and time_col and time_col in labels_df.columns:
+        resolved_labels_time_col = time_col
+    if time_col and resolved_labels_time_col:
+        return _merge_labels_by_time_alignment(
+            signal_df=signal_df,
+            labels_df=labels_df,
+            time_col=time_col,
+            labels_time_col=resolved_labels_time_col,
+            label_col=label_col,
+        )
 
-    dataframe, source_type, label = _load_dataframe_from_path(input_path)
-    return _labeled_stream_input_from_dataframe(
-        dataframe,
-        source_type=source_type,
-        label=label,
-        input_path=input_path,
-        time_col=time_col,
-        value_cols=value_cols,
-        label_col=label_col,
+    raise ValueError(
+        "Separate labels input must either align row-for-row with the signal input, "
+        "include a matching time column, or provide segment boundaries via "
+        "--labels-start-col/--labels-end-col."
     )
+
+
+def _merge_labels_by_row_alignment(
+    *,
+    signal_df,
+    labels_df,
+    label_col: str,
+):
+    if label_col not in labels_df.columns:
+        raise ValueError(
+            f"Label column '{label_col}' not found in separate labels input. Available: {list(labels_df.columns)}"
+        )
+
+    merged = signal_df.drop(columns=[label_col], errors="ignore").copy()
+    merged[label_col] = labels_df[label_col].to_numpy()
+    return merged, {
+        "mode": "row_aligned_labels",
+        "signal_rows": int(len(signal_df)),
+        "label_rows": int(len(labels_df)),
+    }
+
+
+def _merge_labels_by_time_alignment(
+    *,
+    signal_df,
+    labels_df,
+    time_col: str,
+    labels_time_col: str,
+    label_col: str,
+):
+    if time_col not in signal_df.columns:
+        raise ValueError(
+            f"Time column '{time_col}' not found in signal input. Available: {list(signal_df.columns)}"
+        )
+    if labels_time_col not in labels_df.columns:
+        raise ValueError(
+            f"Labels time column '{labels_time_col}' not found. Available: {list(labels_df.columns)}"
+        )
+    if label_col not in labels_df.columns:
+        raise ValueError(
+            f"Label column '{label_col}' not found in separate labels input. Available: {list(labels_df.columns)}"
+        )
+
+    labels_subset = labels_df[[labels_time_col, label_col]].copy()
+    if bool(labels_subset[labels_time_col].duplicated().any()):
+        raise ValueError(
+            f"Separate labels input contains duplicate values in time column '{labels_time_col}'."
+        )
+
+    merged = signal_df.drop(columns=[label_col], errors="ignore").merge(
+        labels_subset,
+        how="left",
+        left_on=time_col,
+        right_on=labels_time_col,
+        validate="m:1",
+        sort=False,
+    )
+    if labels_time_col != time_col and labels_time_col in merged.columns:
+        merged = merged.drop(columns=[labels_time_col])
+
+    import pandas as pd
+
+    missing_mask = pd.isna(merged[label_col])
+    if bool(np.any(missing_mask)):
+        raise ValueError(
+            f"Separate labels input did not cover all signal rows; {int(np.sum(missing_mask))} row(s) are unlabeled."
+        )
+
+    return merged, {
+        "mode": "time_joined_labels",
+        "signal_rows": int(len(signal_df)),
+        "label_rows": int(len(labels_df)),
+        "signal_time_column": time_col,
+        "labels_time_column": labels_time_col,
+    }
+
+
+def _merge_segment_labels(
+    *,
+    signal_df,
+    labels_df,
+    time_col: Optional[str],
+    label_col: str,
+    label_start_col: str,
+    label_end_col: str,
+):
+    if label_col not in labels_df.columns:
+        raise ValueError(
+            f"Label column '{label_col}' not found in separate labels input. Available: {list(labels_df.columns)}"
+        )
+    for column in (label_start_col, label_end_col):
+        if column not in labels_df.columns:
+            raise ValueError(
+                f"Segment boundary column '{column}' not found in separate labels input. Available: {list(labels_df.columns)}"
+            )
+
+    import pandas as pd
+
+    assigned = np.empty(len(signal_df), dtype=object)
+    assigned[:] = None
+    covered = np.zeros(len(signal_df), dtype=bool)
+
+    if time_col:
+        if time_col not in signal_df.columns:
+            raise ValueError(
+                f"Time column '{time_col}' not found in signal input. Available: {list(signal_df.columns)}"
+            )
+        signal_axis = signal_df[time_col]
+        mode = "segment_time_labels"
+    else:
+        signal_axis = None
+        mode = "segment_index_labels"
+
+    for row_index, row in enumerate(labels_df.itertuples(index=False), start=1):
+        start_value = getattr(row, label_start_col)
+        end_value = getattr(row, label_end_col)
+        label_value = getattr(row, label_col)
+        if pd.isna(start_value) or pd.isna(end_value):
+            raise ValueError(
+                f"Separate labels input contains missing segment boundaries in row {row_index}."
+            )
+        if pd.isna(label_value):
+            raise ValueError(
+                f"Separate labels input contains a missing label in row {row_index}."
+            )
+
+        if signal_axis is None:
+            try:
+                start_index = int(start_value)
+                end_index = int(end_value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    "Segment boundaries must be integer row offsets when --time-col is not set."
+                ) from exc
+            if start_index < 0 or end_index > len(signal_df) or end_index <= start_index:
+                raise ValueError(
+                    f"Invalid segment bounds [{start_index}, {end_index}) for signal length {len(signal_df)}."
+                )
+            mask = np.zeros(len(signal_df), dtype=bool)
+            mask[start_index:end_index] = True
+        else:
+            try:
+                if end_value <= start_value:
+                    raise ValueError(
+                        f"Invalid segment bounds [{start_value}, {end_value}) in row {row_index}."
+                    )
+            except TypeError:
+                pass
+            mask = ((signal_axis >= start_value) & (signal_axis < end_value)).to_numpy(dtype=bool)
+            if not bool(np.any(mask)):
+                raise ValueError(
+                    f"Segment [{start_value}, {end_value}) in row {row_index} did not match any signal rows."
+                )
+
+        if bool(np.any(covered & mask)):
+            raise ValueError("Separate segment labels overlap on one or more signal rows.")
+
+        assigned[mask] = label_value
+        covered[mask] = True
+
+    unlabeled_rows = int(np.sum(~covered))
+    if unlabeled_rows:
+        raise ValueError(
+            f"Separate segment labels left {unlabeled_rows} signal row(s) unlabeled."
+        )
+
+    merged = signal_df.drop(columns=[label_col], errors="ignore").copy()
+    merged[label_col] = assigned
+    return merged, {
+        "mode": mode,
+        "signal_rows": int(len(signal_df)),
+        "label_rows": int(len(labels_df)),
+        "signal_time_column": time_col,
+        "label_start_col": label_start_col,
+        "label_end_col": label_end_col,
+        "interval_semantics": "start_inclusive_end_exclusive",
+    }
 
 
 def _load_bundled_series(

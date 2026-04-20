@@ -63,7 +63,7 @@ def rocket_classify(
             MiniRocketClassifier,
             MultiRocketClassifier,
         )
-    except ImportError:
+    except Exception:
         return _fallback_rocket_classify(X_train, y_train, X_test, y_test)
 
     # Ensure 3D format
@@ -82,13 +82,16 @@ def rocket_classify(
 
     # Different parameter names for different variants
     try:
-        clf = clf_class(num_kernels=n_kernels)
-    except TypeError:
-        # Some variants use different parameter names
-        clf = clf_class()
+        try:
+            clf = clf_class(num_kernels=n_kernels)
+        except TypeError:
+            # Some variants use different parameter names
+            clf = clf_class()
 
-    clf.fit(X_train, y_train)
-    predictions = clf.predict(X_test)
+        clf.fit(X_train, y_train)
+        predictions = clf.predict(X_test)
+    except Exception:
+        return _fallback_rocket_classify(X_train, y_train, X_test, y_test)
 
     # Get probabilities
     probabilities = None

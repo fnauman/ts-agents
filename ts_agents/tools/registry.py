@@ -1503,13 +1503,13 @@ def _register_default_tools() -> None:
 
     _register_tool(
         name="select_window_size_from_csv",
-        description="Window-size selection from a CSV with columns for values and labels.",
+        description="Window-size selection from a tabular file with columns for values and labels.",
         category=ToolCategory.CLASSIFICATION,
         cost=ComputationalCost.HIGH,
         core_function=select_window_size_from_csv,
         dependencies=["pandas", "numpy", "scikit-learn"],
         parameters=[
-            ToolParameter("csv_path", "str", "Path to CSV (one row per timepoint)"),
+            ToolParameter("csv_path", "str", "Path to a tabular file (one row per timepoint)"),
             ToolParameter(
                 "value_columns",
                 "str | list[str]",
@@ -1524,6 +1524,7 @@ def _register_default_tools() -> None:
                 optional=True,
                 default="label",
             ),
+            ToolParameter("time_column", "str", "Optional time/index column", optional=True, default=None),
             # Forwarded kwargs (must be whitelisted to pass tool validation)
             ToolParameter("window_sizes", "list[int]", "Candidate window sizes", optional=True),
             ToolParameter("min_window", "int", "Minimum window size", optional=True, default=16),
@@ -1572,6 +1573,7 @@ def _register_default_tools() -> None:
                 optional=True,
                 default="balanced_accuracy",
             ),
+            ToolParameter("labeling", "str", "strict|majority", optional=True, default="strict"),
             ToolParameter("balance", "str", "none|undersample|segment_cap", optional=True, default="segment_cap"),
             ToolParameter(
                 "max_windows_per_segment",
@@ -1580,6 +1582,7 @@ def _register_default_tools() -> None:
                 optional=True,
                 default=25,
             ),
+            ToolParameter("n_splits", "int", "Number of grouped splits", optional=True, default=1),
             ToolParameter("test_size", "float", "Test fraction", optional=True, default=0.2),
             ToolParameter("seed", "int", "Random seed", optional=True, default=1337),
             ToolParameter("rocket_n_kernels", "int", "Kernels", optional=True, default=2000),
@@ -1597,13 +1600,13 @@ def _register_default_tools() -> None:
 
     _register_tool(
         name="evaluate_windowed_classifier_from_csv",
-        description="Evaluate a classifier on sliding windows extracted from a labeled CSV.",
+        description="Evaluate a classifier on sliding windows extracted from a labeled tabular file.",
         category=ToolCategory.CLASSIFICATION,
         cost=ComputationalCost.HIGH,
         core_function=evaluate_windowed_classifier_from_csv,
         dependencies=["pandas", "numpy", "scikit-learn", "aeon"],
         parameters=[
-            ToolParameter("csv_path", "str", "Path to CSV (one row per timepoint)"),
+            ToolParameter("csv_path", "str", "Path to a tabular file (one row per timepoint)"),
             ToolParameter("window_size", "int", "Window size"),
             ToolParameter(
                 "value_columns",
@@ -1613,6 +1616,7 @@ def _register_default_tools() -> None:
                 default="value",
             ),
             ToolParameter("label_column", "str", "Label column name", optional=True, default="label"),
+            ToolParameter("time_column", "str", "Optional time/index column", optional=True, default=None),
             ToolParameter("stride", "int", "Stride", optional=True),
             ToolParameter("classifier", "str", "minirocket|rocket|knn", optional=True, default="minirocket"),
             ToolParameter(
@@ -1622,6 +1626,7 @@ def _register_default_tools() -> None:
                 optional=True,
                 default="balanced_accuracy",
             ),
+            ToolParameter("labeling", "str", "strict|majority", optional=True, default="strict"),
             ToolParameter("balance", "str", "none|undersample|segment_cap", optional=True, default="segment_cap"),
             ToolParameter(
                 "max_windows_per_segment",
@@ -1630,6 +1635,7 @@ def _register_default_tools() -> None:
                 optional=True,
                 default=25,
             ),
+            ToolParameter("n_splits", "int", "Number of grouped splits", optional=True, default=1),
             ToolParameter("test_size", "float", "Test fraction", optional=True, default=0.2),
             ToolParameter("seed", "int", "Random seed", optional=True, default=1337),
             ToolParameter("rocket_n_kernels", "int", "Kernels", optional=True, default=2000),

@@ -62,7 +62,7 @@ def knn_classify(
     """
     try:
         from aeon.classification.distance_based import KNeighborsTimeSeriesClassifier
-    except ImportError:
+    except Exception:
         return _fallback_knn_classify(X_train, y_train, X_test, y_test)
 
     # Ensure 3D format for aeon
@@ -70,14 +70,16 @@ def knn_classify(
     X_test = ensure_3d(X_test)
     y_train = np.asarray(y_train)
 
-    clf = KNeighborsTimeSeriesClassifier(
-        distance=distance,
-        n_neighbors=n_neighbors,
-        weights=weights,
-    )
-    clf.fit(X_train, y_train)
-
-    predictions = clf.predict(X_test)
+    try:
+        clf = KNeighborsTimeSeriesClassifier(
+            distance=distance,
+            n_neighbors=n_neighbors,
+            weights=weights,
+        )
+        clf.fit(X_train, y_train)
+        predictions = clf.predict(X_test)
+    except Exception:
+        return _fallback_knn_classify(X_train, y_train, X_test, y_test)
 
     # Get probabilities if available
     probabilities = None

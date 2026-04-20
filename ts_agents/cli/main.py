@@ -1437,6 +1437,36 @@ def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
         help="Label column containing per-timepoint activity labels",
     )
     activity_parser.add_argument(
+        "--labels-input",
+        type=str,
+        default=None,
+        help="Optional separate labels file (row-aligned, time-aligned, or segment annotations)",
+    )
+    activity_parser.add_argument(
+        "--labels-input-json",
+        type=str,
+        default=None,
+        help="Optional separate labels JSON payload or path to a JSON file",
+    )
+    activity_parser.add_argument(
+        "--labels-time-col",
+        type=str,
+        default=None,
+        help="Time column in the separate labels input for pointwise time joins",
+    )
+    activity_parser.add_argument(
+        "--labels-start-col",
+        type=str,
+        default=None,
+        help="Segment start column in the separate labels input; intervals are [start, end)",
+    )
+    activity_parser.add_argument(
+        "--labels-end-col",
+        type=str,
+        default=None,
+        help="Segment end column in the separate labels input; intervals are [start, end)",
+    )
+    activity_parser.add_argument(
         "--value-cols",
         type=_split_csv,
         default=["x", "y", "z"],
@@ -1461,6 +1491,12 @@ def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
         help="Classifier: auto | minirocket | rocket | knn",
     )
     activity_parser.add_argument(
+        "--labeling",
+        type=str,
+        default="strict",
+        help="Window labeling: strict | majority",
+    )
+    activity_parser.add_argument(
         "--balance",
         type=str,
         default="segment_cap",
@@ -1477,6 +1513,18 @@ def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
         type=float,
         default=0.25,
         help="Test fraction per split",
+    )
+    activity_parser.add_argument(
+        "--stride",
+        type=int,
+        default=None,
+        help="Window stride (default: window_size // 2 for each candidate)",
+    )
+    activity_parser.add_argument(
+        "--n-splits",
+        type=int,
+        default=3,
+        help="Number of grouped splits for window selection and final evaluation",
     )
     activity_parser.add_argument(
         "--seed",
@@ -1597,6 +1645,12 @@ def _add_demo_subcommands(subparsers: argparse._SubParsersAction) -> None:
         help="Classifier: auto | minirocket | rocket | knn",
     )
     window_parser.add_argument(
+        "--labeling",
+        type=str,
+        default="strict",
+        help="Window labeling: strict | majority",
+    )
+    window_parser.add_argument(
         "--balance",
         type=str,
         default="segment_cap",
@@ -1613,6 +1667,18 @@ def _add_demo_subcommands(subparsers: argparse._SubParsersAction) -> None:
         type=float,
         default=0.25,
         help="Test fraction per split",
+    )
+    window_parser.add_argument(
+        "--stride",
+        type=int,
+        default=None,
+        help="Window stride (default: window_size // 2 for each candidate)",
+    )
+    window_parser.add_argument(
+        "--n-splits",
+        type=int,
+        default=3,
+        help="Number of grouped splits for window selection and final evaluation",
     )
     window_parser.add_argument(
         "--output-dir",
@@ -2847,6 +2913,9 @@ def _run_demo_window_classification_scripted(args: argparse.Namespace) -> Dict[s
     from ts_agents.cli.output import write_output
     from ts_agents.workflows.activity import run_activity_recognition_workflow
 
+    labeling = getattr(args, "labeling", "strict")
+    stride = getattr(args, "stride", None)
+    n_splits = getattr(args, "n_splits", 3)
     csv_path = Path(args.csv_path)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -2866,9 +2935,12 @@ def _run_demo_window_classification_scripted(args: argparse.Namespace) -> Dict[s
         window_sizes=_split_int_csv(args.window_sizes) if args.window_sizes else None,
         metric=args.metric,
         classifier=args.classifier,
+        labeling=labeling,
         balance=args.balance,
         max_windows_per_segment=args.max_windows_per_segment,
         test_size=args.test_size,
+        stride=stride,
+        n_splits=n_splits,
         seed=args.seed,
         skip_plots=args.skip_plots,
     )
@@ -2933,6 +3005,9 @@ def _run_demo_window_classification_llm(args: argparse.Namespace) -> Dict[str, A
     window_sizes = [int(v) for v in _split_csv(args.window_sizes)] if args.window_sizes else None
     classifier_hint = args.classifier if args.classifier != "auto" else "choose one"
     window_sizes_text = window_sizes if window_sizes else "auto"
+    labeling = getattr(args, "labeling", "strict")
+    stride = getattr(args, "stride", None)
+    n_splits = getattr(args, "n_splits", 3)
 
     prompt = (
         "You are running the ts-agents demo. Use tools to:\n"
@@ -2943,9 +3018,12 @@ def _run_demo_window_classification_llm(args: argparse.Namespace) -> Dict[str, A
         f"label_column: {args.label_column}\n"
         f"window_sizes: {window_sizes_text}\n"
         f"metric: {args.metric}\n"
+        f"labeling: {labeling}\n"
         f"balance: {args.balance}\n"
         f"max_windows_per_segment: {args.max_windows_per_segment}\n"
         f"test_size: {args.test_size}\n"
+        f"stride: {stride if stride is not None else 'auto'}\n"
+        f"n_splits: {n_splits}\n"
         f"seed: {args.seed}\n"
         f"classifier: {classifier_hint} (minirocket|rocket|knn)\n\n"
         "After the tool calls, write a short Markdown report with:\n"
