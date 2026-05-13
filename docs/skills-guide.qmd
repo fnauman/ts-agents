@@ -6,7 +6,7 @@ Skills are reusable workflow definitions that tell an AI agent *how* to use
 `ts-agents` workflows and tools for a specific task.
 Each skill is a Markdown file (`SKILL.md`) with YAML frontmatter describing the workflow, required tools, and step-by-step instructions.
 
-## The 5 canonical skills
+## The 6 canonical skills
 
 | Skill | Description |
 |-------|-------------|
@@ -15,6 +15,7 @@ Each skill is a Markdown file (`SKILL.md`) with YAML frontmatter describing the 
 | **classification** | Supervised time-series classification with KNN/DTW, ROCKET, or HIVE-COTE |
 | **diagnostics** | Quick EDA: descriptive stats, autocorrelation, periodicity, and spectral density |
 | **decomposition** | Trend/seasonal/residual decomposition via STL, MSTL, or Holt-Winters |
+| **report-generation** | Convert workflow manifests, plots, JSON, CSV, and Markdown artifacts into stakeholder-facing Markdown, Quarto, HTML, or PDF reports |
 
 All skills live in `skills/<name>/SKILL.md` and are synced to agent-specific directories on export.
 

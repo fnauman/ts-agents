@@ -14,10 +14,12 @@ skills/
   diagnostics/SKILL.md                # Quick EDA diagnostics
   decomposition/SKILL.md              # Decomposition methods
   classification/SKILL.md             # Time series classification
+  report-generation/SKILL.md          # Turn workflow artifacts into reports
 ```
 
 This repository intentionally keeps a **small, focused set** of skills to reduce
-drift across agent-specific directories.
+drift across agent-specific directories. Reporting is included because
+artifact-to-report handoff is a first-class workflow boundary for agents.
 
 ## Agent-Specific Locations
 

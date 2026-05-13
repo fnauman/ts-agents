@@ -1,9 +1,9 @@
-# Legacy Demo Scripts and Aliases
+# Demo Scripts and Legacy Aliases
 
-These shell scripts and VHS tapes preserve the original demo-oriented
-compatibility surface. Prefer `ts-agents workflow run ...` in new automation;
-use this directory when you need the legacy demo wrappers or want to record the
-historical terminal flows.
+These shell scripts and VHS tapes record short terminal demos. The synthetic
+activity-recognition and forecasting scripts use the current
+`ts-agents workflow run ...` surface. Deprecated compatibility aliases are
+documented below for older terminal flows.
 
 | Demo | Script | Tape | Output dir |
 |------|--------|------|------------|
@@ -13,14 +13,28 @@ historical terminal flows.
 
 ---
 
-## Activity recognition — synthetic (legacy demo)
+## Activity recognition — synthetic workflow
 
 A *30–60 second terminal walkthrough* showing:
 
 1. generating a labeled-stream dataset (synthetic stairs data by default)
 2. selecting a window size automatically
 3. evaluating a windowed classifier
-4. producing a simple plot + confusion matrix
+4. producing plots, JSON outputs, a run manifest, and `report.md`
+
+```bash
+bash demo/run_demo.sh
+```
+
+Outputs will be written under:
+
+- `data/demo_labeled_stream.csv`
+- `outputs/demo/window_selection.json`
+- `outputs/demo/window_scores.png`
+- `outputs/demo/eval.json`
+- `outputs/demo/confusion_matrix.png`
+- `outputs/demo/report.md`
+- `outputs/demo/run_manifest.json`
 
 ## Compatibility alias (synthetic, no downloads)
 
@@ -31,7 +45,7 @@ export OPENAI_API_KEY=your-key
 uv run ts-agents demo window-classification
 ```
 
-Outputs will be written under:
+The deprecated alias writes similar outputs under:
 
 - `data/demo_labeled_stream.csv`
 - `outputs/demo/window_selection.json`
@@ -48,15 +62,6 @@ uv run ts-agents demo window-classification --no-llm
 
 The scripted CLI path writes the same core artifacts (including `report.md`)
 without calling an LLM.
-
-Or run the legacy script:
-
-```bash
-bash demo/run_demo.sh
-```
-
-The legacy shell script only writes the dataset, JSON outputs, and PNG plots.
-If you also want `report.md`, use the CLI command above.
 
 ---
 
@@ -90,7 +95,7 @@ That compatibility path writes the same core artifacts plus `outputs/demo_wisdm/
 
 ---
 
-## Forecasting comparison (legacy demo)
+## Forecasting comparison workflow
 
 Compares forecasting methods on the MHD shearing-box dataset (`data/short_real.csv`).
 
@@ -98,8 +103,15 @@ Compares forecasting methods on the MHD shearing-box dataset (`data/short_real.c
 bash demo/run_demo_forecasting.sh
 ```
 
-The legacy shell script overrides the raw CLI defaults and writes its artifacts to
-`outputs/demo_forecasting/`, including `forecasting_report.md`.
+The shell script runs `workflow run forecast-series` and writes artifacts to
+`outputs/demo_forecasting/`:
+
+- `forecast_comparison.json`
+- `forecast.json`
+- `forecast.csv`
+- `report.md`
+- `run_manifest.json`
+- `forecast_comparison.png` (when plotting is available)
 
 Or via the deprecated compatibility alias:
 
@@ -117,7 +129,7 @@ built-in test data. To include ETS, prefer a larger setup:
 uv run ts-agents demo forecasting --full-data --horizon 12 --methods arima,ets,theta --no-llm
 ```
 
-Outputs from the raw CLI alias (under `outputs/demo/` by default):
+Outputs from the raw compatibility alias (under `outputs/demo/` by default):
 
 - `forecast_comparison.json`
 - `forecast.json`
@@ -125,9 +137,6 @@ Outputs from the raw CLI alias (under `outputs/demo/` by default):
 - `report.md`
 - `forecasting_report.md`
 - `forecast_comparison.png` (when plotting is available)
-
-The legacy shell script writes the same artifact set under `outputs/demo_forecasting/`.
-
 ---
 
 ## Demo tool bundles (for agent runs)

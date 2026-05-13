@@ -38,3 +38,4 @@ def test_skills_export_json_writes_structured_catalog(tmp_path):
     assert "skills" in payload
     skill_names = [skill["name"] for skill in payload["skills"]]
     assert "forecasting" in skill_names
+    assert "report-generation" in skill_names

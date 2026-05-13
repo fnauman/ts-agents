@@ -22,10 +22,27 @@ echo "==> Forecasting comparison demo (ARIMA vs Theta)"
 echo "    Dataset: data/short_real.csv  (run: Re200Rm200, var: bx001_real)"
 echo
 
-"${RUNNER[@]}" demo forecasting --no-llm \
+"${RUNNER[@]}" workflow run forecast-series \
+  --run-id Re200Rm200 \
+  --variable bx001_real \
+  --horizon 1 \
   --methods arima,theta \
   --output-dir "$OUTDIR" \
-  --report-path "${OUTDIR}/forecasting_report.md"
+  --overwrite \
+  --json \
+  --save "${OUTDIR}/workflow_result.json" >/dev/null
+
+python - <<'PY'
+import json
+payload = json.load(open("outputs/demo_forecasting/workflow_result.json"))
+data = payload["result"]["data"]
+print("Demo complete.")
+print(f"- Run ID: {data['source']['run_id']}")
+print(f"- Variable: {data['source']['variable']}")
+print(f"- Horizon: {data['horizon']}")
+print(f"- Best method (RMSE): {data['best_method']}")
+print(f"- Output dir: {data['output_dir']}")
+PY
 
 echo
 echo "==> Done. Outputs:"
