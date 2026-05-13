@@ -427,23 +427,54 @@ Use `ts-agents` as one callable subsystem inside a larger orchestrator with gove
 :::
 
 
-## Roadmap: Autoresearch Loop
+## Autoresearch vs Policy Gradient
 
-<div class="autoresearch-loop">
-  <div class="loop-node loop-orchestrator"><div class="loop-title">Orchestrator</div><div class="loop-copy">plans · routes · reviews</div></div>
+::: {.research-compare}
+::: {.research-card .policy-card}
+::: {.research-title}
+Policy gradient
+:::
 
-  <div class="loop-node loop-data"><div class="loop-title">Data</div><div class="loop-copy">digital twins · telemetry · simulations</div></div>
+- The orchestrator samples actions
+- A reward function scores behavior
+- Optimizer updates orchestrator weights
 
-  <div class="loop-node loop-ts-agents"><div class="loop-title">Tools (<span class="ts-agent-word">ts-agents</span>)</div><div class="loop-copy">CLIs · MCP</div></div>
+::: {.research-focus}
+Learns inside the policy.
+:::
+:::
 
-  <div class="loop-node loop-autoresearch"><div class="loop-title">Evaluation</div><div class="loop-copy">rubrics · metrics · reviewer signal</div></div>
+::: {.research-card .autoresearch-card}
+::: {.research-title}
+Autoresearch
+:::
 
-  <div class="loop-caption">Loop: Orchestrator → Data → Tools (<span class="ts-agent-word">ts-agents</span>) → Evaluation → back to Orchestrator</div>
-</div>
+- The LLM reads metrics, figures, reports, and traces
+- It proposes a hypothesis and next experiment
+- It can revise plans, skills, tools, and training data
 
-::: {.roadmap-bullets}
-- Run simulation campaigns and large analysis batches without inspecting every intermediate file.
-- Feed outcomes, artifacts, failed tool choices, and review decisions back into better orchestrator policies.
+::: {.research-focus}
+Learns through artifacts and workflow changes.
+:::
+:::
+:::
+
+::: {.trace-panel}
+::: {.trace-title}
+Example completion
+:::
+
+::: {.trace-step}
+**Iteration 0:** `forecast-series` compares ARIMA and Theta. Metrics pick Theta, but the figure shows drift and the report flags a short validation window.
+:::
+
+::: {.trace-step}
+**Iteration 1:** run decomposition + a wider baseline set, update the forecasting skill to check residual drift, and add a rubric for report quality before reranking.
+:::
+
+::: {.trace-note}
+Autoresearch can improve the orchestrator, but also the surrounding skill files, tool metadata, eval rubrics, and reusable workflow defaults.
+:::
 :::
 
 

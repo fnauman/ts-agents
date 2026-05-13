@@ -652,107 +652,89 @@ $font-family-monospace: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
   color: #7dd3fc;
 }
 
-.autoresearch-loop {
-  position: relative;
-  width: min(1040px, 100%);
-  height: 410px;
-  margin: 0.45em auto 0;
+.research-compare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9em;
+  margin-top: 0.65em;
 }
 
-.loop-node {
-  position: absolute;
-  z-index: 2;
-  width: 280px;
-  min-height: 116px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 0.72em 0.82em;
+.research-card {
+  min-width: 0;
+  min-height: 230px;
+  padding: 0.85em 0.95em;
   border: 1px solid var(--border);
-  border-top: 4px solid #38bdf8;
   border-radius: 8px;
-  background: #142039;
-  text-align: center;
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.22);
+  background: var(--surface);
+  font-size: 0.7em;
 }
 
-.loop-orchestrator {
-  top: 0;
-  left: 50%;
-  transform: translateX(-50%);
+.policy-card {
+  border-top: 4px solid #38bdf8;
 }
 
-.loop-data {
-  top: 145px;
-  right: 0;
+.autoresearch-card {
+  border-top: 4px solid #10b981;
 }
 
-.loop-ts-agents {
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  border-top-color: #10b981;
-  background: #172843;
-}
-
-.loop-autoresearch {
-  top: 145px;
-  left: 0;
-}
-
-.loop-title {
+.research-title {
   color: #ffffff;
-  font-size: 0.82em;
+  font-size: 1.22em;
   font-weight: 700;
-  line-height: 1.18;
+  line-height: 1.2;
+  margin-bottom: 0.55em;
+}
+
+.research-card ul {
+  margin-bottom: 0.7em;
+}
+
+.research-card li {
+  margin-bottom: 0.35em;
+}
+
+.research-focus {
+  padding: 0.45em 0.58em;
+  border-left: 4px solid #f59e0b;
+  background: #101a2e;
+  color: #fef3c7;
+  font-weight: 700;
+}
+
+.trace-panel {
+  margin-top: 0.65em;
+  padding: 0.7em 0.85em;
+  border: 1px solid var(--border);
+  border-left: 4px solid #10b981;
+  border-radius: 8px;
+  background: rgba(20, 32, 57, 0.72);
+  font-size: 0.58em;
+}
+
+.trace-title {
+  color: #ffffff;
+  font-size: 1.16em;
+  font-weight: 700;
+  margin-bottom: 0.5em;
+}
+
+.trace-step {
   margin-bottom: 0.45em;
 }
 
-.loop-title code,
+.trace-note {
+  margin-top: 0.55em;
+  padding-top: 0.5em;
+  border-top: 1px solid var(--border);
+  color: #fef3c7;
+  font-weight: 700;
+}
+
 .ts-agent-word {
   color: #22d3ee;
   background: transparent;
   font-weight: 800;
   padding: 0;
-}
-
-.loop-copy {
-  color: #e5e7eb;
-  font-size: 0.62em;
-  line-height: 1.32;
-}
-
-.loop-caption {
-  position: absolute;
-  z-index: 3;
-  bottom: -14px;
-  left: 50%;
-  transform: translateX(-50%);
-  color: #fef3c7;
-  font-size: 0.48em;
-  font-weight: 700;
-  text-align: center;
-  white-space: nowrap;
-}
-
-.roadmap-bullets {
-  width: min(1040px, 100%);
-  margin: 1.7em auto 0;
-  padding: 0.55em 0.8em;
-  border-left: 4px solid #10b981;
-  background: rgba(20, 32, 57, 0.72);
-  font-size: 0.58em;
-}
-
-.roadmap-bullets ul {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.8em;
-  margin: 0;
-}
-
-.roadmap-bullets li {
-  margin: 0;
 }
 
 .repo-callout {
@@ -789,7 +771,8 @@ $font-family-monospace: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
 .lesson-pain p,
 .lesson-fix p,
 .industry-card p,
-.loop-node p,
+.trace-step p,
+.trace-note p,
 .repo-callout p {
   margin-bottom: 0;
 }
