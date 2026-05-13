@@ -24,67 +24,28 @@ python data/make_synthetic_labeled_stream.py \
   --out data/demo_labeled_stream.csv
 
 echo
-echo "==> Selecting window size..."
-"${RUNNER[@]}" run select_window_size_from_csv \
+echo "==> Running activity-recognition workflow..."
+"${RUNNER[@]}" workflow run activity-recognition \
+  --input data/demo_labeled_stream.csv \
+  --label-col label \
+  --value-cols x,y,z \
+  --metric balanced_accuracy \
+  --classifier auto \
+  --output-dir outputs/demo \
+  --overwrite \
   --json \
-  --save outputs/demo/window_selection.json \
-  --param csv_path=data/demo_labeled_stream.csv \
-  --param value_columns=x,y,z \
-  --param label_column=label \
-  --param window_sizes=32,64,96,128,160 \
-  --param metric=balanced_accuracy \
-  --param classifier=minirocket \
-  --param balance=segment_cap \
-  --param max_windows_per_segment=25 \
-  --param test_size=0.25 \
-  --param seed=1337
-
-BEST_WINDOW=$(
-  python - <<'PY'
-import json
-with open("outputs/demo/window_selection.json", "r") as f:
-    payload = json.load(f)
-result = payload.get("result", payload)
-print(result["best_window_size"])
-PY
-)
-
-echo
-echo "Best window size: ${BEST_WINDOW}"
-echo
-
-echo "==> Evaluating classifier with best window..."
-"${RUNNER[@]}" run evaluate_windowed_classifier_from_csv \
-  --json \
-  --save outputs/demo/eval.json \
-  --param csv_path=data/demo_labeled_stream.csv \
-  --param value_columns=x,y,z \
-  --param label_column=label \
-  --param window_size="${BEST_WINDOW}" \
-  --param metric=balanced_accuracy \
-  --param classifier=minirocket \
-  --param balance=segment_cap \
-  --param max_windows_per_segment=25 \
-  --param test_size=0.25 \
-  --param seed=1337
+  --save outputs/demo/workflow_result.json >/dev/null
 
 echo
 python - <<'PY'
 import json
-d=json.load(open("outputs/demo/eval.json"))
-result = d.get("result", d)
-print(f"Metric: {result.get('metric')} | Score: {result.get('score'):.4f}")
-c=result.get("classification") or {}
-print(f"Accuracy: {c.get('accuracy')}")
-print(f"F1 (macro): {c.get('f1_score')}")
-print(f"n_windows: {result.get('n_windows')}")
-print("Class window counts:", result.get("class_counts"))
+payload = json.load(open("outputs/demo/workflow_result.json"))
+data = payload["result"]["data"]
+print(f"Best window size: {data['best_window_size']}")
+print(f"Metric: {data['metric']} | Score: {data['score']:.4f}")
+print(f"Classifier: {data['classifier_used']}")
+print(f"Output dir: {data['output_dir']}")
 PY
-echo
-
-echo "==> Writing plots..."
-python demo/plot_window_selection.py outputs/demo/window_selection.json outputs/demo/window_scores.png
-python demo/plot_confusion_matrix.py outputs/demo/eval.json outputs/demo/confusion_matrix.png
 
 echo
 echo "==> Done. Outputs:"

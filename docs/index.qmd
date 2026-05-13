@@ -51,4 +51,24 @@ rewriting the core toolchain.
 
 ---
 
-[Conference talk slides](talks/ts_agents_talk.qmd) are also available.
+## Talks
+
+<div class="talk-grid">
+  <a class="talk-card talk-card-primary" href="talks/ts_agents_enterprise_talk.qmd">
+    <img class="talk-card-image" src="assets/talk-enterprise-preview.png" alt="Title slide preview for the enterprise and research ts-agents talk">
+    <span class="talk-card-body">
+      <span class="talk-card-kicker">Enterprise and research talk</span>
+      <span class="talk-card-title">Building Data Science Agents in the Real World</span>
+      <span class="talk-card-copy">CLI-first time-series automation, skills, reports, personalized agents, and autoresearch.</span>
+    </span>
+  </a>
+
+  <a class="talk-card" href="talks/ts_agents_talk.qmd">
+    <img class="talk-card-image" src="assets/talk-design-preview.png" alt="Title slide preview for the ts-agents design philosophy talk">
+    <span class="talk-card-body">
+      <span class="talk-card-kicker">Design philosophy talk</span>
+      <span class="talk-card-title">CLI-first Time-Series Automation</span>
+      <span class="talk-card-copy">The original project talk on stable workflow contracts and agent-facing artifacts.</span>
+    </span>
+  </a>
+</div>

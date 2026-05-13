@@ -35,3 +35,4 @@ format:
   html:
     toc: true
     code-copy: true
+    css: styles.css
