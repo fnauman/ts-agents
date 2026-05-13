@@ -32,9 +32,12 @@ echo
   --json \
   --save "${OUTDIR}/workflow_result.json" >/dev/null
 
-python - <<'PY'
+OUTDIR="$OUTDIR" python - <<'PY'
 import json
-payload = json.load(open("outputs/demo_forecasting/workflow_result.json"))
+import os
+
+outdir = os.environ["OUTDIR"]
+payload = json.load(open(f"{outdir}/workflow_result.json"))
 data = payload["result"]["data"]
 print("Demo complete.")
 print(f"- Run ID: {data['source']['run_id']}")
