@@ -67,7 +67,9 @@ image = _build_image()
 @app.function(image=image, timeout=600)
 def run_tool(request: Dict[str, Any]) -> Dict[str, Any]:
     """Execute a tool request and return an ExecutionResult dict."""
-    _require_source_checkout()
+    # Note: the source-checkout precondition applies to image build / local
+    # invocations (see `main`). Inside the remote container only `ts_agents/`
+    # is shipped, so checking for pyproject.toml here would always fail.
 
     # Import inside the function to ensure the packaged code is available.
     from ts_agents.sandbox.runner import run_request
