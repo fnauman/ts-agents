@@ -1930,6 +1930,14 @@ def _default_autoresearch_output_dir(loop_name: str) -> str:
     return str((Path("outputs") / "autoresearch" / loop_name / generate_workflow_run_id()).resolve())
 
 
+def _artifact_path(artifact: Any) -> Optional[str]:
+    if isinstance(artifact, dict):
+        path = artifact.get("path")
+    else:
+        path = getattr(artifact, "path", None)
+    return str(path) if path is not None else None
+
+
 def _synchronize_autoresearch_manifest(result: Any, execution: Any) -> None:
     if not isinstance(result, dict):
         return
@@ -1961,7 +1969,9 @@ def _synchronize_autoresearch_manifest(result: Any, execution: Any) -> None:
     manifest_payload["warnings"] = to_jsonable(result.get("warnings") or [])
     manifest_payload["best_config"] = to_jsonable(data.get("best_config") or {})
     if isinstance(result.get("artifacts"), list):
-        manifest_payload["artifacts"] = to_jsonable(result["artifacts"])
+        manifest_payload["artifacts"] = to_jsonable(
+            [artifact for artifact in result["artifacts"] if _artifact_path(artifact) != str(manifest_path)]
+        )
     if execution_metadata:
         manifest_payload["execution"] = dict(execution_metadata)
     try:
@@ -2040,9 +2050,9 @@ def _handle_autoresearch_command(args: argparse.Namespace) -> Tuple[Any, Optiona
     sandbox_mode = args.sandbox or os.environ.get("TS_AGENTS_SANDBOX_MODE")
     context = ExecutionContext(
         sandbox_mode=sandbox_mode,
-        timeout_seconds=args.timeout_seconds or loop.budget.timeout_seconds,
-        memory_mb=args.memory_mb or loop.budget.memory_mb,
-        disk_mb=args.disk_mb or loop.budget.disk_mb,
+        timeout_seconds=args.timeout_seconds if args.timeout_seconds is not None else loop.budget.timeout_seconds,
+        memory_mb=args.memory_mb if args.memory_mb is not None else loop.budget.memory_mb,
+        disk_mb=args.disk_mb if args.disk_mb is not None else loop.budget.disk_mb,
         allow_network=getattr(args, "allow_network", False),
         allow_fallback=allow_fallback,
         fallback_backend=fallback_backend,

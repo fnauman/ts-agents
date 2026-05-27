@@ -69,9 +69,15 @@ def run_autoresearch_loop(
 
     started_at = _utc_now()
     run_id = generate_workflow_run_id()
-    budget_timeout = int(timeout_seconds or definition.budget.timeout_seconds)
+    budget_timeout = int(
+        definition.budget.timeout_seconds
+        if timeout_seconds is None
+        else timeout_seconds
+    )
     selected_models = _normalize_models(loop_name, models)
-    trial_limit = int(definition.budget.max_trials if max_trials is None else max_trials)
+    trial_limit = int(
+        definition.budget.max_trials if max_trials is None else max_trials
+    )
     if trial_limit <= 0:
         raise ValueError("--max-trials must be a positive integer.")
 
@@ -83,6 +89,7 @@ def run_autoresearch_loop(
         "profile": profile,
         "models": selected_models,
         "max_trials": trial_limit,
+        "max_trials_explicit": max_trials is not None,
         "timeout_seconds": budget_timeout,
         "dry_run": dry_run,
         "skip_plots": skip_plots,
@@ -96,7 +103,9 @@ def run_autoresearch_loop(
         return _run_classify_daytona(**common)
     if loop_name == "foundation-gpu-plan":
         return _run_foundation_gpu_plan(**common)
-    raise ValueError(f"Autoresearch loop '{loop_name}' is registered but has no runner.")
+    raise ValueError(
+        f"Autoresearch loop '{loop_name}' is registered but has no runner."
+    )
 
 
 def _run_forecast_daytona(**kwargs: Any) -> dict[str, Any]:
@@ -107,6 +116,7 @@ def _run_forecast_daytona(**kwargs: Any) -> dict[str, Any]:
     profile: str = kwargs["profile"]
     models: list[str] = kwargs["models"]
     max_trials: int = kwargs["max_trials"]
+    max_trials_explicit: bool = kwargs["max_trials_explicit"]
     timeout_seconds: int = kwargs["timeout_seconds"]
     dry_run: bool = kwargs["dry_run"]
     skip_plots: bool = kwargs["skip_plots"]
@@ -116,7 +126,7 @@ def _run_forecast_daytona(**kwargs: Any) -> dict[str, Any]:
     series_ids = _forecast_series_for_profile(profile)
     horizon = 18
     season_length = 12
-    rolling_origins = 1 if profile == "smoke" else 2
+    rolling_origins = _forecast_rolling_origins_for_profile(profile)
 
     warnings: list[str] = []
     if find_spec("statsforecast") is None:
@@ -126,9 +136,13 @@ def _run_forecast_daytona(**kwargs: Any) -> dict[str, Any]:
                 "statsforecast is not installed; skipping methods that require "
                 f"`ts-agents[forecasting]`: {', '.join(unavailable)}."
             )
-            models = [method for method in models if method not in _STATSFORECAST_METHODS]
+            models = [
+                method for method in models if method not in _STATSFORECAST_METHODS
+            ]
     if not models:
-        raise ImportError('No forecasting methods are available. Install "ts-agents[forecasting]".')
+        raise ImportError(
+            'No forecasting methods are available. Install "ts-agents[forecasting]".'
+        )
 
     trial_specs = _forecast_trial_specs(
         panel=panel,
@@ -137,16 +151,22 @@ def _run_forecast_daytona(**kwargs: Any) -> dict[str, Any]:
         rolling_origins=rolling_origins,
     )
     trial_pairs = _forecast_trial_pairs(trial_specs, models)
+    if profile == "full" and not max_trials_explicit:
+        max_trials = len(trial_pairs)
     scheduled_pairs = trial_pairs[:max_trials]
     trials: list[dict[str, Any]] = []
     start = time.monotonic()
 
     for trial_index, (spec, model) in enumerate(scheduled_pairs, start=1):
         if _budget_exhausted(start, timeout_seconds):
-            warnings.append(f"Stopped before trial {trial_index}; timeout budget exhausted.")
+            warnings.append(
+                f"Stopped before trial {trial_index}; timeout budget exhausted."
+            )
             break
         if dry_run:
-            trials.append(_planned_trial_row(run_id, trial_index, "forecasting", spec, model))
+            trials.append(
+                _planned_trial_row(run_id, trial_index, "forecasting", spec, model)
+            )
             continue
         trial_timeout = _trial_timeout_for_next(
             start,
@@ -169,8 +189,18 @@ def _run_forecast_daytona(**kwargs: Any) -> dict[str, Any]:
     ranking = _rank_forecast_trials(trials)
     warnings.extend(_forecast_ranking_warnings(trials))
     best_config = ranking[0] if ranking else {}
-    status = "degraded" if warnings or any(row.get("status") == "failed" for row in trials) else "ok"
-    plot_artifacts = [] if skip_plots or dry_run else _write_forecast_plot(output_path, trials)
+    status = (
+        "degraded"
+        if warnings or any(row.get("status") == "failed" for row in trials)
+        else "ok"
+    )
+    plot_artifacts = _write_optional_plot(
+        _write_forecast_plot,
+        output_path,
+        trials,
+        warnings,
+        enabled=not skip_plots and not dry_run,
+    )
     artifacts = _write_autoresearch_artifacts(
         output_path=output_path,
         loop_name="forecast-daytona",
@@ -243,7 +273,8 @@ def _run_classify_daytona(**kwargs: Any) -> dict[str, Any]:
         value_cols=["x", "y", "z"],
         label_col="label",
     )
-    window_sizes = [32, 64] if profile == "smoke" else list(DEFAULT_WINDOW_SIZES)
+    window_sizes = _classification_window_sizes_for_profile(profile)
+    n_splits = 5 if profile == "full" else 3
     trials: list[dict[str, Any]] = []
     warnings: list[str] = []
     start = time.monotonic()
@@ -256,10 +287,16 @@ def _run_classify_daytona(**kwargs: Any) -> dict[str, Any]:
             "window_sizes": window_sizes,
         }
         if _budget_exhausted(start, timeout_seconds):
-            warnings.append(f"Stopped before classifier {classifier}; timeout budget exhausted.")
+            warnings.append(
+                f"Stopped before classifier {classifier}; timeout budget exhausted."
+            )
             break
         if dry_run:
-            trials.append(_planned_trial_row(run_id, trial_index, "classification", spec, classifier))
+            trials.append(
+                _planned_trial_row(
+                    run_id, trial_index, "classification", spec, classifier
+                )
+            )
             continue
         trial_timeout = _trial_timeout_for_next(
             start,
@@ -276,14 +313,25 @@ def _run_classify_daytona(**kwargs: Any) -> dict[str, Any]:
                     stream_values=stream_input.values,
                     stream_labels=stream_input.labels,
                     window_sizes=window_sizes,
+                    n_splits=n_splits,
                     seed=seed,
                 )
             )
 
     ranking = _rank_classification_trials(trials)
     best_config = ranking[0] if ranking else {}
-    status = "degraded" if warnings or any(row.get("status") == "failed" for row in trials) else "ok"
-    plot_artifacts = [] if skip_plots or dry_run else _write_classification_plot(output_path, trials)
+    status = (
+        "degraded"
+        if warnings or any(row.get("status") == "failed" for row in trials)
+        else "ok"
+    )
+    plot_artifacts = _write_optional_plot(
+        _write_classification_plot,
+        output_path,
+        trials,
+        warnings,
+        enabled=not skip_plots and not dry_run,
+    )
     artifacts = list(dataset_artifacts)
     artifacts.extend(
         _write_autoresearch_artifacts(
@@ -303,7 +351,7 @@ def _run_classify_daytona(**kwargs: Any) -> dict[str, Any]:
                 "metric": "balanced_accuracy",
                 "balance": "segment_cap",
                 "max_windows_per_segment": 25,
-                "n_splits": 3,
+                "n_splits": n_splits,
                 "seed": seed,
             },
             trials=trials,
@@ -435,7 +483,13 @@ def _normalize_models(loop_name: str, models: Optional[Iterable[str]]) -> list[s
         if loop_name == "foundation-gpu-plan":
             return list(DEFAULT_FOUNDATION_MODELS)
         return []
-    normalized = [str(model).strip() for model in models if str(model).strip()]
+    normalized = []
+    for model in models:
+        if model is None:
+            raise ValueError(f"Model list for {loop_name} contains a null entry.")
+        value = str(model).strip()
+        if value:
+            normalized.append(value)
     if not normalized:
         return _normalize_models(loop_name, None)
     valid = {
@@ -446,7 +500,9 @@ def _normalize_models(loop_name: str, models: Optional[Iterable[str]]) -> list[s
     if valid is not None:
         invalid = sorted(set(normalized).difference(valid))
         if invalid:
-            raise ValueError(f"Unsupported model(s) for {loop_name}: {', '.join(invalid)}.")
+            raise ValueError(
+                f"Unsupported model(s) for {loop_name}: {', '.join(invalid)}."
+            )
     return normalized
 
 
@@ -476,6 +532,22 @@ def _forecast_series_for_profile(profile: str) -> list[str]:
     if profile == "smoke":
         return DEFAULT_FORECAST_SERIES[:1]
     return list(DEFAULT_FORECAST_SERIES)
+
+
+def _forecast_rolling_origins_for_profile(profile: str) -> int:
+    if profile == "smoke":
+        return 1
+    if profile == "full":
+        return 3
+    return 2
+
+
+def _classification_window_sizes_for_profile(profile: str) -> list[int]:
+    if profile == "smoke":
+        return [32, 64]
+    if profile == "full":
+        return [32, 64, 96, 128, 160, 192, 224]
+    return list(DEFAULT_WINDOW_SIZES)
 
 
 def _forecast_trial_specs(
@@ -684,6 +756,7 @@ def _evaluate_classifier_trial(
     stream_values: np.ndarray,
     stream_labels: np.ndarray,
     window_sizes: list[int],
+    n_splits: int,
     seed: int,
 ) -> dict[str, Any]:
     started = time.monotonic()
@@ -708,7 +781,7 @@ def _evaluate_classifier_trial(
             labeling="strict",
             balance="segment_cap",
             max_windows_per_segment=25,
-            n_splits=3,
+            n_splits=n_splits,
             test_size=0.25,
             seed=seed,
         )
@@ -721,7 +794,9 @@ def _evaluate_classifier_trial(
                 "balanced_accuracy": score,
                 "accuracy": None,
                 "f1_macro": None,
-                "n_windows": int(selection.n_windows_by_window.get(best_window_size, 0)),
+                "n_windows": int(
+                    selection.n_windows_by_window.get(best_window_size, 0)
+                ),
                 "effective_backend": classifier,
                 "evaluation_stage": "window_selection_cv",
                 "selection_scores_by_window": {
@@ -731,11 +806,13 @@ def _evaluate_classifier_trial(
             }
         )
     except Exception as exc:
-        row.update({
-            "status": "failed",
-            "error": str(exc),
-            "error_type": type(exc).__name__,
-        })
+        row.update(
+            {
+                "status": "failed",
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            }
+        )
     row["elapsed_seconds"] = round(time.monotonic() - started, 6)
     return row
 
@@ -816,9 +893,10 @@ def _rank_classification_trials(trials: list[dict[str, Any]]) -> list[dict[str, 
     return sorted(
         ranking,
         key=lambda row: (
-            -(row.get("balanced_accuracy") or 0.0),
-            row.get("best_window_size") or 0,
-            -(row.get("n_windows") or 0),
+            _sort_high_metric(row.get("balanced_accuracy")),
+            _sort_low_metric(row.get("best_window_size")),
+            _sort_high_metric(row.get("n_windows")),
+            str(row.get("model", "")),
         ),
     )
 
@@ -828,6 +906,14 @@ def _sort_low_metric(value: Any) -> float:
         number = float(value)
         if np.isfinite(number):
             return number
+    return float("inf")
+
+
+def _sort_high_metric(value: Any) -> float:
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        number = float(value)
+        if np.isfinite(number):
+            return -number
     return float("inf")
 
 
@@ -1068,12 +1154,32 @@ def _trial_timeout(seconds: Optional[float]):
         signal.setitimer(signal.ITIMER_REAL, 0.0)
         signal.signal(signal.SIGALRM, previous_handler)
         if previous_timer[0] > 0:
-            remaining = max(0.001, previous_timer[0] - elapsed)
-            signal.setitimer(signal.ITIMER_REAL, remaining, previous_timer[1])
+            remaining = previous_timer[0] - elapsed
+            if remaining <= 0:
+                signal.raise_signal(signal.SIGALRM)
+            else:
+                signal.setitimer(signal.ITIMER_REAL, remaining, previous_timer[1])
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _write_optional_plot(
+    plot_writer: Any,
+    output_path: Path,
+    trials: list[dict[str, Any]],
+    warnings: list[str],
+    *,
+    enabled: bool,
+) -> list[ArtifactRef]:
+    if not enabled:
+        return []
+    try:
+        return plot_writer(output_path, trials)
+    except Exception as exc:
+        warnings.append(f"Skipped ranking plot because {type(exc).__name__}: {exc}")
+        return []
 
 
 def _forecast_report(

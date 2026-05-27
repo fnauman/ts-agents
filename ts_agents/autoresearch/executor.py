@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import base64
 import binascii
+from dataclasses import replace
+from importlib.util import find_spec
 import os
 from pathlib import Path
-import shutil
 import tempfile
 from typing import Any, Dict, Optional, Tuple
 import uuid
@@ -40,6 +41,8 @@ _WORKFLOW_ARTIFACT_MAX_FILE_BYTES_ENV = "TS_AGENTS_WORKFLOW_ARTIFACT_MAX_FILE_BY
 _WORKFLOW_ARTIFACT_MAX_TOTAL_BYTES_ENV = "TS_AGENTS_WORKFLOW_ARTIFACT_MAX_TOTAL_BYTES"
 _DEFAULT_AUTORESEARCH_ARTIFACT_MAX_FILE_BYTES = 16 * 1024 * 1024
 _DEFAULT_AUTORESEARCH_ARTIFACT_MAX_TOTAL_BYTES = 64 * 1024 * 1024
+_STATSFORECAST_METHODS = {"theta", "ets", "arima"}
+_CLASSIFICATION_METHODS = {"knn", "minirocket", "rocket"}
 
 
 def _autoresearch_target_name(loop_name: str) -> str:
@@ -77,6 +80,67 @@ def _autoresearch_artifact_bundle_limits() -> Tuple[Optional[int], Optional[int]
             _DEFAULT_AUTORESEARCH_ARTIFACT_MAX_TOTAL_BYTES,
         ),
     )
+
+
+def _enforce_host_availability_for_backend(backend: SandboxMode) -> bool:
+    return backend in {SandboxMode.LOCAL, SandboxMode.SUBPROCESS}
+
+
+def _selected_models_for_availability(
+    loop_definition: Any, options: Dict[str, Any]
+) -> list[str]:
+    models = options.get("models")
+    if models is None:
+        return list(loop_definition.models)
+    return [
+        str(model).strip()
+        for model in models
+        if model is not None and str(model).strip()
+    ]
+
+
+def _autoresearch_availability(
+    loop_definition: Any, options: Dict[str, Any]
+) -> Dict[str, Any]:
+    models = _selected_models_for_availability(loop_definition, options)
+    missing: list[str] = []
+    if loop_definition.name == "forecast-daytona" and set(models).intersection(
+        _STATSFORECAST_METHODS
+    ):
+        if find_spec("statsforecast") is None:
+            missing.append("statsforecast")
+    if loop_definition.name == "classify-daytona" and set(models).intersection(
+        _CLASSIFICATION_METHODS
+    ):
+        if find_spec("aeon") is None:
+            missing.append("aeon")
+        if find_spec("sklearn") is None:
+            missing.append("scikit-learn")
+    if not missing:
+        return {"available": True, "missing": []}
+    extra = (
+        "forecasting"
+        if loop_definition.name == "forecast-daytona"
+        else "classification"
+    )
+    return {
+        "available": False,
+        "missing": missing,
+        "install_hint": f"Autoresearch loop {loop_definition.name!r} requires optional dependencies: "
+        f"{', '.join(missing)}. Install with: pip install 'ts-agents[{extra}]'",
+    }
+
+
+def _context_with_loop_environment(
+    context: ExecutionContext,
+    loop_definition: Any,
+    actual_backend: SandboxMode,
+) -> ExecutionContext:
+    if actual_backend != SandboxMode.DAYTONA or not loop_definition.required_extras:
+        return context
+    env = dict(context.environment or {})
+    env["TS_AGENTS_DAYTONA_INSTALL_EXTRAS"] = ",".join(loop_definition.required_extras)
+    return replace(context, environment=env)
 
 
 def _run_serialized_autoresearch(
@@ -212,7 +276,11 @@ class AutoresearchExecutor:
         )
         fallback_backend = context.fallback_backend or SandboxMode.LOCAL
 
-        if backend is None or not requested_status["available"] or not backend.is_available():
+        if (
+            backend is None
+            or not requested_status["available"]
+            or not backend.is_available()
+        ):
             if not context.allow_fallback:
                 return ExecutionResult(
                     status=ExecutionStatus.FAILED,
@@ -246,7 +314,11 @@ class AutoresearchExecutor:
                 context=context,
                 backend=backend,
             )
-            if backend is None or not fallback_status["available"] or not backend.is_available():
+            if (
+                backend is None
+                or not fallback_status["available"]
+                or not backend.is_available()
+            ):
                 return ExecutionResult(
                     status=ExecutionStatus.FAILED,
                     error=ToolError(
@@ -256,7 +328,8 @@ class AutoresearchExecutor:
                             f"'{fallback_backend.value}' is also unavailable."
                         ),
                         recoverable=True,
-                        hint=fallback_status.get("suggested_fix") or requested_status.get("suggested_fix"),
+                        hint=fallback_status.get("suggested_fix")
+                        or requested_status.get("suggested_fix"),
                         tool_name=loop_name,
                     ),
                     metadata={
@@ -271,28 +344,55 @@ class AutoresearchExecutor:
                 )
             actual_backend = fallback_backend
 
-        if actual_backend == SandboxMode.DAYTONA and loop_definition.required_extras:
-            env = dict(context.environment or {})
-            env.setdefault(
-                "TS_AGENTS_DAYTONA_INSTALL_EXTRAS",
-                ",".join(loop_definition.required_extras),
+        availability = _autoresearch_availability(loop_definition, dict(options or {}))
+        if _enforce_host_availability_for_backend(
+            actual_backend
+        ) and not availability.get("available", True):
+            return ExecutionResult(
+                status=ExecutionStatus.FAILED,
+                error=ToolError(
+                    code=ToolErrorCode.DEPENDENCY_ERROR,
+                    message=availability.get("install_hint")
+                    or f"Autoresearch loop '{loop_name}' is unavailable in the current environment.",
+                    recoverable=False,
+                    tool_name=loop_name,
+                    details={"availability": availability},
+                ),
+                metadata={
+                    "loop_name": loop_name,
+                    "backend_requested": requested_backend.value,
+                    "backend_actual": actual_backend.value,
+                    "fallback_allowed": context.allow_fallback,
+                    "fallback_backend": fallback_backend.value
+                    if context.allow_fallback
+                    else None,
+                    "fallback_used": actual_backend != requested_backend,
+                    "availability": availability,
+                },
             )
-            context.environment = env
+
+        execution_context = _context_with_loop_environment(
+            context, loop_definition, actual_backend
+        )
 
         requested_output_dir = dict(options or {}).get("output_dir")
         request_payload = {
             "loop_name": loop_name,
             "options": dict(options or {}),
-            "use_sandbox_artifact_dir": _use_staged_autoresearch_artifact_dir(actual_backend),
+            "use_sandbox_artifact_dir": _use_staged_autoresearch_artifact_dir(
+                actual_backend
+            ),
             "sandbox_artifact_dir": _sandbox_autoresearch_artifact_dir(actual_backend),
-            "bundle_sandbox_artifacts": _bundle_staged_autoresearch_artifacts(actual_backend),
+            "bundle_sandbox_artifacts": _bundle_staged_autoresearch_artifacts(
+                actual_backend
+            ),
         }
 
         result = backend.execute(
             tool_name=_autoresearch_target_name(loop_name),
             func=_run_serialized_autoresearch,
             params=request_payload,
-            context=context,
+            context=execution_context,
         )
         result.metadata = {
             **(result.metadata or {}),
@@ -301,12 +401,21 @@ class AutoresearchExecutor:
             "backend_actual": actual_backend.value,
             "fallback_used": actual_backend != requested_backend,
             "fallback_allowed": context.allow_fallback,
-            "fallback_backend": fallback_backend.value if context.allow_fallback else None,
+            "fallback_backend": fallback_backend.value
+            if context.allow_fallback
+            else None,
         }
 
-        if result.success and actual_backend == SandboxMode.DOCKER and requested_output_dir:
+        if (
+            result.success
+            and actual_backend == SandboxMode.DOCKER
+            and requested_output_dir
+        ):
             _materialize_existing_artifacts(result, requested_output_dir)
-        elif result.success and actual_backend in {SandboxMode.DAYTONA, SandboxMode.MODAL}:
+        elif result.success and actual_backend in {
+            SandboxMode.DAYTONA,
+            SandboxMode.MODAL,
+        }:
             _materialize_remote_autoresearch_output(result, requested_output_dir)
         return result
 
@@ -321,7 +430,7 @@ def _bundle_staged_autoresearch_artifacts(backend: SandboxMode) -> bool:
 
 def _sandbox_autoresearch_artifact_dir(backend: SandboxMode) -> Optional[str]:
     if backend == SandboxMode.DOCKER:
-        return "/io/artifacts"
+        return f"/io/artifacts/{uuid.uuid4().hex[:8]}"
     if backend == SandboxMode.DAYTONA:
         return f".ts_agents_io/artifacts/{uuid.uuid4().hex[:8]}"
     if backend == SandboxMode.MODAL:
@@ -338,7 +447,103 @@ def _append_payload_warning(payload: Dict[str, Any], warning: str) -> None:
         warnings.append(warning)
 
 
-def _materialize_existing_artifacts(result: ExecutionResult, requested_output_dir: str) -> None:
+def _path_contains_symlink(path: Path) -> bool:
+    current = Path(path.anchor) if path.is_absolute() else Path.cwd()
+    parts = path.parts[1:] if path.is_absolute() else path.parts
+    for part in parts:
+        current = current / part
+        if current.is_symlink():
+            return True
+        if not current.exists():
+            return False
+    return False
+
+
+def _valid_relative_artifact_path(relative_path: str) -> Optional[Path]:
+    candidate = Path(relative_path)
+    if candidate.is_absolute() or not candidate.parts:
+        return None
+    if any(part in {"", ".", ".."} for part in candidate.parts):
+        return None
+    return candidate
+
+
+def _safe_destination_for_relative_path(
+    destination_root: Path,
+    relative_path: str,
+    payload: Dict[str, Any],
+) -> Optional[Path]:
+    candidate = _valid_relative_artifact_path(relative_path)
+    if candidate is None:
+        _append_payload_warning(
+            payload,
+            f"Skipped restoring artifact '{relative_path}' because it is not a safe relative path.",
+        )
+        return None
+
+    parent = destination_root
+    for part in candidate.parts[:-1]:
+        parent = parent / part
+        if parent.is_symlink():
+            _append_payload_warning(
+                payload,
+                f"Skipped restoring artifact '{relative_path}' because a destination directory is a symlink.",
+            )
+            return None
+        try:
+            parent.mkdir(exist_ok=True)
+        except OSError as exc:
+            _append_payload_warning(
+                payload,
+                f"Skipped restoring artifact '{relative_path}' because its destination directory could not be created: {exc}",
+            )
+            return None
+        if not parent.is_dir() or parent.is_symlink():
+            _append_payload_warning(
+                payload,
+                f"Skipped restoring artifact '{relative_path}' because its destination directory is unsafe.",
+            )
+            return None
+
+    destination = parent / candidate.name
+    if destination.is_symlink():
+        _append_payload_warning(
+            payload,
+            f"Skipped restoring artifact '{relative_path}' because the destination is a symlink.",
+        )
+        return None
+    return destination
+
+
+def _relative_artifact_path(source: Path, source_root: Optional[Path]) -> str:
+    if source_root is not None:
+        try:
+            relative = source.resolve().relative_to(source_root)
+            safe = _valid_relative_artifact_path(relative.as_posix())
+            if safe is not None:
+                return safe.as_posix()
+        except ValueError:
+            pass
+    return source.name
+
+
+def _write_bytes_atomically(destination: Path, content: bytes) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        temp_path.write_bytes(content)
+        os.replace(temp_path, destination)
+    finally:
+        try:
+            if temp_path.exists():
+                temp_path.unlink()
+        except OSError:
+            pass
+
+
+def _materialize_existing_artifacts(
+    result: ExecutionResult, requested_output_dir: str
+) -> None:
     payload = result.result
     if not isinstance(payload, dict):
         return
@@ -346,8 +551,19 @@ def _materialize_existing_artifacts(result: ExecutionResult, requested_output_di
     if not isinstance(artifacts, list):
         return
 
-    destination_dir = Path(requested_output_dir).resolve()
+    destination_dir = Path(requested_output_dir).expanduser().absolute()
+    if _path_contains_symlink(destination_dir):
+        _append_payload_warning(
+            payload,
+            f"Skipped restoring Docker artifacts because output directory '{destination_dir}' contains a symlink component.",
+        )
+        return
     destination_dir.mkdir(parents=True, exist_ok=True)
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    source_root_raw = data.get("output_dir") if isinstance(data, dict) else None
+    source_root = (
+        Path(source_root_raw).resolve() if isinstance(source_root_raw, str) else None
+    )
     rewritten: dict[str, Path] = {}
     for artifact in artifacts:
         if not isinstance(artifact, dict):
@@ -356,11 +572,23 @@ def _materialize_existing_artifacts(result: ExecutionResult, requested_output_di
         if not isinstance(source_path, str):
             continue
         source = Path(source_path)
-        if not source.exists():
+        if not source.exists() or not source.is_file():
             continue
-        destination = destination_dir / source.name
-        if source.resolve() != destination.resolve():
-            shutil.copy2(source, destination)
+        relative_path = _relative_artifact_path(source, source_root)
+        destination = _safe_destination_for_relative_path(
+            destination_dir, relative_path, payload
+        )
+        if destination is None:
+            continue
+        if source.resolve() != destination.resolve(strict=False):
+            try:
+                _write_bytes_atomically(destination, source.read_bytes())
+            except OSError as exc:
+                _append_payload_warning(
+                    payload,
+                    f"Skipped restoring Docker artifact '{relative_path}' because it could not be written: {exc}",
+                )
+                continue
         rewritten[source_path] = destination
         artifact["path"] = str(destination)
 
@@ -380,10 +608,16 @@ def _materialize_remote_autoresearch_output(
         return
 
     destination_root = (
-        Path(requested_output_dir).resolve()
+        Path(requested_output_dir).expanduser().absolute()
         if requested_output_dir
-        else Path(tempfile.mkdtemp(prefix="ts_agents_autoresearch_output_")).resolve()
+        else Path(tempfile.mkdtemp(prefix="ts_agents_autoresearch_output_")).absolute()
     )
+    if _path_contains_symlink(destination_root):
+        _append_payload_warning(
+            payload,
+            f"Skipped restoring remote artifacts because output directory '{destination_root}' contains a symlink component.",
+        )
+        return
     destination_root.mkdir(parents=True, exist_ok=True)
     rewritten: dict[str, Path] = {}
     for staged_file in staged_files:
@@ -394,21 +628,10 @@ def _materialize_remote_autoresearch_output(
         source_path = staged_file.get("source_path")
         if not isinstance(relative_path, str) or not isinstance(content_base64, str):
             continue
-        candidate = Path(relative_path)
-        if candidate.is_absolute():
-            _append_payload_warning(
-                payload,
-                f"Skipped restoring remote artifact '{relative_path}' because absolute paths are not allowed.",
-            )
-            continue
-        destination = (destination_root / candidate).resolve(strict=False)
-        try:
-            destination.relative_to(destination_root)
-        except ValueError:
-            _append_payload_warning(
-                payload,
-                f"Skipped restoring remote artifact '{relative_path}' because it escapes the output directory.",
-            )
+        destination = _safe_destination_for_relative_path(
+            destination_root, relative_path, payload
+        )
+        if destination is None:
             continue
         try:
             content = base64.b64decode(content_base64.encode("ascii"))
@@ -418,8 +641,14 @@ def _materialize_remote_autoresearch_output(
                 f"Skipped restoring remote artifact '{relative_path}' because its payload was not valid base64.",
             )
             continue
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(content)
+        try:
+            _write_bytes_atomically(destination, content)
+        except OSError as exc:
+            _append_payload_warning(
+                payload,
+                f"Skipped restoring remote artifact '{relative_path}' because it could not be written: {exc}",
+            )
+            continue
         if isinstance(source_path, str):
             rewritten[source_path] = destination
 
@@ -428,7 +657,9 @@ def _materialize_remote_autoresearch_output(
     result.formatted_output = format_result(payload)
 
 
-def _rewrite_remote_artifact_refs(payload: Dict[str, Any], rewritten: dict[str, Path]) -> None:
+def _rewrite_remote_artifact_refs(
+    payload: Dict[str, Any], rewritten: dict[str, Path]
+) -> None:
     artifacts = payload.get("artifacts")
     if not isinstance(artifacts, list):
         return
