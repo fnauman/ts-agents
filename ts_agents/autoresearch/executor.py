@@ -59,7 +59,7 @@ def _parse_artifact_limit(var_names: tuple[str, ...], default: int) -> Optional[
         try:
             value = int(raw.strip())
         except ValueError:
-            return default
+            continue
         if value <= 0:
             return None
         return value

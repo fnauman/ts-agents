@@ -71,7 +71,7 @@ def run_autoresearch_loop(
     run_id = generate_workflow_run_id()
     budget_timeout = int(timeout_seconds or definition.budget.timeout_seconds)
     selected_models = _normalize_models(loop_name, models)
-    trial_limit = int(max_trials or definition.budget.max_trials)
+    trial_limit = int(definition.budget.max_trials if max_trials is None else max_trials)
     if trial_limit <= 0:
         raise ValueError("--max-trials must be a positive integer.")
 
@@ -170,6 +170,7 @@ def _run_forecast_daytona(**kwargs: Any) -> dict[str, Any]:
     warnings.extend(_forecast_ranking_warnings(trials))
     best_config = ranking[0] if ranking else {}
     status = "degraded" if warnings or any(row.get("status") == "failed" for row in trials) else "ok"
+    plot_artifacts = [] if skip_plots or dry_run else _write_forecast_plot(output_path, trials)
     artifacts = _write_autoresearch_artifacts(
         output_path=output_path,
         loop_name="forecast-daytona",
@@ -199,9 +200,8 @@ def _run_forecast_daytona(**kwargs: Any) -> dict[str, Any]:
         extra_json={"model_ranking": ranking},
         status=status,
         warnings=warnings,
+        extra_artifacts=plot_artifacts,
     )
-    if not skip_plots and not dry_run:
-        artifacts.extend(_write_forecast_plot(output_path, trials))
 
     return _result_payload(
         loop_name="forecast-daytona",
@@ -283,6 +283,7 @@ def _run_classify_daytona(**kwargs: Any) -> dict[str, Any]:
     ranking = _rank_classification_trials(trials)
     best_config = ranking[0] if ranking else {}
     status = "degraded" if warnings or any(row.get("status") == "failed" for row in trials) else "ok"
+    plot_artifacts = [] if skip_plots or dry_run else _write_classification_plot(output_path, trials)
     artifacts = list(dataset_artifacts)
     artifacts.extend(
         _write_autoresearch_artifacts(
@@ -317,10 +318,9 @@ def _run_classify_daytona(**kwargs: Any) -> dict[str, Any]:
             extra_json={"model_ranking": ranking},
             status=status,
             warnings=warnings,
+            extra_artifacts=plot_artifacts,
         )
     )
-    if not skip_plots and not dry_run:
-        artifacts.extend(_write_classification_plot(output_path, trials))
 
     return _result_payload(
         loop_name="classify-daytona",
@@ -770,7 +770,15 @@ def _rank_forecast_trials(trials: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "n_rolling_trials": len(rolling_rows),
             }
         )
-    return sorted(ranking, key=lambda row: (row["smape"], row["mae"], row["rmse"]))
+    return sorted(
+        ranking,
+        key=lambda row: (
+            _sort_low_metric(row.get("smape")),
+            _sort_low_metric(row.get("mae")),
+            _sort_low_metric(row.get("rmse")),
+            str(row.get("model", "")),
+        ),
+    )
 
 
 def _forecast_ranking_warnings(trials: list[dict[str, Any]]) -> list[str]:
@@ -815,9 +823,24 @@ def _rank_classification_trials(trials: list[dict[str, Any]]) -> list[dict[str, 
     )
 
 
-def _mean_metric(rows: list[dict[str, Any]], key: str) -> float:
-    values = [float(row[key]) for row in rows if isinstance(row.get(key), (int, float))]
-    return float(np.mean(values)) if values else float("nan")
+def _sort_low_metric(value: Any) -> float:
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        number = float(value)
+        if np.isfinite(number):
+            return number
+    return float("inf")
+
+
+def _mean_metric(rows: list[dict[str, Any]], key: str) -> Optional[float]:
+    values = []
+    for row in rows:
+        value = row.get(key)
+        if not isinstance(value, (int, float, np.integer, np.floating)):
+            continue
+        number = float(value)
+        if np.isfinite(number):
+            values.append(number)
+    return float(np.mean(values)) if values else None
 
 
 def _write_autoresearch_artifacts(
@@ -834,6 +857,7 @@ def _write_autoresearch_artifacts(
     extra_json: Optional[dict[str, Any]] = None,
     status: str = "ok",
     warnings: Optional[list[str]] = None,
+    extra_artifacts: Optional[list[ArtifactRef]] = None,
 ) -> list[ArtifactRef]:
     trials_df = pd.DataFrame(trials)
     artifacts = [
@@ -844,6 +868,7 @@ def _write_autoresearch_artifacts(
     ]
     if extra_json:
         artifacts.append(_write_json(output_path / "summary.json", extra_json, "Autoresearch loop summary."))
+    artifacts.extend(extra_artifacts or [])
     manifest = _manifest_payload(
         loop_name=loop_name,
         run_id=run_id,
@@ -1033,15 +1058,18 @@ def _trial_timeout(seconds: Optional[float]):
 
     previous_handler = signal.getsignal(signal.SIGALRM)
     previous_timer = signal.getitimer(signal.ITIMER_REAL)
+    armed_at = time.monotonic()
     signal.signal(signal.SIGALRM, _raise_timeout)
     signal.setitimer(signal.ITIMER_REAL, float(seconds))
     try:
         yield
     finally:
+        elapsed = time.monotonic() - armed_at
         signal.setitimer(signal.ITIMER_REAL, 0.0)
         signal.signal(signal.SIGALRM, previous_handler)
         if previous_timer[0] > 0:
-            signal.setitimer(signal.ITIMER_REAL, previous_timer[0], previous_timer[1])
+            remaining = max(0.001, previous_timer[0] - elapsed)
+            signal.setitimer(signal.ITIMER_REAL, remaining, previous_timer[1])
 
 
 def _utc_now() -> str:

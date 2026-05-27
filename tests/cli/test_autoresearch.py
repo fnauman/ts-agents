@@ -32,6 +32,30 @@ def test_autoresearch_show_json_returns_budget(capsys):
     assert "seasonal_naive" in result["models"]
 
 
+def test_autoresearch_run_rejects_zero_max_trials(capsys, tmp_path):
+    code = run(
+        [
+            "autoresearch",
+            "run",
+            "forecast-daytona",
+            "--profile",
+            "smoke",
+            "--models",
+            "seasonal_naive",
+            "--max-trials",
+            "0",
+            "--output-dir",
+            str(tmp_path / "forecast-zero"),
+            "--json",
+        ]
+    )
+
+    assert code == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert "--max-trials must be a positive integer" in payload["error"]["message"]
+
+
 def test_autoresearch_run_forecast_smoke_writes_artifacts(capsys, tmp_path):
     output_dir = tmp_path / "forecast"
     code = run(
@@ -71,6 +95,34 @@ def test_autoresearch_run_forecast_smoke_writes_artifacts(capsys, tmp_path):
     assert manifest["best_config"]["model"] == "seasonal_naive"
     assert manifest["best_config"]["n_trials"] == 2
     assert manifest["options"]["max_trials"] == 2
+
+
+def test_autoresearch_manifest_includes_plot_artifact(capsys, tmp_path):
+    output_dir = tmp_path / "forecast-plot"
+    code = run(
+        [
+            "autoresearch",
+            "run",
+            "forecast-daytona",
+            "--profile",
+            "smoke",
+            "--models",
+            "seasonal_naive",
+            "--max-trials",
+            "1",
+            "--output-dir",
+            str(output_dir),
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert (output_dir / "ranking.png").exists()
+    manifest = json.loads((output_dir / "run_manifest.json").read_text())
+    manifest_paths = {artifact["path"] for artifact in manifest["artifacts"]}
+    assert str(output_dir / "ranking.png") in manifest_paths
 
 
 def test_autoresearch_run_classification_dry_run(capsys, tmp_path):
@@ -208,3 +260,42 @@ def test_autoresearch_serialized_runner_honors_artifact_dir_env(monkeypatch, tmp
 
     assert result["data"]["output_dir"] == str(artifact_root / "forecast-daytona")
     assert (artifact_root / "forecast-daytona" / "run_manifest.json").exists()
+
+
+def test_autoresearch_artifact_limit_falls_back_after_invalid_specific_env(monkeypatch):
+    from ts_agents.autoresearch.executor import _autoresearch_artifact_bundle_limits
+
+    monkeypatch.setenv("TS_AGENTS_AUTORESEARCH_ARTIFACT_MAX_FILE_BYTES", "not-an-int")
+    monkeypatch.setenv("TS_AGENTS_WORKFLOW_ARTIFACT_MAX_FILE_BYTES", "123")
+    monkeypatch.setenv("TS_AGENTS_AUTORESEARCH_ARTIFACT_MAX_TOTAL_BYTES", "also-bad")
+    monkeypatch.setenv("TS_AGENTS_WORKFLOW_ARTIFACT_MAX_TOTAL_BYTES", "456")
+
+    assert _autoresearch_artifact_bundle_limits() == (123, 456)
+
+
+def test_forecast_ranking_puts_nan_metrics_last():
+    from ts_agents.autoresearch.runner import _rank_forecast_trials
+
+    ranking = _rank_forecast_trials(
+        [
+            {
+                "status": "ok",
+                "model": "bad",
+                "phase": "holdout",
+                "smape": float("nan"),
+                "mae": float("nan"),
+                "rmse": float("nan"),
+            },
+            {
+                "status": "ok",
+                "model": "good",
+                "phase": "holdout",
+                "smape": 1.0,
+                "mae": 1.0,
+                "rmse": 1.0,
+            },
+        ]
+    )
+
+    assert [row["model"] for row in ranking] == ["good", "bad"]
+    assert ranking[1]["smape"] is None

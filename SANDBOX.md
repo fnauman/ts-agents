@@ -97,7 +97,7 @@ export DAYTONA_API_KEY=your_daytona_api_key
 # Optional snapshot override:
 # export TS_AGENTS_DAYTONA_SNAPSHOT=daytonaio/sandbox:0.4.3
 # Optional branch override for testing an unmerged branch:
-# export TS_AGENTS_DAYTONA_REPO_BRANCH=issue-90-autoresearch-loops
+# export TS_AGENTS_DAYTONA_REPO_BRANCH=my-feature-branch
 # Optional: stream bootstrap/runner logs to stderr (default=true)
 # export TS_AGENTS_DAYTONA_STREAM=true
 # Optional: persist streamed Daytona logs to a local file
@@ -109,10 +109,6 @@ export TS_AGENTS_SANDBOX_MODE=daytona
 `https://github.com/fnauman/ts-agents` into `workspace/ts-agents` and running
 `pip install -e` there before tool execution. The default snapshot is
 `daytonaio/sandbox:0.4.3`; override with `TS_AGENTS_DAYTONA_SNAPSHOT` if needed.
-Before this branch is merged to the repository default branch, set
-`TS_AGENTS_DAYTONA_REPO_BRANCH=issue-90-autoresearch-loops` so Daytona clones
-this implementation rather than `main`.
-
 Then run any `ts-agents tool run ... --sandbox daytona`, `ts-agents workflow run ... --sandbox daytona`, or `ts-agents autoresearch run ... --sandbox daytona` command.
 
 Daytona-oriented autoresearch smoke examples (`--max-trials` counts model/evaluation-spec rows):
