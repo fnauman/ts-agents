@@ -44,6 +44,7 @@ uv run ts-agents tool run describe_series --input-json '{"series":[1,2,3,4]}' --
 | `DAYTONA_API_URL` | Daytona API endpoint override | Daytona default |
 | `DAYTONA_TARGET` | Daytona target/region override | Daytona org default |
 | `TS_AGENTS_DAYTONA_SNAPSHOT` | Daytona snapshot override | `daytonaio/sandbox:0.4.3` |
+| `TS_AGENTS_DAYTONA_REPO_BRANCH` | Git branch cloned during Daytona bootstrap | default branch |
 | `TS_AGENTS_DAYTONA_TIMEOUT` | Timeout for Daytona commands | `300` |
 | `TS_AGENTS_DAYTONA_STREAM` | Stream Daytona bootstrap/runner logs to stderr | `true` |
 | `TS_AGENTS_DAYTONA_LOG_FILE` | Append Daytona streamed logs to file | _(none)_ |
@@ -55,6 +56,8 @@ uv run ts-agents tool run describe_series --input-json '{"series":[1,2,3,4]}' --
 | `TS_AGENTS_MODAL_STREAM` | Stream `modal app logs` while remote call runs | `true` |
 | `TS_AGENTS_MODAL_LOG_FILE` | Append Modal stream logs to file | _(none)_ |
 | `TS_AGENTS_MODAL_LOG_TIMESTAMPS` | Include timestamps in Modal log stream | `false` |
+| `TS_AGENTS_AUTORESEARCH_ARTIFACT_MAX_FILE_BYTES` | Max single autoresearch artifact staged back from remote sandboxes; non-positive disables | `16777216` |
+| `TS_AGENTS_AUTORESEARCH_ARTIFACT_MAX_TOTAL_BYTES` | Max total autoresearch artifact bytes staged back from remote sandboxes; non-positive disables | `67108864` |
 
 ## Docker sandbox
 
@@ -93,6 +96,8 @@ export DAYTONA_API_KEY=your_daytona_api_key
 # export DAYTONA_TARGET=...
 # Optional snapshot override:
 # export TS_AGENTS_DAYTONA_SNAPSHOT=daytonaio/sandbox:0.4.3
+# Optional branch override for testing an unmerged branch:
+# export TS_AGENTS_DAYTONA_REPO_BRANCH=issue-90-autoresearch-loops
 # Optional: stream bootstrap/runner logs to stderr (default=true)
 # export TS_AGENTS_DAYTONA_STREAM=true
 # Optional: persist streamed Daytona logs to a local file
@@ -104,8 +109,28 @@ export TS_AGENTS_SANDBOX_MODE=daytona
 `https://github.com/fnauman/ts-agents` into `workspace/ts-agents` and running
 `pip install -e` there before tool execution. The default snapshot is
 `daytonaio/sandbox:0.4.3`; override with `TS_AGENTS_DAYTONA_SNAPSHOT` if needed.
+Before this branch is merged to the repository default branch, set
+`TS_AGENTS_DAYTONA_REPO_BRANCH=issue-90-autoresearch-loops` so Daytona clones
+this implementation rather than `main`.
 
-Then run any `ts-agents tool run ... --sandbox daytona` command.
+Then run any `ts-agents tool run ... --sandbox daytona`, `ts-agents workflow run ... --sandbox daytona`, or `ts-agents autoresearch run ... --sandbox daytona` command.
+
+Daytona-oriented autoresearch smoke examples (`--max-trials` counts model/evaluation-spec rows):
+
+```bash
+uv run ts-agents autoresearch run forecast-daytona \
+  --profile smoke \
+  --models seasonal_naive \
+  --sandbox daytona \
+  --json
+
+uv run ts-agents autoresearch run classify-daytona \
+  --profile smoke \
+  --dataset synthetic \
+  --models knn \
+  --sandbox daytona \
+  --json
+```
 
 ## Modal
 
