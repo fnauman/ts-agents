@@ -500,6 +500,8 @@ def _command_label(args: argparse.Namespace) -> str:
         return f"sandbox {args.sandbox_command}"
     if args.command == "workflow":
         return f"workflow {args.workflow_command}"
+    if args.command == "autoresearch":
+        return f"autoresearch {args.autoresearch_command}"
     if args.command == "run":
         return "tool run"
     return args.command
@@ -517,6 +519,9 @@ def _command_target_name(args: argparse.Namespace, exc: Optional[Exception] = No
     if args.command == "workflow":
         if args.workflow_command in {"run", "show"}:
             return getattr(args, "workflow_name", None)
+    if args.command == "autoresearch":
+        if args.autoresearch_command in {"run", "show"}:
+            return getattr(args, "loop_name", None)
     if args.command == "skills":
         if args.skills_command == "show":
             return getattr(args, "skill", None)
@@ -559,6 +564,20 @@ def _command_input_payload(args: argparse.Namespace) -> Dict[str, Any]:
     if args.command == "skills":
         return {k: v for k, v in vars(args).items() if k not in {"json", "save", "extract_images"}}
     if args.command == "workflow":
+        return {
+            k: v
+            for k, v in vars(args).items()
+            if k
+            not in {
+                "json",
+                "save",
+                "extract_images",
+                "_ts_input_payload",
+                "_ts_execution_result",
+                "_ts_raw_argv",
+            }
+        }
+    if args.command == "autoresearch":
         return {
             k: v
             for k, v in vars(args).items()
@@ -900,7 +919,7 @@ def _infer_command_label_from_argv(argv: List[str]) -> str:
         return "ts-agents"
 
     command = argv[0]
-    if command in {"tool", "workflow", "data", "sandbox", "skills", "agent", "demo", "capabilities"}:
+    if command in {"tool", "workflow", "autoresearch", "data", "sandbox", "skills", "agent", "demo", "capabilities"}:
         if len(argv) > 1 and not argv[1].startswith("-"):
             return f"{command} {argv[1]}"
     return command
@@ -1542,6 +1561,70 @@ def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
     _add_output_args(activity_parser)
 
 
+
+def _add_autoresearch_subcommands(subparsers: argparse._SubParsersAction) -> None:
+    autoresearch_parser = subparsers.add_parser(
+        "autoresearch",
+        help="Dataset/model/metric research loops for constrained and GPU runs",
+    )
+    autoresearch_sub = autoresearch_parser.add_subparsers(dest="autoresearch_command", required=True)
+
+    list_parser = autoresearch_sub.add_parser("list", help="List built-in autoresearch loops")
+    _add_output_args(list_parser)
+
+    show_parser = autoresearch_sub.add_parser("show", help="Show metadata for one autoresearch loop")
+    show_parser.add_argument("loop_name", type=str, help="Autoresearch loop name")
+    _add_output_args(show_parser)
+
+    run_parser = autoresearch_sub.add_parser(
+        "run",
+        help="Run an autoresearch loop",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  ts-agents autoresearch list --json\n"
+            "  ts-agents autoresearch show forecast-daytona --json\n"
+            "  ts-agents autoresearch run forecast-daytona --models seasonal_naive --profile smoke --json\n"
+            "  ts-agents autoresearch run classify-daytona --dataset synthetic --profile smoke --json\n"
+            "  ts-agents autoresearch run foundation-gpu-plan --json"
+        ),
+    )
+    run_parser.add_argument("loop_name", type=str, help="Autoresearch loop name")
+    run_parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Output directory. If omitted, a run-scoped directory is created under outputs/autoresearch/<loop>.",
+    )
+    run_parser.add_argument(
+        "--profile",
+        choices=["smoke", "default", "full"],
+        default="default",
+        help="Run profile controlling default trial count and dataset slice.",
+    )
+    run_parser.add_argument(
+        "--models",
+        type=_split_csv,
+        default=None,
+        help="Comma-separated model/classifier list. Defaults depend on the loop.",
+    )
+    run_parser.add_argument("--max-trials", type=int, default=None, help="Maximum model/evaluation-spec rows to execute.")
+    run_parser.add_argument("--timeout-seconds", type=int, default=None, help="Loop timeout budget in seconds.")
+    run_parser.add_argument("--memory-mb", type=int, default=None, help="Sandbox memory budget in MiB; local execution records but does not enforce it.")
+    run_parser.add_argument("--disk-mb", type=int, default=None, help="Sandbox disk budget in MiB; local execution records but does not enforce it.")
+    run_parser.add_argument(
+        "--dataset",
+        choices=["auto", "wisdm_subset", "synthetic"],
+        default="auto",
+        help="Classification dataset selector; forecasting/foundation loops ignore this option.",
+    )
+    run_parser.add_argument("--seed", type=int, default=1337, help="Random seed for generated data and splits.")
+    run_parser.add_argument("--dry-run", action="store_true", help="Write the run plan/artifacts without training models.")
+    run_parser.add_argument("--skip-plots", action="store_true", help="Skip optional ranking plots.")
+    run_parser.add_argument("--overwrite", action="store_true", help="Replace an existing non-empty output directory.")
+    _add_sandbox_execution_args(run_parser)
+    _add_output_args(run_parser)
+
 def _resolve_runtime_path(path: str) -> Path:
     from ts_agents.runtime_paths import resolve_existing_path
 
@@ -1805,6 +1888,7 @@ def build_parser(*, exit_on_error: bool = True) -> argparse.ArgumentParser:
 
     _add_capabilities_subcommand(subparsers)
     _add_workflow_subcommands(subparsers)
+    _add_autoresearch_subcommands(subparsers)
     _add_tool_subcommands(subparsers)
     _add_sandbox_subcommands(subparsers)
     _add_skills_subcommands(subparsers)
@@ -1823,6 +1907,165 @@ def _resolve_use_test_data(args: argparse.Namespace) -> Optional[bool]:
         return False
     return None
 
+
+
+def _autoresearch_summary_dict(loop: Any) -> Dict[str, Any]:
+    from ts_agents.autoresearch import loop_to_dict
+
+    details = loop_to_dict(loop)
+    return {
+        "name": details["name"],
+        "task": details["task"],
+        "description": details["description"],
+        "dataset": details["dataset"],
+        "models": details["models"],
+        "primary_metric": details["primary_metric"],
+        "budget": details["budget"],
+    }
+
+
+def _default_autoresearch_output_dir(loop_name: str) -> str:
+    from ts_agents.workflows.common import generate_workflow_run_id
+
+    return str((Path("outputs") / "autoresearch" / loop_name / generate_workflow_run_id()).resolve())
+
+
+def _artifact_path(artifact: Any) -> Optional[str]:
+    if isinstance(artifact, dict):
+        path = artifact.get("path")
+    else:
+        path = getattr(artifact, "path", None)
+    return str(path) if path is not None else None
+
+
+def _synchronize_autoresearch_manifest(result: Any, execution: Any) -> None:
+    if not isinstance(result, dict):
+        return
+    data = result.get("data")
+    if not isinstance(data, dict):
+        return
+
+    execution_metadata = _workflow_execution_metadata(execution)
+    if execution_metadata:
+        data["execution"] = dict(execution_metadata)
+
+    manifest_path_raw = data.get("manifest_path")
+    if not isinstance(manifest_path_raw, str):
+        return
+    manifest_path = Path(manifest_path_raw)
+    if not manifest_path.exists():
+        return
+    try:
+        manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return
+    if not isinstance(manifest_payload, dict):
+        return
+
+    manifest_payload["status"] = result.get("status", manifest_payload.get("status"))
+    manifest_payload["summary"] = result.get("summary", manifest_payload.get("summary"))
+    manifest_payload["output_dir"] = data.get("output_dir", manifest_payload.get("output_dir"))
+    manifest_payload["manifest_path"] = str(manifest_path)
+    manifest_payload["warnings"] = to_jsonable(result.get("warnings") or [])
+    manifest_payload["best_config"] = to_jsonable(data.get("best_config") or {})
+    if isinstance(result.get("artifacts"), list):
+        manifest_payload["artifacts"] = to_jsonable(
+            [artifact for artifact in result["artifacts"] if _artifact_path(artifact) != str(manifest_path)]
+        )
+    if execution_metadata:
+        manifest_payload["execution"] = dict(execution_metadata)
+    try:
+        write_output(render_output(to_jsonable(manifest_payload), json_output=True), str(manifest_path))
+    except OSError:
+        return
+
+
+def _handle_autoresearch_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]:
+    from ts_agents.autoresearch import get_loop, list_loops, loop_to_dict
+    from ts_agents.autoresearch.executor import execute_autoresearch
+    from ts_agents.tools.executor import ExecutionContext
+
+    if args.autoresearch_command == "list":
+        loops = list_loops()
+        result = {"loops": [_autoresearch_summary_dict(loop) for loop in loops]}
+        lines = ["Autoresearch loops:"]
+        for loop in loops:
+            lines.append(f"- {loop.name} [{loop.task}]: {loop.description}")
+        return result, "\n".join(lines)
+
+    if args.autoresearch_command == "show":
+        try:
+            loop = get_loop(args.loop_name)
+        except KeyError as exc:
+            raise ValueError(str(exc)) from exc
+        result = loop_to_dict(loop)
+        lines = [
+            f"Autoresearch loop: {result['name']}",
+            f"Task: {result['task']}",
+            f"Dataset: {result['dataset']}",
+            f"Models: {', '.join(result['models'])}",
+            f"Primary metric: {result['primary_metric']}",
+            f"Budget: {result['budget']['vcpu']} vCPU, {result['budget']['memory_mb']} MiB RAM, {result['budget']['disk_mb']} MiB disk",
+        ]
+        return result, "\n".join(lines)
+
+    if args.autoresearch_command != "run":
+        raise ValueError(f"Unknown autoresearch command: {args.autoresearch_command}")
+
+    try:
+        loop = get_loop(args.loop_name)
+    except KeyError as exc:
+        raise ValueError(str(exc)) from exc
+
+    allow_fallback = getattr(args, "allow_fallback", False)
+    fallback_backend = getattr(args, "fallback_backend", None) or "local"
+    if getattr(args, "fallback_backend", None) and not allow_fallback:
+        raise ValueError(
+            "--fallback-backend requires --allow-fallback to take effect. "
+            "Pass --allow-fallback to opt in to backend fallback."
+        )
+
+    output_dir = args.output_dir or _default_autoresearch_output_dir(args.loop_name)
+    options = {
+        "output_dir": output_dir,
+        "profile": args.profile,
+        "models": args.models,
+        "max_trials": args.max_trials,
+        "timeout_seconds": args.timeout_seconds,
+        "overwrite": args.overwrite,
+        "dry_run": args.dry_run,
+        "skip_plots": args.skip_plots,
+        "seed": args.seed,
+        "dataset": args.dataset,
+    }
+    args._ts_input_payload = {
+        "loop": args.loop_name,
+        "definition": _autoresearch_summary_dict(loop),
+        "options": options,
+        "sandbox": args.sandbox or os.environ.get("TS_AGENTS_SANDBOX_MODE") or "local",
+        "allow_fallback": allow_fallback,
+        "fallback_backend": fallback_backend,
+    }
+
+    sandbox_mode = args.sandbox or os.environ.get("TS_AGENTS_SANDBOX_MODE")
+    context = ExecutionContext(
+        sandbox_mode=sandbox_mode,
+        timeout_seconds=args.timeout_seconds if args.timeout_seconds is not None else loop.budget.timeout_seconds,
+        memory_mb=args.memory_mb if args.memory_mb is not None else loop.budget.memory_mb,
+        disk_mb=args.disk_mb if args.disk_mb is not None else loop.budget.disk_mb,
+        allow_network=getattr(args, "allow_network", False),
+        allow_fallback=allow_fallback,
+        fallback_backend=fallback_backend,
+    )
+    execution = execute_autoresearch(args.loop_name, options, context=context)
+    args._ts_execution_result = execution
+    if not execution.success:
+        if execution.error:
+            raise execution.error
+        raise RuntimeError(execution.formatted_output or "Autoresearch execution failed")
+
+    _synchronize_autoresearch_manifest(execution.result, execution)
+    return execution.result, execution.formatted_output or None
 
 def _handle_data_command(args: argparse.Namespace) -> Tuple[Any, str]:
     from ts_agents import data_access
@@ -2053,6 +2296,11 @@ def _handle_capabilities_command(args: argparse.Namespace) -> Tuple[Any, str]:
                 "ts-agents workflow show <workflow> --json",
                 "ts-agents workflow run <workflow> ... --json",
             ],
+            "autoresearch": [
+                "ts-agents autoresearch list --json",
+                "ts-agents autoresearch show <loop> --json",
+                "ts-agents autoresearch run <loop> ... --json",
+            ],
             "tool_discovery": [
                 "ts-agents tool search <query> --json",
                 "ts-agents tool show <tool> --json",
@@ -2072,6 +2320,7 @@ def _handle_capabilities_command(args: argparse.Namespace) -> Tuple[Any, str]:
         "recommended_entrypoints": [
             "Start with `workflow list --json` for public workflows.",
             "Use `workflow show --json` before `workflow run` to inspect availability, options, artifacts, and source contracts.",
+            "Use `autoresearch show --json` before `autoresearch run` to inspect loop datasets, models, metrics, and budgets.",
             "Use `tool search --json` and `tool show --json` for lower-level execution.",
             "Always inspect top-level quality fields plus `result.status`, `warnings`, and workflow `quality_flags` rather than relying on exit code 0 alone.",
         ],
@@ -2502,7 +2751,8 @@ def _handle_agent_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]
 
     callback = None
     if args.approval == "auto":
-        callback = lambda tool_name: True
+        def callback(_tool_name: str) -> bool:
+            return True
     elif args.approval == "prompt":
         callback = _approval_prompt
 
@@ -2983,7 +3233,6 @@ def _run_demo_window_classification_scripted(args: argparse.Namespace) -> Dict[s
 
 
 def _run_demo_window_classification_llm(args: argparse.Namespace) -> Dict[str, Any]:
-    import json
     import subprocess
     from pathlib import Path
 
@@ -3322,6 +3571,8 @@ def run(argv: Optional[List[str]] = None) -> int:
             result, text = _handle_skills_command(args)
         elif args.command == "workflow":
             result, text = _handle_workflow_command(args)
+        elif args.command == "autoresearch":
+            result, text = _handle_autoresearch_command(args)
         elif args.command == "demo":
             result, text = _handle_demo_command(args)
         else:

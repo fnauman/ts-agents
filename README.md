@@ -23,6 +23,12 @@ It ships with three first-class workflows:
 - `forecast-series` (baseline comparison + forecast/report artifacts)
 - `activity-recognition` (labeled-stream window-size selection + evaluation)
 
+It also includes autoresearch loops for repeatable dataset/model/metric
+experiments:
+- `forecast-daytona` (M4 mini forecasting baselines under constrained resources)
+- `classify-daytona` (windowed activity classification under constrained resources)
+- `foundation-gpu-plan` (plan-only Chronos/MOMENT GPU fine-tuning recipes)
+
 Legacy compatibility aliases for `ts-agents demo ...` remain available for one
 release cycle and emit deprecation warnings.
 
@@ -69,7 +75,28 @@ ARIMA/ETS/Theta forecasting and `activity-recognition`. From a source
 checkout, plain `uv sync` matches the base CLI-first install; use
 `uv sync --extra recommended` for the same recommended workflow stack.
 
-### 2. Use the low-level CLI on bundled or custom data
+### 2. Run autoresearch loops
+
+Use autoresearch loops when you want a bounded comparison plan with datasets,
+models, metrics, budgets, and artifacts chosen up front. The Daytona-oriented
+statistical/classical loops are benchmark-style searches: `--max-trials` counts
+model/evaluation-spec rows. They default to vendored or generated datasets and
+fit 4 vCPU / 8 GiB RAM / 10 GiB disk sandboxes.
+
+```bash
+ts-agents autoresearch list --json
+ts-agents autoresearch show forecast-daytona --json
+ts-agents autoresearch run forecast-daytona --profile smoke --models seasonal_naive --json
+ts-agents autoresearch run classify-daytona --profile smoke --dataset synthetic --models knn --json
+ts-agents autoresearch run foundation-gpu-plan --json
+```
+
+Pass `--sandbox daytona` to run an autoresearch loop through the Daytona
+backend after configuring `DAYTONA_API_KEY`; use `--dry-run` to materialize the
+trial plan without fitting models. `foundation-gpu-plan` is intentionally
+plan-only and reports no trained-model metrics.
+
+### 3. Use the low-level CLI on bundled or custom data
 
 Use the low-level tool registry when you want direct access to individual
 analysis functions.
@@ -82,7 +109,7 @@ ts-agents sandbox list
 ts-agents skills show forecasting
 ```
 
-### 3. Launch the UI or prepare a hosted demo
+### 4. Launch the UI or prepare a hosted demo
 
 Use the Gradio app for interactive exploration, or the hosted entrypoint for a
 manual/public demo deployment. This is optional and secondary to the CLI.
@@ -177,7 +204,7 @@ ts-agents workflow run inspect-series \
 ```
 
 `sandbox doctor` probes readiness (including Docker image presence). Docker,
-Daytona, and Modal all stage workflow artifacts back to the host output
+Daytona, and Modal all stage workflow and autoresearch artifacts back to the host output
 directory so `result.artifacts[*].path` and `result.data.output_dir` are
 always host-accessible. Fallback is explicit — the executor refuses to silently
 switch backends unless `--allow-fallback` is passed.

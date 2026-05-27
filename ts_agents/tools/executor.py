@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable, Dict, List, Optional, Type, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from ts_agents.cli.output import dump_json
 
@@ -1318,6 +1318,10 @@ class DaytonaBackend(ExecutorBackend):
 
             daytona = Daytona()
             daytona_snapshot = os.environ.get("TS_AGENTS_DAYTONA_SNAPSHOT", context.daytona_snapshot or "").strip() or None
+            daytona_repo_branch = os.environ.get(
+                "TS_AGENTS_DAYTONA_REPO_BRANCH",
+                context.daytona_repo_branch or "",
+            ).strip() or None
             create_params = CreateSandboxFromSnapshotParams(
                 language=context.daytona_language or "python",
                 name=context.daytona_name,
@@ -1335,14 +1339,14 @@ class DaytonaBackend(ExecutorBackend):
                         sandbox.git.clone(
                             context.daytona_repo_url,
                             path=repo_path,
-                            branch=context.daytona_repo_branch,
+                            branch=daytona_repo_branch,
                             username=context.daytona_git_username,
                             password=context.daytona_git_password,
                         )
                     else:
                         branch_part = ""
-                        if context.daytona_repo_branch:
-                            branch_part = f"--branch {shlex.quote(context.daytona_repo_branch)} --single-branch "
+                        if daytona_repo_branch:
+                            branch_part = f"--branch {shlex.quote(daytona_repo_branch)} --single-branch "
                         clone_cmd = (
                             f"rm -rf {shlex.quote(repo_path)} && "
                             f"git clone {branch_part}{shlex.quote(context.daytona_repo_url)} {shlex.quote(repo_path)}"
@@ -1373,14 +1377,25 @@ class DaytonaBackend(ExecutorBackend):
                             )
 
                     if context.daytona_install_editable:
-                        install_cmd = (
-                            "bash -lc "
-                            + shlex.quote(
-                                "python -m venv .ts-agents-venv && "
-                                ". .ts-agents-venv/bin/activate && "
-                                "python -m pip install -e ."
+                        install_extras = (
+                            (context.environment or {}).get("TS_AGENTS_DAYTONA_INSTALL_EXTRAS")
+                            or os.environ.get("TS_AGENTS_DAYTONA_INSTALL_EXTRAS")
+                            or ""
+                        ).strip()
+                        install_target = "."
+                        if install_extras:
+                            cleaned_extras = ",".join(
+                                part.strip()
+                                for part in install_extras.split(",")
+                                if part.strip()
                             )
+                            install_target = f".[{cleaned_extras}]" if cleaned_extras else "."
+                        install_inner = (
+                            "python -m venv .ts-agents-venv && "
+                            ". .ts-agents-venv/bin/activate && "
+                            f"python -m pip install -e {shlex.quote(install_target)}"
                         )
+                        install_cmd = "bash -lc " + shlex.quote(install_inner)
                         install_exit, install_output = self._run_command(
                             sandbox,
                             install_cmd,
