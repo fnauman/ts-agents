@@ -341,6 +341,39 @@ class TestOrchestratorConfiguration:
         assert "version" in status["install_hint"]
         assert status["fallback_reason"] == "cannot import name FilesystemMiddleware"
 
+    def test_create_deep_agent_reports_installed_deepagents_type_error(self, monkeypatch):
+        import ts_agents.agents.deep.orchestrator as orchestrator
+
+        captured = {}
+
+        def raise_type_error(**_kwargs):
+            raise TypeError(
+                "FilesystemMiddleware() takes 0 positional arguments but 1 was given"
+            )
+
+        def fake_langchain(**kwargs):
+            captured.update(kwargs)
+            return {"ok": True}
+
+        monkeypatch.setattr(orchestrator, "get_bundle", lambda name: [])
+        monkeypatch.setattr(orchestrator, "wrap_tools_for_deepagent", lambda bundle: [])
+        monkeypatch.setattr(orchestrator, "get_all_subagents", lambda: [])
+        monkeypatch.setattr(orchestrator, "_create_with_deepagents", raise_type_error)
+        monkeypatch.setattr(orchestrator, "_create_with_langchain", fake_langchain)
+        monkeypatch.setattr(orchestrator, "find_spec", lambda _name: object())
+
+        agent = orchestrator.create_deep_agent(
+            model_name="gpt-5-mini",
+            enable_approval=False,
+            enable_logging=False,
+        )
+
+        assert agent == {"ok": True}
+        status = captured["fallback_status"]
+        assert status["missing_dependencies"] == []
+        assert "middleware API compatibility" in status["install_hint"]
+        assert "FilesystemMiddleware" in status["fallback_reason"]
+
 
 class TestUtilityFunctions:
     """Tests for deep agent utility functions."""

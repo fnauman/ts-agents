@@ -308,13 +308,14 @@ def create_deep_agent(
             workspace_dir=workspace_dir,
             enable_logging=enable_logging,
         )
-    except ImportError as exc:
+    except Exception as exc:
         fallback_status = get_deep_agent_runtime_status()
         fallback_status["fallback_reason"] = str(exc)
         if not fallback_status.get("missing_dependencies"):
             fallback_status["install_hint"] = DEEPAGENTS_COMPATIBILITY_HINT
         logger.warning(
-            "deepagents runtime unavailable, falling back to LangChain-based implementation: %s",
+            "deepagents runtime unavailable or incompatible, "
+            "falling back to LangChain-based implementation: %s",
             exc,
         )
         return _create_with_langchain(
