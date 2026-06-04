@@ -484,6 +484,7 @@ def _run_foundation_gpu_plan(**kwargs: Any) -> dict[str, Any]:
         },
     )
 
+
 def _run_foundation_chronos_smoke(**kwargs: Any) -> dict[str, Any]:
     output_path: Path = kwargs["output_path"]
     run_id: str = kwargs["run_id"]
@@ -747,6 +748,7 @@ def _forecast_trial_specs(
         )
     return specs
 
+
 def _rolling_origins(train_length: int, horizon: int, n_origins: int) -> list[int]:
     if n_origins <= 0 or train_length < horizon * 2:
         return []
@@ -859,6 +861,7 @@ def _forecast_with_method(method: str, series: np.ndarray, *, horizon: int, seas
         func_map[method](series, horizon=horizon, season_length=season_length).forecast,
         dtype=float,
     )
+
 
 def _forecast_with_chronos(model_id: str, series: np.ndarray, *, horizon: int) -> np.ndarray:
     try:

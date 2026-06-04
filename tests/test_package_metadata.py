@@ -49,4 +49,6 @@ def test_project_metadata_defines_dependency_extras():
     assert not any(dep.startswith("statsforecast") for dep in dependencies)
     assert not any(dep.startswith("chronos-forecasting") for dep in dependencies)
     assert any(dep.startswith("chronos-forecasting") for dep in extras["foundation"])
+    assert any(dep.startswith("torch") for dep in extras["foundation"])
+    assert set(extras["foundation"]).issubset(set(extras["all"]))
     assert project["scripts"]["ts-agents-ui"] == "ts_agents.ui.entrypoint:main"

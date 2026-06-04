@@ -3725,6 +3725,7 @@ agents = [
 ]
 all = [
     { name = "aeon" },
+    { name = "chronos-forecasting" },
     { name = "gradio" },
     { name = "langchain" },
     { name = "langchain-core" },
@@ -3735,6 +3736,7 @@ all = [
     { name = "statsforecast" },
     { name = "statsmodels" },
     { name = "stumpy" },
+    { name = "torch" },
 ]
 classification = [
     { name = "aeon" },
@@ -3787,6 +3789,7 @@ requires-dist = [
     { name = "aeon", marker = "extra == 'all'", specifier = ">=1.3.0" },
     { name = "aeon", marker = "extra == 'classification'", specifier = ">=1.3.0" },
     { name = "aeon", marker = "extra == 'recommended'", specifier = ">=1.3.0" },
+    { name = "chronos-forecasting", marker = "extra == 'all'", specifier = ">=2.0,<3" },
     { name = "chronos-forecasting", marker = "extra == 'foundation'", specifier = ">=2.0,<3" },
     { name = "gradio", marker = "extra == 'all'", specifier = ">=6.0" },
     { name = "gradio", marker = "extra == 'recommended'", specifier = ">=6.0" },
@@ -3824,6 +3827,7 @@ requires-dist = [
     { name = "statsmodels", marker = "extra == 'recommended'", specifier = ">=0.14.2" },
     { name = "stumpy", marker = "extra == 'all'", specifier = ">=1.13.0" },
     { name = "stumpy", marker = "extra == 'patterns'", specifier = ">=1.13.0" },
+    { name = "torch", marker = "extra == 'all'", specifier = ">=2.0" },
     { name = "torch", marker = "extra == 'foundation'", specifier = ">=2.0" },
 ]
 provides-extras = ["viz", "ui", "agents", "decomposition", "forecasting", "patterns", "classification", "foundation", "recommended", "all"]
