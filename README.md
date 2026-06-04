@@ -9,6 +9,10 @@ on time-series data. It gives agent runtimes a stable, machine-readable surface
 so a model can bootstrap, discover what's available, execute real work, and
 produce inspectable artifacts — without hand-written glue code per project.
 
+It is not intended to be a broad time-series foundation-model hub.
+Foundation-model support is kept scoped to executable smoke paths and
+planning artifacts that exercise the same CLI/workflow contract.
+
 It is built around:
 - a stable CLI contract for bootstrap, discovery, and execution (`ts-agents capabilities`, `ts-agents workflow ...`, `ts-agents tool ...`)
 - strict JSON envelopes with `schema_version`, typed exit codes, top-level `quality_status`/`degraded`/`requires_review`, and nested workflow `result.status`/`result.data.quality_flags`
@@ -27,6 +31,7 @@ It also includes autoresearch loops for repeatable dataset/model/metric
 experiments:
 - `forecast-daytona` (M4 mini forecasting baselines under constrained resources)
 - `classify-daytona` (windowed activity classification under constrained resources)
+- `foundation-chronos-smoke` (optional Chronos zero-shot smoke run on M4 mini)
 - `foundation-gpu-plan` (plan-only Chronos/MOMENT GPU fine-tuning recipes)
 
 Legacy compatibility aliases for `ts-agents demo ...` remain available for one
@@ -88,13 +93,17 @@ ts-agents autoresearch list --json
 ts-agents autoresearch show forecast-daytona --json
 ts-agents autoresearch run forecast-daytona --profile smoke --models seasonal_naive --json
 ts-agents autoresearch run classify-daytona --profile smoke --dataset synthetic --models knn --json
+ts-agents autoresearch run foundation-chronos-smoke --dry-run --json
 ts-agents autoresearch run foundation-gpu-plan --json
 ```
 
 Pass `--sandbox daytona` to run an autoresearch loop through the Daytona
 backend after configuring `DAYTONA_API_KEY`; use `--dry-run` to materialize the
-trial plan without fitting models. `foundation-gpu-plan` is intentionally
-plan-only and reports no trained-model metrics.
+trial plan without fitting models. `foundation-chronos-smoke` is the only
+executable foundation-model loop; real runs require `ts-agents[foundation]`
+and lazy-load `chronos`/`torch`, while dry-run mode needs no heavy TSFM
+dependencies. `foundation-gpu-plan` is intentionally plan-only and reports no
+trained-model metrics.
 
 ### 3. Use the low-level CLI on bundled or custom data
 
@@ -232,6 +241,7 @@ Use `ts-agents` when you want:
 - a stable CLI contract that works the same across workflows, agents, and automation
 - artifact-first outputs (plots, JSON, markdown/report assets) instead of chat-only responses
 - reusable skills and tool bundles that encode workflow guidance
+- scoped foundation-model smoke paths without taking on model-hub ownership
 - optional sandbox backends for isolation, deployment, and heavier workloads
 - swappable front ends: CLI, Gradio UI, or custom agent orchestration
 
@@ -239,7 +249,8 @@ Use `ts-agents` when you want:
 
 - **CLI as the stable contract**: `ts-agents` is the primary interface for automation and reproducibility. Autonomous agents plan against `capabilities`, `workflow show`, and `tool show` instead of hardcoded knowledge.
 - **Strict machine envelopes**: `--json` output is versioned, strict, and typed — with status, quality flags, and exit codes — so agents can branch on failure mode rather than parsing prose.
-- **Framework adapters, not framework lock-in**: LangChain/deep-agent wrappers are convenience layers over the same tool registry.
+- **Framework adapters, not framework lock-in**: LangChain/deep-agent wrappers are convenience layers over the same tool registry. If `deepagents` is unavailable, deep mode reports a LangChain fallback instead of hiding the runtime downgrade.
+- **Scoped TSFM interop, not a model hub**: external projects such as TimeCopilot are comparator and interoperability targets; `ts-agents` keeps foundation-model execution to narrow smoke paths plus reproducible artifacts.
 - **Artifacts over chat**: tools produce inspectable files (plots, JSON, reports), and agents return summaries plus paths.
 - **Run lifecycle as first-class metadata**: every workflow run gets a run ID, a `run_manifest.json`, and non-clobbering defaults — so long, multi-turn sessions remain reproducible and resumable.
 - **Swappable front-ends**: CLI agents, custom agents, and Gradio are interfaces around the same core tools.

@@ -15,6 +15,26 @@ from ts_agents.cli.main import (
 )
 
 
+def test_agent_run_simple_json_uses_agent_run_payload(monkeypatch, capsys):
+    import ts_agents.agents.simple.agent as simple_agent
+
+    monkeypatch.setattr(simple_agent, "run_single_query", lambda **_kwargs: "simple ok")
+
+    code = run(["agent", "run", "--type", "simple", "hello", "--json"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["quality_status"] == "ok"
+    result = payload["result"]
+    assert result["kind"] == "agent_run"
+    assert result["status"] == "ok"
+    assert result["response"] == "simple ok"
+    assert result["data"]["response"] == "simple ok"
+    assert result["data"]["quality_flags"] == []
+    assert result["warnings"] == []
+
+
 def test_parse_list_ints_from_csv():
     assert _parse_param_value("1,2,3", "list[int]") == [1, 2, 3]
 

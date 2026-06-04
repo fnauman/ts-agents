@@ -1,7 +1,10 @@
+import importlib
 import json
 
 from ts_agents.cli.main import run
 from ts_agents.tools.executor import ExecutionResult, ExecutionStatus, ToolError, ToolErrorCode
+
+cli_main = importlib.import_module("ts_agents.cli.main")
 
 
 def test_sandbox_list_json_returns_envelope(capsys):
@@ -34,6 +37,20 @@ def test_capabilities_json_returns_bootstrap_surface(capsys):
     assert "current_profile" in install_profile
     assert install_profile["recommended_install"] == "ts-agents[recommended]"
     assert "forecasting" in install_profile["extras"]
+    assert "foundation" in install_profile["profiles"]["all"]["extras"]
+
+
+def test_detect_install_profile_requires_foundation_for_all(monkeypatch):
+    def fake_module_is_available(module_name):
+        return module_name not in {"chronos", "torch"}
+
+    monkeypatch.setattr(cli_main, "_module_is_available", fake_module_is_available)
+
+    install_profile = cli_main._detect_install_profile()
+
+    assert install_profile["current_profile"] == "recommended"
+    assert install_profile["extras"]["foundation"]["available"] is False
+    assert "foundation" in install_profile["profiles"]["all"]["extras"]
 
 
 def test_capabilities_text_reports_install_profile_on_its_own_line(capsys):

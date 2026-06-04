@@ -11,7 +11,8 @@ import signal
 import stat
 import threading
 import time
-from typing import Any, Iterable, Optional
+from functools import lru_cache
+from typing import Any, Callable, Iterable, Optional
 
 import numpy as np
 import pandas as pd
@@ -29,7 +30,14 @@ from ts_agents.workflows.common import (
     output_dir_has_files,
 )
 
-from .registry import get_loop, loop_to_dict
+from .registry import (
+    FOUNDATION_CHRONOS_INSTALL_HINT,
+    FOUNDATION_CHRONOS_LOOP_NAME,
+    FOUNDATION_CHRONOS_MODEL,
+    FOUNDATION_CHRONOS_TASK,
+    get_loop,
+    loop_to_dict,
+)
 
 
 DEFAULT_FORECAST_SERIES = ["M4", "M10", "M100", "M1000", "M1002"]
@@ -103,6 +111,8 @@ def run_autoresearch_loop(
         return _run_classify_daytona(**common)
     if loop_name == "foundation-gpu-plan":
         return _run_foundation_gpu_plan(**common)
+    if loop_name == FOUNDATION_CHRONOS_LOOP_NAME:
+        return _run_foundation_chronos_smoke(**common)
     raise ValueError(
         f"Autoresearch loop '{loop_name}' is registered but has no runner."
     )
@@ -474,6 +484,157 @@ def _run_foundation_gpu_plan(**kwargs: Any) -> dict[str, Any]:
         },
     )
 
+
+def _run_foundation_chronos_smoke(**kwargs: Any) -> dict[str, Any]:
+    output_path: Path = kwargs["output_path"]
+    run_id: str = kwargs["run_id"]
+    definition = kwargs["definition"]
+    started_at: str = kwargs["started_at"]
+    profile: str = kwargs["profile"]
+    models: list[str] = kwargs["models"]
+    max_trials: int = kwargs["max_trials"]
+    timeout_seconds: int = kwargs["timeout_seconds"]
+    dry_run: bool = kwargs["dry_run"]
+    skip_plots: bool = kwargs["skip_plots"]
+
+    capabilities = definition.capabilities
+    dataset_path = _resolve_runtime_file(definition.dataset)
+    panel = _load_m4_panel(dataset_path)
+    series_ids = [
+        str(series_id)
+        for series_id in capabilities.get("default_series", [])
+        if str(series_id) in panel
+    ]
+    horizon = int(capabilities["horizon"])
+    trial_specs = _forecast_trial_specs(
+        panel=panel,
+        series_ids=series_ids,
+        horizon=horizon,
+        rolling_origins=0,
+    )
+    trial_pairs = _forecast_trial_pairs(trial_specs, models)[:max_trials]
+
+    warnings: list[str] = []
+    trials: list[dict[str, Any]] = []
+    start = time.monotonic()
+    for trial_index, (spec, model) in enumerate(trial_pairs, start=1):
+        if _budget_exhausted(start, timeout_seconds):
+            warnings.append(
+                f"Stopped before Chronos trial {trial_index}; timeout budget exhausted."
+            )
+            break
+        if dry_run:
+            trials.append(
+                _planned_trial_row(
+                    run_id, trial_index, FOUNDATION_CHRONOS_TASK, spec, model
+                )
+            )
+            continue
+        trial_timeout = _trial_timeout_for_next(
+            start,
+            timeout_seconds,
+            max_trials=max_trials,
+            completed_trials=len(trials),
+        )
+        with _trial_timeout(trial_timeout):
+            trials.append(
+                _evaluate_forecast_trial_with_runner(
+                    run_id=run_id,
+                    trial_index=trial_index,
+                    spec=spec,
+                    model=model,
+                    task=FOUNDATION_CHRONOS_TASK,
+                    trial_id_prefix="foundation-chronos",
+                    forecast_runner=lambda selected_model, train, *, horizon: _forecast_with_chronos(
+                        selected_model,
+                        train,
+                        horizon=horizon,
+                    ),
+                    horizon=horizon,
+                    extra_fields={
+                        "foundation_family": "Chronos",
+                        "execution_mode": "zero_shot",
+                    },
+                )
+            )
+
+    ranking = _rank_forecast_trials(trials)
+    warnings.extend(_forecast_ranking_warnings(trials))
+    best_config = ranking[0] if ranking else {}
+    status = (
+        "degraded"
+        if warnings or any(row.get("status") == "failed" for row in trials)
+        else "ok"
+    )
+    plot_artifacts = _write_optional_plot(
+        _write_forecast_plot,
+        output_path,
+        trials,
+        warnings,
+        enabled=not skip_plots and not dry_run,
+    )
+    options = {
+        "profile": profile,
+        "models": models,
+        "max_trials": max_trials,
+        "timeout_seconds": timeout_seconds,
+        "dry_run": dry_run,
+        "horizon": horizon,
+        "dataset": str(dataset_path),
+        "model_scope": capabilities["model_scope"],
+        "model_scope_label": capabilities["model_scope_label"],
+        "install_hint": capabilities["install_hint"],
+        "external_benchmark_context": capabilities["external_benchmark_context"],
+    }
+    artifacts = _write_autoresearch_artifacts(
+        output_path=output_path,
+        loop_name=FOUNDATION_CHRONOS_LOOP_NAME,
+        run_id=run_id,
+        started_at=started_at,
+        definition=loop_to_dict(definition),
+        options=options,
+        trials=trials,
+        best_config=best_config,
+        report=_foundation_chronos_report(
+            dataset_path=dataset_path,
+            models=models,
+            trials=trials,
+            ranking=ranking,
+            dry_run=dry_run,
+            capabilities=capabilities,
+        ),
+        extra_json={
+            "model_ranking": ranking,
+            "external_benchmark_context": capabilities["external_benchmark_context"],
+        },
+        status=status,
+        warnings=warnings,
+        extra_artifacts=plot_artifacts,
+    )
+
+    return _result_payload(
+        loop_name=FOUNDATION_CHRONOS_LOOP_NAME,
+        run_id=run_id,
+        status=status,
+        summary=(
+            "Foundation Chronos smoke loop completed with "
+            f"{len(trials)} zero-shot forecast rows."
+        ),
+        output_path=output_path,
+        trials=trials,
+        best_config=best_config,
+        artifacts=artifacts,
+        warnings=warnings,
+        started_at=started_at,
+        data_extra={
+            "ranking": ranking,
+            "dataset": str(dataset_path),
+            "model_scope": capabilities["model_scope"],
+            "model_scope_label": capabilities["model_scope_label"],
+            "external_benchmark_context": capabilities["external_benchmark_context"],
+        },
+    )
+
 def _normalize_models(loop_name: str, models: Optional[Iterable[str]]) -> list[str]:
     if models is None:
         if loop_name == "forecast-daytona":
@@ -482,6 +643,8 @@ def _normalize_models(loop_name: str, models: Optional[Iterable[str]]) -> list[s
             return list(DEFAULT_CLASSIFIERS)
         if loop_name == "foundation-gpu-plan":
             return list(DEFAULT_FOUNDATION_MODELS)
+        if loop_name == FOUNDATION_CHRONOS_LOOP_NAME:
+            return [FOUNDATION_CHRONOS_MODEL]
         return []
     normalized = []
     for model in models:
@@ -496,6 +659,7 @@ def _normalize_models(loop_name: str, models: Optional[Iterable[str]]) -> list[s
         "forecast-daytona": set(DEFAULT_FORECAST_METHODS),
         "classify-daytona": set(DEFAULT_CLASSIFIERS),
         "foundation-gpu-plan": set(DEFAULT_FOUNDATION_MODELS),
+        FOUNDATION_CHRONOS_LOOP_NAME: {FOUNDATION_CHRONOS_MODEL},
     }.get(loop_name)
     if valid is not None:
         invalid = sorted(set(normalized).difference(valid))
@@ -614,25 +778,57 @@ def _evaluate_forecast_trial(
     horizon: int,
     season_length: int,
 ) -> dict[str, Any]:
+    return _evaluate_forecast_trial_with_runner(
+        run_id=run_id,
+        trial_index=trial_index,
+        spec=spec,
+        model=model,
+        task="forecasting",
+        trial_id_prefix="forecast",
+        forecast_runner=lambda selected_model, train, *, horizon: _forecast_with_method(
+            selected_model,
+            train,
+            horizon=horizon,
+            season_length=season_length,
+        ),
+        horizon=horizon,
+    )
+
+
+def _evaluate_forecast_trial_with_runner(
+    *,
+    run_id: str,
+    trial_index: int,
+    spec: dict[str, Any],
+    model: str,
+    task: str,
+    trial_id_prefix: str,
+    forecast_runner: Callable[..., np.ndarray],
+    horizon: int,
+    extra_fields: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     actual = np.asarray(spec["actual"], dtype=float)
     started = time.monotonic()
+    safe_model_name = model.split("/")[-1] if "/" in model else model
     row = {
         "run_id": run_id,
-        "trial_id": f"forecast-{trial_index:03d}-{model}",
+        "trial_id": f"{trial_id_prefix}-{trial_index:03d}-{safe_model_name}",
         "trial_index": trial_index,
-        "task": "forecasting",
+        "task": task,
         "dataset": "m4_monthly_mini",
         "series_id": spec["series_id"],
         "phase": spec["phase"],
         "origin": spec["origin"],
         "model": model,
     }
+    row.update(extra_fields or {})
     try:
-        forecast = _forecast_with_method(
+        if actual.size == 0:
+            raise ValueError("Forecast trial has no actual holdout values to score.")
+        forecast = forecast_runner(
             model,
             np.asarray(spec["train"], dtype=float),
             horizon=horizon,
-            season_length=season_length,
         )[: len(actual)]
         metrics = _forecast_metrics(actual, forecast)
         row.update(metrics)
@@ -664,6 +860,50 @@ def _forecast_with_method(method: str, series: np.ndarray, *, horizon: int, seas
     return np.asarray(
         func_map[method](series, horizon=horizon, season_length=season_length).forecast,
         dtype=float,
+    )
+
+
+def _forecast_with_chronos(model_id: str, series: np.ndarray, *, horizon: int) -> np.ndarray:
+    try:
+        import torch
+    except ModuleNotFoundError as exc:
+        raise ImportError(
+            "foundation-chronos-smoke requires chronos-forecasting and torch. "
+            f"Install with: {FOUNDATION_CHRONOS_INSTALL_HINT}"
+        ) from exc
+
+    pipeline = _chronos_pipeline(model_id)
+    context = torch.tensor(series, dtype=torch.float32)
+    with torch.no_grad():
+        prediction = pipeline.predict(context, prediction_length=horizon)
+    values = prediction.detach().cpu().numpy() if hasattr(prediction, "detach") else np.asarray(prediction)
+    if values.ndim == 3:
+        values = values[0]
+    if values.ndim == 2:
+        values = np.median(values, axis=0)
+    values = np.asarray(values, dtype=float).reshape(-1)
+    if values.size < horizon:
+        raise ValueError(
+            f"Chronos prediction returned {values.size} values for horizon {horizon}."
+        )
+    return values[:horizon]
+
+
+@lru_cache(maxsize=4)
+def _chronos_pipeline(model_id: str) -> Any:
+    try:
+        import torch
+        from chronos import ChronosPipeline
+    except ModuleNotFoundError as exc:
+        raise ImportError(
+            "foundation-chronos-smoke requires chronos-forecasting and torch. "
+            f"Install with: {FOUNDATION_CHRONOS_INSTALL_HINT}"
+        ) from exc
+
+    return ChronosPipeline.from_pretrained(
+        model_id,
+        device_map="cpu",
+        torch_dtype=torch.float32,
     )
 
 
@@ -1205,6 +1445,36 @@ def _forecast_report(
         lines.extend(_markdown_table(ranking, ["model", "smape", "mae", "rmse", "n_trials"]))
     else:
         lines.append("No completed model trials were available for ranking.")
+    lines.extend(["", "## Trial Count", "", f"- rows: `{len(trials)}`", ""])
+    return "\n".join(lines)
+
+
+def _foundation_chronos_report(
+    *,
+    dataset_path: Path,
+    models: list[str],
+    trials: list[dict[str, Any]],
+    ranking: list[dict[str, Any]],
+    dry_run: bool,
+    capabilities: dict[str, Any],
+) -> str:
+    lines = [
+        "# Foundation Chronos Smoke",
+        "",
+        f"- dataset: `{dataset_path}`",
+        f"- models: `{', '.join(models)}`",
+        f"- mode: `{'dry-run' if dry_run else 'executed'}`",
+        f"- scope: {capabilities['model_scope_label']}, not a model hub",
+        "- primary metric: `sMAPE` (lower is better)",
+        f"- external context: `{capabilities['external_benchmark_context']}`",
+        "",
+        "## Ranking",
+        "",
+    ]
+    if ranking:
+        lines.extend(_markdown_table(ranking, ["model", "smape", "mae", "rmse", "n_trials"]))
+    else:
+        lines.append("No completed Chronos trials were available for ranking.")
     lines.extend(["", "## Trial Count", "", f"- rows: `{len(trials)}`", ""])
     return "\n".join(lines)
 

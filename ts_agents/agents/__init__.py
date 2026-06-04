@@ -10,6 +10,7 @@ _LAZY_EXPORTS = {
     "create_deep_agent": ("deep", "create_deep_agent"),
     "DeepAgentChat": ("deep", "DeepAgentChat"),
     "list_subagents": ("deep", "list_subagents"),
+    "get_deep_agent_runtime_status": ("deep", "get_deep_agent_runtime_status"),
     "AgentBenchmark": ("benchmarks", "AgentBenchmark"),
     "BenchmarkResult": ("benchmarks", "BenchmarkResult"),
 }
@@ -29,6 +30,7 @@ __all__ = [
     "create_deep_agent",
     "DeepAgentChat",
     "list_subagents",
+    "get_deep_agent_runtime_status",
 
     # Benchmarks
     "AgentBenchmark",

@@ -61,6 +61,23 @@ Results from the current snapshot:
 - `structured_discovery` reaches full task success, but it still leaves artifact completeness at `0.00` because raw tool calls do not write the workflow bundle.
 - `skills_workflows` reaches full task success and full artifact completeness, which is the main proof that the repo's structured surface improves agent outcomes.
 
+## External Context
+
+The checked-in internal benchmark is contract evidence, not an accuracy leaderboard.
+External forecasting claims should be compared against benchmark surfaces such as
+GIFT-Eval before being presented as model-performance evidence. The repo now tracks
+that context in:
+
+- `benchmarks/external/gift_eval_snapshot.json`
+- `benchmarks/external/summary.md`
+
+TimeCopilot is treated as a comparator and interoperability target because it has a
+broad foundation-model forecasting surface. That is intentionally different from
+`ts-agents`, whose durable surface is CLI contracts, workflow manifests, artifact
+bundles, sandboxes, and reusable skills. The scoped `foundation-chronos-smoke`
+loop exists to validate one executable TSFM route through the same artifact
+contract, not to start a model hub.
+
 ## Why this matters
 
 This benchmark closes the loop on the refactor:

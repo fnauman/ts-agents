@@ -14,6 +14,7 @@ _LAZY_EXPORTS = {
     "run_with_approval": ("orchestrator", "run_with_approval"),
     "get_all_subagents": ("orchestrator", "get_all_subagents"),
     "create_interrupt_config": ("orchestrator", "create_interrupt_config"),
+    "get_deep_agent_runtime_status": ("orchestrator", "get_deep_agent_runtime_status"),
     "DECOMPOSITION_SUBAGENT": ("subagents", "DECOMPOSITION_SUBAGENT"),
     "FORECASTING_SUBAGENT": ("subagents", "FORECASTING_SUBAGENT"),
     "PATTERNS_SUBAGENT": ("subagents", "PATTERNS_SUBAGENT"),
@@ -42,6 +43,7 @@ __all__ = [
     "run_with_approval",
     "get_all_subagents",
     "create_interrupt_config",
+    "get_deep_agent_runtime_status",
 
     # Subagent definitions
     "DECOMPOSITION_SUBAGENT",

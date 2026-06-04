@@ -35,6 +35,18 @@ class AutoresearchLoopDefinition:
     capabilities: dict[str, Any] = field(default_factory=dict)
 
 
+FOUNDATION_CHRONOS_LOOP_NAME = "foundation-chronos-smoke"
+FOUNDATION_CHRONOS_MODEL = "amazon/chronos-t5-tiny"
+FOUNDATION_CHRONOS_TASK = "foundation-model-smoke"
+FOUNDATION_CHRONOS_HORIZON = 18
+FOUNDATION_CHRONOS_SEASON_LENGTH = 12
+FOUNDATION_CHRONOS_DEFAULT_SERIES = ["M4"]
+FOUNDATION_CHRONOS_MODEL_SCOPE = "single_chronos_zero_shot_smoke"
+FOUNDATION_CHRONOS_MODEL_SCOPE_LABEL = "single Chronos-family zero-shot smoke path"
+FOUNDATION_CHRONOS_INSTALL_HINT = "pip install 'ts-agents[foundation]'"
+FOUNDATION_CHRONOS_EXTERNAL_CONTEXT = "benchmarks/external/gift_eval_snapshot.json"
+
+
 _DAYTONA_BUDGET = AutoresearchBudget(
     timeout_seconds=20 * 60,
     vcpu=4,
@@ -102,6 +114,45 @@ _LOOPS: dict[str, AutoresearchLoopDefinition] = {
             "max_trials_semantics": "number of model/evaluation-spec rows",
             "search_style": "benchmark sweep with per-classifier window-size selection",
             "ranking_rule": "highest balanced accuracy from window-selection CV; smaller selected window and more retained windows are tie-breakers",
+        },
+    ),
+    FOUNDATION_CHRONOS_LOOP_NAME: AutoresearchLoopDefinition(
+        name=FOUNDATION_CHRONOS_LOOP_NAME,
+        task=FOUNDATION_CHRONOS_TASK,
+        description=(
+            "Run a scoped Chronos zero-shot forecasting smoke check on the vendored "
+            "M4 Monthly mini panel. This is an executable TSFM path, not a model hub."
+        ),
+        dataset="data/m4_monthly_mini.csv",
+        models=[FOUNDATION_CHRONOS_MODEL],
+        primary_metric="smape",
+        secondary_metrics=["mae", "rmse", "elapsed_seconds"],
+        budget=AutoresearchBudget(
+            timeout_seconds=30 * 60,
+            vcpu=4,
+            memory_mb=16 * 1024,
+            disk_mb=20 * 1024,
+            max_trials=1,
+            notes=[
+                "Executes only a single Chronos-family zero-shot path by default.",
+                "Dry runs do not require heavy foundation-model dependencies.",
+                "Executable runs lazy-import chronos-forecasting and torch.",
+            ],
+        ),
+        required_extras=["foundation"],
+        capabilities={
+            "status": "executable_optional_dependency",
+            "generates_metrics": True,
+            "model_scope": FOUNDATION_CHRONOS_MODEL_SCOPE,
+            "model_scope_label": FOUNDATION_CHRONOS_MODEL_SCOPE_LABEL,
+            "install_hint": FOUNDATION_CHRONOS_INSTALL_HINT,
+            "horizon": FOUNDATION_CHRONOS_HORIZON,
+            "season_length": FOUNDATION_CHRONOS_SEASON_LENGTH,
+            "default_series": FOUNDATION_CHRONOS_DEFAULT_SERIES,
+            "max_trials_semantics": "number of Chronos zero-shot forecast rows",
+            "search_style": "smoke check",
+            "ranking_rule": "lowest sMAPE on the M4 mini holdout; MAE and RMSE are tie-breakers",
+            "external_benchmark_context": FOUNDATION_CHRONOS_EXTERNAL_CONTEXT,
         },
     ),
     "foundation-gpu-plan": AutoresearchLoopDefinition(
