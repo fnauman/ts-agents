@@ -29,7 +29,7 @@ from ts_agents.tools.executor import (
 )
 from ts_agents.tools.results import format_result, serialize_result
 
-from .registry import get_loop
+from .registry import FOUNDATION_CHRONOS_INSTALL_HINT, FOUNDATION_CHRONOS_LOOP_NAME, get_loop
 from .runner import run_autoresearch_loop
 
 _AUTORESEARCH_PREFIX = "autoresearch:"
@@ -116,18 +116,35 @@ def _autoresearch_availability(
             missing.append("aeon")
         if find_spec("sklearn") is None:
             missing.append("scikit-learn")
+    if loop_definition.name == FOUNDATION_CHRONOS_LOOP_NAME and not options.get("dry_run"):
+        if find_spec("chronos") is None:
+            missing.append("chronos-forecasting")
+        if find_spec("torch") is None:
+            missing.append("torch")
     if not missing:
         return {"available": True, "missing": []}
-    extra = (
-        "forecasting"
-        if loop_definition.name == "forecast-daytona"
-        else "classification"
-    )
+    if loop_definition.name == FOUNDATION_CHRONOS_LOOP_NAME:
+        install_hint = (
+            f"Autoresearch loop {loop_definition.name!r} requires optional "
+            "foundation-model dependencies: "
+            f"{', '.join(missing)}. Install with: "
+            f"{FOUNDATION_CHRONOS_INSTALL_HINT}"
+        )
+    else:
+        extra = (
+            "forecasting"
+            if loop_definition.name == "forecast-daytona"
+            else "classification"
+        )
+        install_hint = (
+            f"Autoresearch loop {loop_definition.name!r} requires optional "
+            f"dependencies: {', '.join(missing)}. Install with: "
+            f"pip install 'ts-agents[{extra}]'"
+        )
     return {
         "available": False,
         "missing": missing,
-        "install_hint": f"Autoresearch loop {loop_definition.name!r} requires optional dependencies: "
-        f"{', '.join(missing)}. Install with: pip install 'ts-agents[{extra}]'",
+        "install_hint": install_hint,
     }
 
 

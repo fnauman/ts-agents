@@ -31,3 +31,15 @@ And three tasks:
 - inspect a short univariate series
 - compare forecasting baselines
 - run labeled-stream activity recognition
+
+## External benchmark context
+
+`benchmarks/external/` records external comparator context. It is not a
+ts-agents leaderboard submission. The current snapshot tracks GIFT-Eval
+and TimeCopilot as forecasting benchmark/interop references so roadmap
+decisions can be grounded without turning this repo into a model hub.
+
+Files:
+
+- `benchmarks/external/gift_eval_snapshot.json` — machine-readable external context
+- `benchmarks/external/summary.md` — compact reading guide

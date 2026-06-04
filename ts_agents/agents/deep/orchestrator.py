@@ -23,12 +23,13 @@ import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
+from importlib.util import find_spec
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional
 
 from ...config import get_openai_model, get_results_cache_dir
-from ...tools.registry import ToolRegistry, ComputationalCost, _COST_ORDER
-from ...tools.bundles import get_bundle, get_subagent_bundle
+from ...tools.registry import ToolRegistry, ComputationalCost
+from ...tools.bundles import get_bundle
 from ...tools.wrappers import wrap_tools_for_deepagent
 
 from .subagents import (
@@ -46,6 +47,15 @@ from .subagents.turbulence import get_turbulence_tools
 
 
 logger = logging.getLogger(__name__)
+
+DEEPAGENTS_INSTALL_HINT = (
+    "Install deepagents to enable real sub-agent delegation: "
+    "pip install deepagents"
+)
+DEEPAGENTS_COMPATIBILITY_HINT = (
+    "deepagents is installed but could not initialize; check the installed "
+    "deepagents version and middleware API compatibility."
+)
 
 
 # =============================================================================
@@ -157,6 +167,30 @@ def create_interrupt_config(enable_approval: bool = True) -> Optional[Dict[str, 
         return None
 
     return {tool_name: True for tool_name in expensive_tools}
+
+
+def _module_available(module_name: str) -> bool:
+    try:
+        return find_spec(module_name) is not None
+    except (ModuleNotFoundError, ValueError):
+        return False
+
+
+def get_deep_agent_runtime_status() -> Dict[str, Any]:
+    """Return the runtime mode that a requested deep agent will use."""
+    missing_dependencies = []
+    if not _module_available("deepagents"):
+        missing_dependencies.append("deepagents")
+
+    fallback_used = bool(missing_dependencies)
+    return {
+        "requested_agent_type": "deep",
+        "agent_type": "deep_fallback" if fallback_used else "deep",
+        "runtime": "langchain" if fallback_used else "deepagents",
+        "fallback_used": fallback_used,
+        "missing_dependencies": missing_dependencies,
+        "install_hint": DEEPAGENTS_INSTALL_HINT if fallback_used else None,
+    }
 
 
 # =============================================================================
@@ -274,9 +308,14 @@ def create_deep_agent(
             workspace_dir=workspace_dir,
             enable_logging=enable_logging,
         )
-    except ImportError:
+    except ImportError as exc:
+        fallback_status = get_deep_agent_runtime_status()
+        fallback_status["fallback_reason"] = str(exc)
+        if not fallback_status.get("missing_dependencies"):
+            fallback_status["install_hint"] = DEEPAGENTS_COMPATIBILITY_HINT
         logger.warning(
-            "deepagents not available, falling back to LangChain-based implementation"
+            "deepagents runtime unavailable, falling back to LangChain-based implementation: %s",
+            exc,
         )
         return _create_with_langchain(
             model_name=model_name,
@@ -285,6 +324,7 @@ def create_deep_agent(
             system_prompt=system_prompt,
             enable_approval=enable_approval,
             enable_logging=enable_logging,
+            fallback_status=fallback_status,
         )
 
 
@@ -317,6 +357,10 @@ def _create_with_deepagents(
     # Store metadata
     agent._ts_agents_metadata = {
         "agent_type": "deep",
+        "runtime": "deepagents",
+        "fallback_used": False,
+        "missing_dependencies": [],
+        "install_hint": None,
         "model_name": model_name,
         "subagent_count": len(subagents),
         "subagent_names": [s["name"] for s in subagents],
@@ -341,6 +385,7 @@ def _create_with_langchain(
     system_prompt: str,
     enable_approval: bool,
     enable_logging: bool,
+    fallback_status: Optional[Dict[str, Any]] = None,
 ) -> Any:
     """Create agent using LangChain as fallback.
 
@@ -403,8 +448,20 @@ direct tool access. All sub-agent tools are available directly.
     )
 
     # Store metadata
+    if fallback_status is None:
+        fallback_status = {
+            **get_deep_agent_runtime_status(),
+            "fallback_reason": "deepagents runtime unavailable",
+        }
+        if not fallback_status.get("missing_dependencies"):
+            fallback_status["install_hint"] = DEEPAGENTS_COMPATIBILITY_HINT
     agent._ts_agents_metadata = {
         "agent_type": "deep_fallback",
+        "runtime": "langchain",
+        "fallback_used": True,
+        "fallback_reason": fallback_status.get("fallback_reason"),
+        "missing_dependencies": fallback_status.get("missing_dependencies", []),
+        "install_hint": fallback_status.get("install_hint"),
         "model_name": model_name,
         "subagent_count": len(subagents),
         "subagent_names": [s["name"] for s in subagents],
@@ -506,7 +563,7 @@ class DeepAgentChat:
         str
             The agent's response
         """
-        from langchain_core.messages import HumanMessage, AIMessage
+        from langchain_core.messages import HumanMessage
 
         start_time = time.time()
         tool_calls_before = len(self._tool_calls)

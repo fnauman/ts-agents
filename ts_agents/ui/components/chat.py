@@ -6,12 +6,11 @@ This component provides a chat interface for interacting with:
 """
 
 import gradio as gr
-from typing import List, Tuple, Optional, Any
+from typing import Tuple, Optional, Any
 import base64
 import re
 from io import BytesIO
 
-from ..state import UIState
 
 
 # Agent type constants
@@ -169,13 +168,29 @@ def create_chat_tab(state: gr.State, agent_type: str = "simple"):
                 except ImportError as e:
                     error_msg = (
                         "Deep Agent requires LangChain packages. "
-                        "Please install: pip install langchain langchain-openai langchain-anthropic"
+                        "Please install: pip install langchain langchain-openai. "
+                        "Install deepagents to enable real sub-agent delegation."
                     )
                     print(f"Import error: {e}")
                     return None, {**agent_state, "error": error_msg}
                 agent = DeepAgentChat()
 
             new_state = {"agent": agent, "type": agent_type_str, "bundle": bundle}
+            metadata = getattr(getattr(agent, "agent", None), "_ts_agents_metadata", {}) or {}
+            if metadata.get("fallback_used") or metadata.get("agent_type") == "deep_fallback":
+                install_hint = metadata.get("install_hint") or "Check deepagents runtime compatibility."
+                fallback_reason = metadata.get("fallback_reason")
+                warning = (
+                    "Deep agent is running in LangChain fallback mode; "
+                    f"sub-agent delegation is flattened. {install_hint}"
+                )
+                if fallback_reason:
+                    warning = f"{warning} Reason: {fallback_reason}"
+                new_state = {
+                    **new_state,
+                    "warning": warning,
+                    "warning_shown": False,
+                }
             return agent, new_state
         except Exception as e:
             print(f"Error creating agent: {e}")
@@ -235,6 +250,10 @@ def create_chat_tab(state: gr.State, agent_type: str = "simple"):
 
             # Check for image in response
             cleaned_response, img = extract_image_from_response(response)
+            runtime_warning = new_agent_state.get("warning")
+            if runtime_warning and not new_agent_state.get("warning_shown"):
+                cleaned_response = f"{runtime_warning}\n\n{cleaned_response}"
+                new_agent_state = {**new_agent_state, "warning_shown": True}
 
             history = history + [{"role": "assistant", "content": cleaned_response}]
 

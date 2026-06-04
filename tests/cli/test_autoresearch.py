@@ -4,6 +4,7 @@ import signal
 import subprocess
 import time
 
+import numpy as np
 import pytest
 import yaml
 
@@ -20,6 +21,7 @@ def test_autoresearch_list_json_returns_loops(capsys):
     names = [loop["name"] for loop in payload["result"]["loops"]]
     assert "forecast-daytona" in names
     assert "classify-daytona" in names
+    assert "foundation-chronos-smoke" in names
     assert "foundation-gpu-plan" in names
 
 
@@ -158,6 +160,175 @@ def test_autoresearch_run_classification_dry_run(capsys, tmp_path):
     assert payload["result"]["data"]["trial_count"] == 1
     assert (output_dir / "synthetic_labeled_stream.csv").exists()
     assert (output_dir / "trials.csv").exists()
+
+
+def test_autoresearch_run_foundation_chronos_smoke_dry_run_writes_contract(
+    capsys, tmp_path
+):
+    output_dir = tmp_path / "chronos-dry-run"
+    code = run(
+        [
+            "autoresearch",
+            "run",
+            "foundation-chronos-smoke",
+            "--dry-run",
+            "--skip-plots",
+            "--output-dir",
+            str(output_dir),
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["result"]["status"] == "ok"
+    assert payload["result"]["data"]["trial_count"] == 1
+    assert payload["result"]["data"]["best_config"] == {}
+    assert (output_dir / "trials.csv").exists()
+    assert (output_dir / "summary.json").exists()
+    assert (output_dir / "report.md").exists()
+    assert (output_dir / "run_manifest.json").exists()
+
+    report = (output_dir / "report.md").read_text()
+    assert "not a model hub" in report
+    summary = json.loads((output_dir / "summary.json").read_text())
+    assert (
+        summary["external_benchmark_context"]
+        == "benchmarks/external/gift_eval_snapshot.json"
+    )
+    manifest = json.loads((output_dir / "run_manifest.json").read_text())
+    assert manifest["loop"] == "foundation-chronos-smoke"
+    assert manifest["options"]["model_scope"] == "single_chronos_zero_shot_smoke"
+    assert manifest["options"]["model_scope_label"] == "single Chronos-family zero-shot smoke path"
+
+
+def test_autoresearch_run_foundation_chronos_smoke_executes_with_mocked_adapter(
+    monkeypatch, capsys, tmp_path
+):
+    import ts_agents.autoresearch.executor as executor_module
+    import ts_agents.autoresearch.runner as runner_module
+
+    monkeypatch.setattr(executor_module, "find_spec", lambda _name: object())
+
+    def fake_forecast(_model_id, series, *, horizon):
+        return np.full(horizon, float(series[-1]))
+
+    monkeypatch.setattr(runner_module, "_forecast_with_chronos", fake_forecast)
+    output_dir = tmp_path / "chronos-execute"
+    code = run(
+        [
+            "autoresearch",
+            "run",
+            "foundation-chronos-smoke",
+            "--max-trials",
+            "1",
+            "--skip-plots",
+            "--output-dir",
+            str(output_dir),
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["result"]["status"] == "ok"
+    data = payload["result"]["data"]
+    assert data["trial_count"] == 1
+    assert data["model_scope"] == "single_chronos_zero_shot_smoke"
+    assert data["best_config"]["model"] == "amazon/chronos-t5-tiny"
+    assert data["best_config"]["n_trials"] == 1
+
+    trials = (output_dir / "trials.csv").read_text()
+    assert "foundation-model-smoke" in trials
+    assert "season_length" not in trials
+    assert data["best_config"]["smape"] is not None
+
+
+def test_autoresearch_foundation_chronos_smoke_preflight_reports_missing_deps(
+    monkeypatch, tmp_path
+):
+    import ts_agents.autoresearch.executor as executor_module
+    from ts_agents.autoresearch.executor import AutoresearchExecutor
+    from ts_agents.tools.executor import ExecutionContext, SandboxMode, ToolErrorCode
+
+    def fake_find_spec(name):
+        if name == "chronos":
+            return None
+        return object()
+
+    monkeypatch.setattr(executor_module, "find_spec", fake_find_spec)
+    result = AutoresearchExecutor().execute(
+        "foundation-chronos-smoke",
+        {"output_dir": str(tmp_path / "chronos-deps")},
+        context=ExecutionContext(sandbox_mode=SandboxMode.LOCAL),
+    )
+
+    assert not result.success
+    assert result.error is not None
+    assert result.error.code == ToolErrorCode.DEPENDENCY_ERROR
+    assert "chronos-forecasting" in result.error.message
+    assert "ts-agents[foundation]" in result.error.message
+
+
+def test_autoresearch_foundation_chronos_smoke_full_profile_stays_single_smoke(
+    monkeypatch, capsys, tmp_path
+):
+    import ts_agents.autoresearch.executor as executor_module
+    import ts_agents.autoresearch.runner as runner_module
+
+    monkeypatch.setattr(executor_module, "find_spec", lambda _name: object())
+    monkeypatch.setattr(
+        runner_module,
+        "_forecast_with_chronos",
+        lambda _model_id, series, *, horizon: np.full(horizon, float(series[-1])),
+    )
+    output_dir = tmp_path / "chronos-full"
+    code = run(
+        [
+            "autoresearch",
+            "run",
+            "foundation-chronos-smoke",
+            "--profile",
+            "full",
+            "--skip-plots",
+            "--output-dir",
+            str(output_dir),
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["result"]["data"]["trial_count"] == 1
+    manifest = json.loads((output_dir / "run_manifest.json").read_text())
+    assert manifest["options"]["max_trials"] == 1
+
+
+def test_autoresearch_foundation_chronos_smoke_fails_empty_holdout():
+    from ts_agents.autoresearch.runner import _evaluate_forecast_trial_with_runner
+
+    row = _evaluate_forecast_trial_with_runner(
+        run_id="run",
+        trial_index=1,
+        spec={
+            "series_id": "M4",
+            "phase": "holdout",
+            "origin": 3,
+            "train": np.array([1.0, 2.0, 3.0]),
+            "actual": np.array([]),
+        },
+        model="amazon/chronos-t5-tiny",
+        task="foundation-model-smoke",
+        trial_id_prefix="foundation-chronos",
+        forecast_runner=lambda _model, _series, *, horizon: np.ones(horizon),
+        horizon=18,
+    )
+
+    assert row["status"] == "failed"
+    assert "no actual holdout values" in row["error"]
 
 
 def test_autoresearch_run_foundation_gpu_plan_materializes_plan_only_recipes(
@@ -507,6 +678,9 @@ def test_daytona_extras_context_isolated_between_loops():
     classify_context = _context_with_loop_environment(
         context, get_loop("classify-daytona"), SandboxMode.DAYTONA
     )
+    foundation_context = _context_with_loop_environment(
+        context, get_loop("foundation-chronos-smoke"), SandboxMode.DAYTONA
+    )
 
     assert context.environment == {"TS_AGENTS_DAYTONA_INSTALL_EXTRAS": "previous"}
     assert (
@@ -516,6 +690,10 @@ def test_daytona_extras_context_isolated_between_loops():
     assert (
         classify_context.environment["TS_AGENTS_DAYTONA_INSTALL_EXTRAS"]
         == "classification"
+    )
+    assert (
+        foundation_context.environment["TS_AGENTS_DAYTONA_INSTALL_EXTRAS"]
+        == "foundation"
     )
 
 

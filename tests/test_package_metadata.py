@@ -40,10 +40,13 @@ def test_project_metadata_defines_dependency_extras():
     assert "decomposition" in extras
     assert "patterns" in extras
     assert "classification" in extras
+    assert "foundation" in extras
     assert "recommended" in extras
     assert "all" in extras
 
     assert not any(dep.startswith("gradio") for dep in dependencies)
     assert not any(dep.startswith("langchain>=") for dep in dependencies)
     assert not any(dep.startswith("statsforecast") for dep in dependencies)
+    assert not any(dep.startswith("chronos-forecasting") for dep in dependencies)
+    assert any(dep.startswith("chronos-forecasting") for dep in extras["foundation"])
     assert project["scripts"]["ts-agents-ui"] == "ts_agents.ui.entrypoint:main"

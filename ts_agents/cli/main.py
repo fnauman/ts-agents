@@ -63,6 +63,11 @@ _INSTALL_EXTRA_METADATA: Dict[str, Dict[str, Any]] = {
         "dependencies": ["aeon", "sklearn"],
         "description": "Activity-recognition and classifier evaluation workflows.",
     },
+    "foundation": {
+        "install_spec": "ts-agents[foundation]",
+        "dependencies": ["chronos", "torch"],
+        "description": "Scoped Chronos foundation-model smoke checks.",
+    },
 }
 
 _INSTALL_PROFILE_GROUPS: Dict[str, List[str]] = {
@@ -1586,6 +1591,7 @@ def _add_autoresearch_subcommands(subparsers: argparse._SubParsersAction) -> Non
             "  ts-agents autoresearch show forecast-daytona --json\n"
             "  ts-agents autoresearch run forecast-daytona --models seasonal_naive --profile smoke --json\n"
             "  ts-agents autoresearch run classify-daytona --dataset synthetic --profile smoke --json\n"
+            "  ts-agents autoresearch run foundation-chronos-smoke --dry-run --json\n"
             "  ts-agents autoresearch run foundation-gpu-plan --json"
         ),
     )
@@ -2729,6 +2735,29 @@ def _approval_prompt(tool_name: str) -> bool:
     return response in {"y", "yes"}
 
 
+def _agent_run_payload(
+    *,
+    response: str,
+    agent_metadata: Dict[str, Any],
+    warnings: Optional[List[str]] = None,
+    quality_flags: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    warnings = warnings or []
+    quality_flags = quality_flags or []
+    return {
+        "kind": "agent_run",
+        "status": "degraded" if warnings else "ok",
+        "summary": "Agent prompt completed.",
+        "response": response,
+        "data": {
+            "response": response,
+            "agent_metadata": agent_metadata,
+            "quality_flags": quality_flags,
+        },
+        "warnings": warnings,
+    }
+
+
 def _handle_agent_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]:
     if args.type == "simple":
         from ts_agents.agents.simple.agent import run_single_query
@@ -2738,7 +2767,15 @@ def _handle_agent_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]
             tool_bundle=args.tool_bundle,
             model_name=args.model,
         )
-        return {"response": response}, response
+        result = _agent_run_payload(
+            response=response,
+            agent_metadata={
+                "agent_type": "simple",
+                "tool_bundle": args.tool_bundle,
+                "model_name": args.model,
+            },
+        )
+        return result, response
 
     from ts_agents.agents.deep.orchestrator import create_deep_agent, run_with_approval
 
@@ -2757,7 +2794,31 @@ def _handle_agent_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]
         callback = _approval_prompt
 
     response = run_with_approval(agent, args.prompt, approval_callback=callback)
-    return {"response": response}, response
+    metadata = getattr(agent, "_ts_agents_metadata", {}) or {}
+    warnings = []
+    quality_flags = []
+    if metadata.get("fallback_used") or metadata.get("agent_type") == "deep_fallback":
+        install_hint = metadata.get("install_hint") or "Check deepagents runtime compatibility."
+        fallback_reason = metadata.get("fallback_reason")
+        warning = (
+            "Deep agent is running in LangChain fallback mode; "
+            f"sub-agent delegation is flattened. {install_hint}"
+        )
+        if fallback_reason:
+            warning = f"{warning} Reason: {fallback_reason}"
+        warnings.append(warning)
+        quality_flags.append("deep_agent_fallback")
+
+    result = _agent_run_payload(
+        response=response,
+        agent_metadata=metadata,
+        warnings=warnings,
+        quality_flags=quality_flags,
+    )
+    text = response
+    if warnings:
+        text = f"Warning: {warnings[0]}\n\n{response}"
+    return result, text
 
 
 def _handle_sandbox_command(args: argparse.Namespace) -> Tuple[Any, str]:

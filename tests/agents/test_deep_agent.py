@@ -1,8 +1,5 @@
 """Tests for deep agent module."""
 
-import pytest
-
-
 class TestSubagentDefinitions:
     """Tests for subagent configurations."""
 
@@ -165,7 +162,7 @@ class TestDeepAgentTurn:
         assert len(turn.subagent_calls) == 1
         assert turn.subagent_calls[0].subagent_name == "turbulence-agent"
         assert turn.duration_ms == 3000.0
-        assert turn.required_approval == False
+        assert not turn.required_approval
 
     def test_deep_agent_turn_with_approval(self):
         """Test deep agent turn that required approval."""
@@ -178,7 +175,7 @@ class TestDeepAgentTurn:
             duration_ms=60000.0,  # Long running
         )
 
-        assert turn.required_approval == True
+        assert turn.required_approval
 
 
 class TestOrchestratorConfiguration:
@@ -224,7 +221,7 @@ class TestOrchestratorConfiguration:
         if config:  # Only if there are expensive tools
             assert isinstance(config, dict)
             for tool_name, should_interrupt in config.items():
-                assert should_interrupt == True
+                assert should_interrupt
 
     def test_create_interrupt_config_disabled(self):
         """Test interrupt config when approval is disabled."""
@@ -261,6 +258,88 @@ class TestOrchestratorConfiguration:
             enable_logging=False,
         )
         assert agent == {"ok": True}
+
+    def test_deep_agent_runtime_status_reports_missing_deepagents(self, monkeypatch):
+        import ts_agents.agents.deep.orchestrator as orchestrator
+
+        monkeypatch.setattr(
+            orchestrator,
+            "find_spec",
+            lambda name: None if name == "deepagents" else object(),
+        )
+
+        status = orchestrator.get_deep_agent_runtime_status()
+
+        assert status["agent_type"] == "deep_fallback"
+        assert status["runtime"] == "langchain"
+        assert status["fallback_used"] is True
+        assert status["missing_dependencies"] == ["deepagents"]
+        assert "pip install deepagents" in status["install_hint"]
+
+    def test_create_deep_agent_passes_fallback_status_to_langchain(self, monkeypatch):
+        import ts_agents.agents.deep.orchestrator as orchestrator
+
+        captured = {}
+
+        def raise_import_error(**_kwargs):
+            raise ImportError("missing deepagents")
+
+        def fake_langchain(**kwargs):
+            captured.update(kwargs)
+            return {"ok": True}
+
+        monkeypatch.setattr(orchestrator, "get_bundle", lambda name: [])
+        monkeypatch.setattr(orchestrator, "wrap_tools_for_deepagent", lambda bundle: [])
+        monkeypatch.setattr(orchestrator, "get_all_subagents", lambda: [])
+        monkeypatch.setattr(orchestrator, "_create_with_deepagents", raise_import_error)
+        monkeypatch.setattr(orchestrator, "_create_with_langchain", fake_langchain)
+        monkeypatch.setattr(
+            orchestrator,
+            "find_spec",
+            lambda name: None if name == "deepagents" else object(),
+        )
+
+        agent = orchestrator.create_deep_agent(
+            model_name="gpt-5-mini",
+            enable_approval=False,
+            enable_logging=False,
+        )
+
+        assert agent == {"ok": True}
+        assert captured["fallback_status"]["fallback_used"] is True
+        assert captured["fallback_status"]["missing_dependencies"] == ["deepagents"]
+        assert captured["fallback_status"]["fallback_reason"] == "missing deepagents"
+
+    def test_create_deep_agent_reports_installed_deepagents_import_error(self, monkeypatch):
+        import ts_agents.agents.deep.orchestrator as orchestrator
+
+        captured = {}
+
+        def raise_import_error(**_kwargs):
+            raise ImportError("cannot import name FilesystemMiddleware")
+
+        def fake_langchain(**kwargs):
+            captured.update(kwargs)
+            return {"ok": True}
+
+        monkeypatch.setattr(orchestrator, "get_bundle", lambda name: [])
+        monkeypatch.setattr(orchestrator, "wrap_tools_for_deepagent", lambda bundle: [])
+        monkeypatch.setattr(orchestrator, "get_all_subagents", lambda: [])
+        monkeypatch.setattr(orchestrator, "_create_with_deepagents", raise_import_error)
+        monkeypatch.setattr(orchestrator, "_create_with_langchain", fake_langchain)
+        monkeypatch.setattr(orchestrator, "find_spec", lambda _name: object())
+
+        agent = orchestrator.create_deep_agent(
+            model_name="gpt-5-mini",
+            enable_approval=False,
+            enable_logging=False,
+        )
+
+        assert agent == {"ok": True}
+        status = captured["fallback_status"]
+        assert status["missing_dependencies"] == []
+        assert "version" in status["install_hint"]
+        assert status["fallback_reason"] == "cannot import name FilesystemMiddleware"
 
 
 class TestUtilityFunctions:
@@ -430,11 +509,6 @@ class TestImports:
             DeepAgentChat,
             DeepAgentTurn,
             SubagentCall,
-            list_subagents,
-            get_expensive_tools,
-            run_with_approval,
-            get_all_subagents,
-            create_interrupt_config,
         )
 
         # All should be importable
