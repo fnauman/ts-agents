@@ -87,6 +87,7 @@ _INSTALL_PROFILE_GROUPS: Dict[str, List[str]] = {
         "forecasting",
         "decomposition",
         "patterns",
+        "foundation",
     ],
 }
 
