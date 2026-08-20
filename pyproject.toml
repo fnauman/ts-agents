@@ -1,10 +1,10 @@
 [project]
 name = "ts-agents"
-version = "0.1.1"
+version = "0.2.0"
 description = "Time-series skills, tool contracts, and sandboxes for agentic workflows."
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.11"
 authors = [
     { name = "Farrukh Nauman", email = "farrukhnauman@yahoo.com" },
 ]
@@ -17,6 +17,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering",
     "Typing :: Typed",
 ]
