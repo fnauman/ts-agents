@@ -508,6 +508,10 @@ def _command_label(args: argparse.Namespace) -> str:
         return f"workflow {args.workflow_command}"
     if args.command == "autoresearch":
         return f"autoresearch {args.autoresearch_command}"
+    if args.command == "runs":
+        return f"runs {args.runs_command}"
+    if args.command == "jobs":
+        return f"jobs {args.jobs_command}"
     if args.command == "run":
         return "tool run"
     return args.command
@@ -531,6 +535,12 @@ def _command_target_name(args: argparse.Namespace, exc: Optional[Exception] = No
     if args.command == "skills":
         if args.skills_command == "show":
             return getattr(args, "skill", None)
+    if args.command == "runs":
+        if args.runs_command == "show":
+            return getattr(args, "run_id", None)
+    if args.command == "jobs":
+        if args.jobs_command in {"status", "logs", "cancel"}:
+            return getattr(args, "job_id", None)
     if args.command == "run":
         return getattr(args, "tool", None)
     if isinstance(exc, ToolError):
@@ -596,6 +606,12 @@ def _command_input_payload(args: argparse.Namespace) -> Dict[str, Any]:
                 "_ts_execution_result",
                 "_ts_raw_argv",
             }
+        }
+    if args.command in {"runs", "jobs"}:
+        return {
+            k: v
+            for k, v in vars(args).items()
+            if k not in {"json", "save", "extract_images", "_ts_raw_argv"}
         }
     if args.command == "demo":
         return {k: v for k, v in vars(args).items() if k not in {"json", "save", "extract_images"}}
@@ -1051,6 +1067,180 @@ def _add_capabilities_subcommand(subparsers: argparse._SubParsersAction) -> None
         help="Show machine-readable CLI capabilities for autonomous agents",
     )
     _add_output_args(capabilities_parser)
+
+
+def _add_runs_subcommands(subparsers: argparse._SubParsersAction) -> None:
+    runs_parser = subparsers.add_parser(
+        "runs",
+        help="Inspect and manage run output directories",
+    )
+    runs_sub = runs_parser.add_subparsers(dest="runs_command", required=True)
+
+    list_parser = runs_sub.add_parser(
+        "list", help="List runs discovered under the outputs root"
+    )
+    list_parser.add_argument(
+        "--root",
+        default="outputs",
+        help="Outputs root to scan for run manifests (default: outputs)",
+    )
+    list_parser.add_argument(
+        "--kind",
+        choices=["workflow", "autoresearch", "unknown"],
+        default=None,
+        help="Only show runs of this kind",
+    )
+    list_parser.add_argument(
+        "--name",
+        default=None,
+        help="Only show runs of this workflow or autoresearch loop",
+    )
+    list_parser.add_argument(
+        "--status",
+        action="append",
+        default=None,
+        help="Only show runs with this status (repeatable)",
+    )
+    list_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Show at most this many runs (newest first)",
+    )
+    _add_output_args(list_parser)
+
+    show_parser = runs_sub.add_parser(
+        "show", help="Show one run's manifest, artifacts, and disk usage"
+    )
+    show_parser.add_argument("run_id", help="Run id (or unique prefix) to show")
+    show_parser.add_argument(
+        "--root",
+        default="outputs",
+        help="Outputs root to scan for run manifests (default: outputs)",
+    )
+    _add_output_args(show_parser)
+
+    gc_parser = runs_sub.add_parser(
+        "gc",
+        help="Delete run directories matching the filters (dry run without --apply)",
+    )
+    gc_parser.add_argument(
+        "--root",
+        default="outputs",
+        help="Outputs root to scan for run manifests (default: outputs)",
+    )
+    gc_parser.add_argument(
+        "--kind",
+        choices=["workflow", "autoresearch", "unknown"],
+        default=None,
+        help="Only delete runs of this kind",
+    )
+    gc_parser.add_argument(
+        "--name",
+        default=None,
+        help="Only delete runs of this workflow or autoresearch loop",
+    )
+    gc_parser.add_argument(
+        "--status",
+        action="append",
+        default=None,
+        help="Only delete runs with this status (repeatable)",
+    )
+    gc_parser.add_argument(
+        "--older-than",
+        type=float,
+        default=None,
+        metavar="DAYS",
+        help="Only delete runs created more than DAYS days ago",
+    )
+    gc_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Actually delete matching run directories (default is a dry run)",
+    )
+    _add_output_args(gc_parser)
+
+
+def _add_jobs_subcommands(subparsers: argparse._SubParsersAction) -> None:
+    jobs_parser = subparsers.add_parser(
+        "jobs",
+        help="Run CLI commands as background jobs with status/cancel",
+    )
+    jobs_sub = jobs_parser.add_subparsers(dest="jobs_command", required=True)
+
+    start_parser = jobs_sub.add_parser(
+        "start",
+        help="Start a ts-agents command as a detached background job",
+        epilog=(
+            "Example: ts-agents jobs start -- workflow run forecast "
+            "--input data/demo.csv --json"
+        ),
+    )
+    start_parser.add_argument(
+        "--jobs-root",
+        default=None,
+        help="Directory for job records and logs (default: outputs/jobs)",
+    )
+    start_parser.add_argument(
+        "job_argv",
+        nargs=argparse.REMAINDER,
+        help="ts-agents arguments to run in the background (prefix with --)",
+    )
+    _add_output_args(start_parser)
+
+    list_parser = jobs_sub.add_parser("list", help="List background jobs")
+    list_parser.add_argument(
+        "--jobs-root",
+        default=None,
+        help="Directory for job records and logs (default: outputs/jobs)",
+    )
+    _add_output_args(list_parser)
+
+    status_parser = jobs_sub.add_parser("status", help="Show one job's record")
+    status_parser.add_argument("job_id", help="Job id to inspect")
+    status_parser.add_argument(
+        "--jobs-root",
+        default=None,
+        help="Directory for job records and logs (default: outputs/jobs)",
+    )
+    _add_output_args(status_parser)
+
+    logs_parser = jobs_sub.add_parser("logs", help="Show a job's captured output")
+    logs_parser.add_argument("job_id", help="Job id to read logs for")
+    logs_parser.add_argument(
+        "--tail",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Only show the last N log lines",
+    )
+    logs_parser.add_argument(
+        "--jobs-root",
+        default=None,
+        help="Directory for job records and logs (default: outputs/jobs)",
+    )
+    _add_output_args(logs_parser)
+
+    cancel_parser = jobs_sub.add_parser("cancel", help="Cancel a running job")
+    cancel_parser.add_argument("job_id", help="Job id to cancel")
+    cancel_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Send SIGKILL instead of SIGTERM",
+    )
+    cancel_parser.add_argument(
+        "--wait",
+        type=float,
+        default=10.0,
+        metavar="SECONDS",
+        help="How long to wait for the job to exit (default: 10)",
+    )
+    cancel_parser.add_argument(
+        "--jobs-root",
+        default=None,
+        help="Directory for job records and logs (default: outputs/jobs)",
+    )
+    _add_output_args(cancel_parser)
 
 
 def _add_tool_subcommands(subparsers: argparse._SubParsersAction) -> None:
@@ -1896,6 +2086,8 @@ def build_parser(*, exit_on_error: bool = True) -> argparse.ArgumentParser:
     _add_capabilities_subcommand(subparsers)
     _add_workflow_subcommands(subparsers)
     _add_autoresearch_subcommands(subparsers)
+    _add_runs_subcommands(subparsers)
+    _add_jobs_subcommands(subparsers)
     _add_tool_subcommands(subparsers)
     _add_sandbox_subcommands(subparsers)
     _add_skills_subcommands(subparsers)
@@ -2321,6 +2513,18 @@ def _handle_capabilities_command(args: argparse.Namespace) -> Tuple[Any, str]:
                 "ts-agents sandbox list --json",
                 "ts-agents sandbox doctor <backend> --json",
             ],
+            "runs": [
+                "ts-agents runs list --json",
+                "ts-agents runs show <run-id> --json",
+                "ts-agents runs gc --older-than <days> [--apply] --json",
+            ],
+            "jobs": [
+                "ts-agents jobs start -- <ts-agents args...>",
+                "ts-agents jobs list --json",
+                "ts-agents jobs status <job-id> --json",
+                "ts-agents jobs logs <job-id> --tail <n> --json",
+                "ts-agents jobs cancel <job-id> --json",
+            ],
         },
         "install_profile": install_profile,
         "status_contract": _capabilities_status_contract(),
@@ -2355,6 +2559,117 @@ def _handle_capabilities_command(args: argparse.Namespace) -> Tuple[Any, str]:
         f"- Default sandbox backend: {result['sandboxes']['default_backend']}",
     ]
     return result, "\n".join(lines)
+
+
+def _handle_runs_command(args: argparse.Namespace) -> Tuple[Any, str]:
+    from ts_agents.cli import runs as runs_module
+
+    if args.runs_command == "list":
+        records, warnings = runs_module.scan_runs(args.root)
+        records = runs_module.filter_runs(
+            records,
+            kind=args.kind,
+            name=args.name,
+            status=args.status,
+        )
+        if args.limit is not None:
+            records = records[: max(args.limit, 0)]
+        result = {
+            "root": str(Path(args.root).resolve()),
+            "runs": records,
+            "count": len(records),
+            "warnings": warnings,
+        }
+        return result, runs_module.render_runs_table(records)
+
+    if args.runs_command == "show":
+        result = runs_module.show_run(args.root, args.run_id)
+        lines = [
+            f"Run {result['run_id']} ({result['kind']}:{result['name']})",
+            f"- status: {result['status']}",
+            f"- created_at: {result['created_at']}",
+            f"- output_dir: {result['output_dir']}",
+            f"- size: {result['size_bytes']} bytes",
+            f"- artifacts: {len(result['artifacts'])}",
+        ]
+        if result.get("summary"):
+            lines.append(f"- summary: {result['summary']}")
+        return result, "\n".join(lines)
+
+    if args.runs_command == "gc":
+        result = runs_module.gc_runs(
+            args.root,
+            kind=args.kind,
+            name=args.name,
+            status=args.status,
+            older_than_days=args.older_than,
+            apply=args.apply,
+        )
+        verb = "Deleted" if args.apply else "Would delete"
+        lines = [
+            f"{verb} {result['matched']} run(s), {result['freed_bytes']} bytes.",
+        ]
+        for record in result["runs"]:
+            lines.append(f"- {record['run_id']} ({record['kind']}:{record['name']})")
+        for record in result["skipped"]:
+            lines.append(f"- skipped {record['run_id']}: {record['reason']}")
+        if not args.apply and result["matched"]:
+            lines.append("Re-run with --apply to delete.")
+        return result, "\n".join(lines)
+
+    raise ValueError(f"Unknown runs command: {args.runs_command}")
+
+
+def _handle_jobs_command(args: argparse.Namespace) -> Tuple[Any, str]:
+    from ts_agents.cli import jobs as jobs_module
+
+    jobs_root = getattr(args, "jobs_root", None) or jobs_module.DEFAULT_JOBS_ROOT
+
+    if args.jobs_command == "start":
+        job_argv = list(args.job_argv or [])
+        if job_argv and job_argv[0] == "--":
+            job_argv = job_argv[1:]
+        record = jobs_module.start_job(job_argv, root=jobs_root)
+        lines = [
+            f"Started job {record['job_id']} (pid {record['pid']}).",
+            f"- command: ts-agents {' '.join(record['argv'])}",
+            f"- log: {record['log_path']}",
+            f"- status: ts-agents jobs status {record['job_id']}",
+        ]
+        return record, "\n".join(lines)
+
+    if args.jobs_command == "list":
+        result = jobs_module.list_jobs(jobs_root)
+        return result, jobs_module.render_jobs_table(result["jobs"])
+
+    if args.jobs_command == "status":
+        record = jobs_module.job_status(jobs_root, args.job_id)
+        lines = [
+            f"Job {record['job_id']}: {record['status']}",
+            f"- command: ts-agents {' '.join(record.get('argv', []))}",
+            f"- created_at: {record.get('created_at')}",
+            f"- pid: {record.get('pid')}",
+            f"- exit_code: {record.get('exit_code')}",
+            f"- log: {record.get('log_path')}",
+        ]
+        if record.get("error"):
+            lines.append(f"- error: {record['error']}")
+        return record, "\n".join(lines)
+
+    if args.jobs_command == "logs":
+        result = jobs_module.read_job_log(jobs_root, args.job_id, tail=args.tail)
+        return result, "\n".join(result["lines"]) or "(log is empty)"
+
+    if args.jobs_command == "cancel":
+        record = jobs_module.cancel_job(
+            jobs_root,
+            args.job_id,
+            force=args.force,
+            wait_seconds=args.wait,
+        )
+        return record, f"Job {record['job_id']} is now {record['status']}."
+
+    raise ValueError(f"Unknown jobs command: {args.jobs_command}")
 
 
 def _handle_tool_command(args: argparse.Namespace) -> Tuple[Any, str]:
@@ -3635,6 +3950,10 @@ def run(argv: Optional[List[str]] = None) -> int:
             result, text = _handle_workflow_command(args)
         elif args.command == "autoresearch":
             result, text = _handle_autoresearch_command(args)
+        elif args.command == "runs":
+            result, text = _handle_runs_command(args)
+        elif args.command == "jobs":
+            result, text = _handle_jobs_command(args)
         elif args.command == "demo":
             result, text = _handle_demo_command(args)
         else:
