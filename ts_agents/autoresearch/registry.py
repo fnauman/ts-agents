@@ -61,7 +61,6 @@ FOUNDATION_CHRONOS_DEFAULT_SERIES = ["M4"]
 FOUNDATION_CHRONOS_MODEL_SCOPE = "single_chronos_zero_shot_smoke"
 FOUNDATION_CHRONOS_MODEL_SCOPE_LABEL = "single Chronos-family zero-shot smoke path"
 FOUNDATION_CHRONOS_INSTALL_HINT = "pip install 'ts-agents[foundation]'"
-FOUNDATION_CHRONOS_EXTERNAL_CONTEXT = "benchmarks/external/gift_eval_snapshot.json"
 
 
 _DAYTONA_BUDGET = AutoresearchBudget(
@@ -152,7 +151,7 @@ _LOOPS: dict[str, AutoresearchLoopDefinition] = {
         task=FOUNDATION_CHRONOS_TASK,
         description=(
             "Run a scoped Chronos zero-shot forecasting smoke check on the vendored "
-            "M4 Monthly mini panel. This is an executable TSFM path, not a model hub."
+            "M4 Monthly mini panel."
         ),
         dataset="data/m4_monthly_mini.csv",
         models=[FOUNDATION_CHRONOS_MODEL],
@@ -191,7 +190,6 @@ _LOOPS: dict[str, AutoresearchLoopDefinition] = {
             "max_trials_semantics": "number of Chronos zero-shot forecast rows",
             "search_style": "smoke check",
             "ranking_rule": "lowest sMAPE on the M4 mini holdout; MAE and RMSE are tie-breakers",
-            "external_benchmark_context": FOUNDATION_CHRONOS_EXTERNAL_CONTEXT,
         },
     ),
     "foundation-gpu-plan": AutoresearchLoopDefinition(

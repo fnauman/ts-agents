@@ -190,17 +190,22 @@ def test_autoresearch_run_foundation_chronos_smoke_dry_run_writes_contract(
     assert (output_dir / "report.md").exists()
     assert (output_dir / "run_manifest.json").exists()
 
-    report = (output_dir / "report.md").read_text()
-    assert "not a model hub" in report
-    summary = json.loads((output_dir / "summary.json").read_text())
-    assert (
-        summary["external_benchmark_context"]
-        == "benchmarks/external/gift_eval_snapshot.json"
+    from ts_agents.autoresearch.registry import (
+        FOUNDATION_CHRONOS_MODEL_SCOPE,
+        FOUNDATION_CHRONOS_MODEL_SCOPE_LABEL,
     )
+
+    report = (output_dir / "report.md").read_text()
+    assert FOUNDATION_CHRONOS_MODEL_SCOPE_LABEL in report
+    summary = json.loads((output_dir / "summary.json").read_text())
+    # Run outputs must not reference repo-only files that are not shipped
+    # in the wheel.
+    assert "external_benchmark_context" not in summary
+    assert "benchmarks/" not in report
     manifest = json.loads((output_dir / "run_manifest.json").read_text())
     assert manifest["loop"] == "foundation-chronos-smoke"
-    assert manifest["options"]["model_scope"] == "single_chronos_zero_shot_smoke"
-    assert manifest["options"]["model_scope_label"] == "single Chronos-family zero-shot smoke path"
+    assert manifest["options"]["model_scope"] == FOUNDATION_CHRONOS_MODEL_SCOPE
+    assert manifest["options"]["model_scope_label"] == FOUNDATION_CHRONOS_MODEL_SCOPE_LABEL
 
 
 def test_autoresearch_run_foundation_chronos_smoke_executes_with_mocked_adapter(

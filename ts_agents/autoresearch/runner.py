@@ -569,10 +569,9 @@ def _run_foundation_chronos_smoke(**kwargs: Any) -> dict[str, Any]:
         "dry_run": dry_run,
         "horizon": horizon,
         "dataset": str(dataset_path),
-        "model_scope": capabilities["model_scope"],
-        "model_scope_label": capabilities["model_scope_label"],
-        "install_hint": capabilities["install_hint"],
-        "external_benchmark_context": capabilities["external_benchmark_context"],
+        "model_scope": capabilities.get("model_scope"),
+        "model_scope_label": capabilities.get("model_scope_label"),
+        "install_hint": capabilities.get("install_hint"),
     }
     artifacts = _write_autoresearch_artifacts(
         output_path=output_path,
@@ -593,7 +592,6 @@ def _run_foundation_chronos_smoke(**kwargs: Any) -> dict[str, Any]:
         ),
         extra_json={
             "model_ranking": ranking,
-            "external_benchmark_context": capabilities["external_benchmark_context"],
         },
         status=status,
         warnings=warnings,
@@ -617,9 +615,8 @@ def _run_foundation_chronos_smoke(**kwargs: Any) -> dict[str, Any]:
         data_extra={
             "ranking": ranking,
             "dataset": str(dataset_path),
-            "model_scope": capabilities["model_scope"],
-            "model_scope_label": capabilities["model_scope_label"],
-            "external_benchmark_context": capabilities["external_benchmark_context"],
+            "model_scope": capabilities.get("model_scope"),
+            "model_scope_label": capabilities.get("model_scope_label"),
         },
     )
 
@@ -1438,9 +1435,8 @@ def _foundation_chronos_report(
         f"- dataset: `{dataset_path}`",
         f"- models: `{', '.join(models)}`",
         f"- mode: `{'dry-run' if dry_run else 'executed'}`",
-        f"- scope: {capabilities['model_scope_label']}, not a model hub",
+        f"- scope: {capabilities.get('model_scope_label', 'scoped zero-shot smoke path')}",
         "- primary metric: `sMAPE` (lower is better)",
-        f"- external context: `{capabilities['external_benchmark_context']}`",
         "",
         "## Ranking",
         "",
