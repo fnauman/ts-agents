@@ -1,7 +1,7 @@
 # ts-agents
 
 [![Docs](https://img.shields.io/badge/docs-online-blue)](https://fnauman.github.io/ts-agents/)
-[![Python](https://img.shields.io/badge/python-3.11--3.13-3776AB)](#installation)
+[![Python](https://img.shields.io/badge/python-3.11--3.14-3776AB)](#installation)
 [![License](https://img.shields.io/badge/license-MIT-2EA44F)](https://github.com/fnauman/ts-agents/blob/main/LICENSE)
 
 `ts-agents` is a CLI toolkit for **long-running autonomous agentic workflows**
@@ -195,6 +195,21 @@ Workflow runs produce:
 - non-clobbering defaults, plus `--overwrite` / `--resume` semantics for retry
   loops and long sessions
 
+Past runs are a first-class surface. `runs` catalogs every manifest under the
+outputs root, and `jobs` runs any CLI command in a detached background worker
+with a durable record, log capture, and cancellation:
+
+```bash
+ts-agents runs list --json
+ts-agents runs show <run-id> --json
+ts-agents runs gc --older-than 30 --apply --json
+
+ts-agents jobs start -- workflow run forecast --input data/demo.csv --json
+ts-agents jobs status <job-id> --json
+ts-agents jobs logs <job-id> --tail 50
+ts-agents jobs cancel <job-id> --json
+```
+
 ### 5. Artifacts over chat
 
 Tool/workflow outputs are written to real files (PNG plots, JSON, CSV,
@@ -304,7 +319,9 @@ one release cycle, but they now emit deprecation warnings. Prefer
 ## Installation
 
 Prerequisites:
-- Python 3.11, 3.12, or 3.13
+- Python 3.11 or newer (the base install is tested through 3.14; some heavy
+  extras such as `patterns` and `classification` depend on numba, which does
+  not yet ship Python 3.14 builds)
 - [uv](https://github.com/astral-sh/uv)
 
 Install from PyPI:
@@ -326,8 +343,8 @@ python -m pip install "ts-agents[all]"
 ```
 
 Feature extras:
-- `ui`: Gradio UI and hosted profile (`ts-agents-ui`, `ts-agents-hosted`)
-- `agents`: LangChain-backed simple agent support
+- `ui`: Gradio UI and hosted profile (`ts-agents-ui`, `ts-agents-hosted`) — experimental; the CLI is the supported contract surface
+- `agents`: LangChain-backed simple agent support — experimental; outer agent harnesses driving the CLI are the recommended integration path
 - `decomposition`: STL, MSTL, Holt-Winters
 - `forecasting`: statistical forecasting tools
 - `patterns`: matrix profile and changepoint tooling
@@ -499,11 +516,11 @@ data-only; use `ts-agents workflow run forecast-series --output-dir ...` when
 you want forecast plots, CSVs, and reports written as artifacts. If you omit
 `--output-dir`, the workflow creates a unique run directory automatically.
 
-### Agent mode
+### Agent mode (experimental)
 
 ```bash
-ts-agents agent run "Find peaks in bx001_real for Re200Rm200"
-ts-agents agent run --type deep "Compare forecasting methods for bx001_real"
+ts-agents agent run "Find peaks in the demo series"
+ts-agents agent run --type deep "Compare forecasting methods for the demo series"
 ```
 
 ### Compatibility aliases
