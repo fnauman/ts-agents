@@ -42,7 +42,9 @@ uv pip install --python "$VENV/bin/python" "$WHEEL"
 "$VENV/bin/ts-agents" --help >/dev/null
 "$VENV/bin/ts-agents" tool list --bundle demo >/dev/null
 "$VENV/bin/ts-agents-ui" --help >/dev/null
-"$VENV/bin/python" - <<'PY'
+# -I keeps the repo checkout off sys.path so the installed wheel is what
+# actually gets imported and asserted against.
+"$VENV/bin/python" -I - <<'PY'
 from importlib.metadata import version
 
 import ts_agents
@@ -52,6 +54,14 @@ from ts_agents.runtime_paths import resolve_default_data_dir, resolve_default_sk
 assert ts_agents.__version__ == version("ts-agents")
 assert resolve_default_data_dir().exists()
 assert resolve_default_skills_dir().exists()
-assert hosted.app is not None
+
+# The base wheel has no gradio; the hosted app must fail with an actionable
+# extras hint rather than a bare ModuleNotFoundError.
+try:
+    hosted.app
+except ImportError as exc:
+    assert "ts-agents[ui]" in str(exc), exc
+else:
+    raise AssertionError("hosted.app should require the ui extra in a base install")
 print("installed wheel smoke ok")
 PY
