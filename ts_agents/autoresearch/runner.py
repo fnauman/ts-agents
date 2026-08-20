@@ -31,9 +31,9 @@ from ts_agents.workflows.common import (
 )
 
 from .registry import (
+    FOUNDATION_CHRONOS_HORIZON,
     FOUNDATION_CHRONOS_INSTALL_HINT,
     FOUNDATION_CHRONOS_LOOP_NAME,
-    FOUNDATION_CHRONOS_MODEL,
     FOUNDATION_CHRONOS_TASK,
     get_loop,
     loop_to_dict,
@@ -41,9 +41,6 @@ from .registry import (
 
 
 DEFAULT_FORECAST_SERIES = ["M4", "M10", "M100", "M1000", "M1002"]
-DEFAULT_FORECAST_METHODS = ["seasonal_naive", "theta", "ets", "arima"]
-DEFAULT_CLASSIFIERS = ["knn", "minirocket", "rocket"]
-DEFAULT_FOUNDATION_MODELS = ["amazon/chronos-2", "amazon/chronos-t5-small", "AutonLab/MOMENT-1-large"]
 DEFAULT_WINDOW_SIZES = [32, 64, 96, 128, 160]
 _STATSFORECAST_METHODS = {"theta", "ets", "arima"}
 
@@ -105,17 +102,12 @@ def run_autoresearch_loop(
         "dataset": dataset,
     }
 
-    if loop_name == "forecast-daytona":
-        return _run_forecast_daytona(**common)
-    if loop_name == "classify-daytona":
-        return _run_classify_daytona(**common)
-    if loop_name == "foundation-gpu-plan":
-        return _run_foundation_gpu_plan(**common)
-    if loop_name == FOUNDATION_CHRONOS_LOOP_NAME:
-        return _run_foundation_chronos_smoke(**common)
-    raise ValueError(
-        f"Autoresearch loop '{loop_name}' is registered but has no runner."
-    )
+    runner = _RUNNERS.get(loop_name)
+    if runner is None:
+        raise ValueError(
+            f"Autoresearch loop '{loop_name}' is registered but has no runner."
+        )
+    return runner(**common)
 
 
 def _run_forecast_daytona(**kwargs: Any) -> dict[str, Any]:
@@ -505,7 +497,7 @@ def _run_foundation_chronos_smoke(**kwargs: Any) -> dict[str, Any]:
         for series_id in capabilities.get("default_series", [])
         if str(series_id) in panel
     ]
-    horizon = int(capabilities["horizon"])
+    horizon = int(capabilities.get("horizon", FOUNDATION_CHRONOS_HORIZON))
     trial_specs = _forecast_trial_specs(
         panel=panel,
         series_ids=series_ids,
@@ -545,11 +537,7 @@ def _run_foundation_chronos_smoke(**kwargs: Any) -> dict[str, Any]:
                     model=model,
                     task=FOUNDATION_CHRONOS_TASK,
                     trial_id_prefix="foundation-chronos",
-                    forecast_runner=lambda selected_model, train, *, horizon: _forecast_with_chronos(
-                        selected_model,
-                        train,
-                        horizon=horizon,
-                    ),
+                    forecast_runner=_forecast_with_chronos,
                     horizon=horizon,
                     extra_fields={
                         "foundation_family": "Chronos",
@@ -588,7 +576,7 @@ def _run_foundation_chronos_smoke(**kwargs: Any) -> dict[str, Any]:
     }
     artifacts = _write_autoresearch_artifacts(
         output_path=output_path,
-        loop_name=FOUNDATION_CHRONOS_LOOP_NAME,
+        loop_name=definition.name,
         run_id=run_id,
         started_at=started_at,
         definition=loop_to_dict(definition),
@@ -613,7 +601,7 @@ def _run_foundation_chronos_smoke(**kwargs: Any) -> dict[str, Any]:
     )
 
     return _result_payload(
-        loop_name=FOUNDATION_CHRONOS_LOOP_NAME,
+        loop_name=definition.name,
         run_id=run_id,
         status=status,
         summary=(
@@ -636,16 +624,9 @@ def _run_foundation_chronos_smoke(**kwargs: Any) -> dict[str, Any]:
     )
 
 def _normalize_models(loop_name: str, models: Optional[Iterable[str]]) -> list[str]:
+    definition = get_loop(loop_name)
     if models is None:
-        if loop_name == "forecast-daytona":
-            return list(DEFAULT_FORECAST_METHODS)
-        if loop_name == "classify-daytona":
-            return list(DEFAULT_CLASSIFIERS)
-        if loop_name == "foundation-gpu-plan":
-            return list(DEFAULT_FOUNDATION_MODELS)
-        if loop_name == FOUNDATION_CHRONOS_LOOP_NAME:
-            return [FOUNDATION_CHRONOS_MODEL]
-        return []
+        return list(definition.models)
     normalized = []
     for model in models:
         if model is None:
@@ -654,19 +635,12 @@ def _normalize_models(loop_name: str, models: Optional[Iterable[str]]) -> list[s
         if value:
             normalized.append(value)
     if not normalized:
-        return _normalize_models(loop_name, None)
-    valid = {
-        "forecast-daytona": set(DEFAULT_FORECAST_METHODS),
-        "classify-daytona": set(DEFAULT_CLASSIFIERS),
-        "foundation-gpu-plan": set(DEFAULT_FOUNDATION_MODELS),
-        FOUNDATION_CHRONOS_LOOP_NAME: {FOUNDATION_CHRONOS_MODEL},
-    }.get(loop_name)
-    if valid is not None:
-        invalid = sorted(set(normalized).difference(valid))
-        if invalid:
-            raise ValueError(
-                f"Unsupported model(s) for {loop_name}: {', '.join(invalid)}."
-            )
+        return list(definition.models)
+    invalid = sorted(set(normalized).difference(definition.models))
+    if invalid:
+        raise ValueError(
+            f"Unsupported model(s) for {loop_name}: {', '.join(invalid)}."
+        )
     return normalized
 
 
@@ -1776,3 +1750,13 @@ def _foundation_report(plan: dict[str, Any]) -> str:
         ]
     )
     return "\n".join(lines)
+
+
+# Single dispatch table for loop runners: adding a loop means one registry
+# entry plus one row here.
+_RUNNERS: dict[str, Callable[..., dict[str, Any]]] = {
+    "forecast-daytona": _run_forecast_daytona,
+    "classify-daytona": _run_classify_daytona,
+    "foundation-gpu-plan": _run_foundation_gpu_plan,
+    FOUNDATION_CHRONOS_LOOP_NAME: _run_foundation_chronos_smoke,
+}

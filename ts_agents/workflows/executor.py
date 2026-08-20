@@ -10,11 +10,11 @@ from pathlib import Path
 import shutil
 import tempfile
 from typing import Any, Dict, Optional, Tuple
-import uuid
 
 import numpy as np
 
 from ts_agents.cli.input_parsing import LabeledStreamInput, SeriesInput
+from ts_agents.tools import artifact_staging as _staging
 from ts_agents.tools.executor import (
     DockerBackend,
     ExecutionContext,
@@ -34,12 +34,13 @@ from ts_agents.tools.results import format_result, serialize_result
 from . import get_workflow
 
 _WORKFLOW_PREFIX = "workflow:"
-_SANDBOX_ARTIFACT_DIR_ENV = "TS_AGENTS_TOOL_ARTIFACT_DIR"
+_SANDBOX_ARTIFACT_DIR_ENV = _staging.SANDBOX_ARTIFACT_DIR_ENV
 _STAGED_WORKFLOW_ARTIFACTS_KEY = "_ts_agents_staged_workflow_artifacts"
-_WORKFLOW_ARTIFACT_MAX_FILE_BYTES_ENV = "TS_AGENTS_WORKFLOW_ARTIFACT_MAX_FILE_BYTES"
-_WORKFLOW_ARTIFACT_MAX_TOTAL_BYTES_ENV = "TS_AGENTS_WORKFLOW_ARTIFACT_MAX_TOTAL_BYTES"
-_DEFAULT_WORKFLOW_ARTIFACT_MAX_FILE_BYTES = 16 * 1024 * 1024
-_DEFAULT_WORKFLOW_ARTIFACT_MAX_TOTAL_BYTES = 64 * 1024 * 1024
+_WORKFLOW_ARTIFACT_MAX_FILE_BYTES_ENV = _staging.WORKFLOW_ARTIFACT_MAX_FILE_BYTES_ENV
+_WORKFLOW_ARTIFACT_MAX_TOTAL_BYTES_ENV = _staging.WORKFLOW_ARTIFACT_MAX_TOTAL_BYTES_ENV
+
+_enforce_host_availability_for_backend = _staging.enforce_host_availability_for_backend
+_append_payload_warning = _staging.append_payload_warning
 
 
 def _workflow_target_name(workflow_name: str) -> str:
@@ -49,10 +50,6 @@ def _workflow_target_name(workflow_name: str) -> str:
 def is_workflow_target(tool_name: str) -> bool:
     """Return whether a sandbox request targets a workflow."""
     return tool_name.startswith(_WORKFLOW_PREFIX)
-
-
-def _enforce_host_availability_for_backend(backend: SandboxMode) -> bool:
-    return backend in {SandboxMode.LOCAL, SandboxMode.SUBPROCESS}
 
 
 def _serialize_workflow_input(workflow_input: Any) -> Dict[str, Any]:
@@ -90,38 +87,10 @@ def _deserialize_workflow_input(payload: Dict[str, Any]) -> Any:
     raise ValueError(f"Unsupported workflow input payload kind: {kind}")
 
 
-def _append_payload_warning(payload: Dict[str, Any], warning: str) -> None:
-    warnings = payload.get("warnings")
-    if not isinstance(warnings, list):
-        warnings = []
-        payload["warnings"] = warnings
-    if warning not in warnings:
-        warnings.append(warning)
-
-
-def _parse_artifact_limit(var_name: str, default: int) -> Optional[int]:
-    raw = os.environ.get(var_name)
-    if raw is None or not raw.strip():
-        return default
-    try:
-        value = int(raw.strip())
-    except ValueError:
-        return default
-    if value <= 0:
-        return None
-    return value
-
-
 def _workflow_artifact_bundle_limits() -> Tuple[Optional[int], Optional[int]]:
-    return (
-        _parse_artifact_limit(
-            _WORKFLOW_ARTIFACT_MAX_FILE_BYTES_ENV,
-            _DEFAULT_WORKFLOW_ARTIFACT_MAX_FILE_BYTES,
-        ),
-        _parse_artifact_limit(
-            _WORKFLOW_ARTIFACT_MAX_TOTAL_BYTES_ENV,
-            _DEFAULT_WORKFLOW_ARTIFACT_MAX_TOTAL_BYTES,
-        ),
+    return _staging.artifact_bundle_limits(
+        (_WORKFLOW_ARTIFACT_MAX_FILE_BYTES_ENV,),
+        (_WORKFLOW_ARTIFACT_MAX_TOTAL_BYTES_ENV,),
     )
 
 
@@ -163,63 +132,35 @@ def _attach_staged_workflow_artifacts(
         return payload
 
     max_file_bytes, max_total_bytes = _workflow_artifact_bundle_limits()
-    total_bytes = 0
-    staged_files = []
-    if output_dir.exists():
-        for file_path in sorted(output_dir.rglob("*")):
-            if not file_path.is_file():
-                continue
-            file_size = file_path.stat().st_size
-            relative_path = file_path.relative_to(output_dir).as_posix()
-            if max_file_bytes is not None and file_size > max_file_bytes:
-                _append_payload_warning(
-                    payload,
-                    "Skipped remote artifact staging for "
-                    f"'{relative_path}' because it exceeds the per-file limit of {max_file_bytes} bytes. "
-                    f"Set {_WORKFLOW_ARTIFACT_MAX_FILE_BYTES_ENV} to override.",
-                )
-                continue
-            if max_total_bytes is not None and total_bytes + file_size > max_total_bytes:
-                _append_payload_warning(
-                    payload,
-                    "Skipped remote artifact staging for "
-                    f"'{relative_path}' because bundling it would exceed the total limit of {max_total_bytes} bytes. "
-                    f"Set {_WORKFLOW_ARTIFACT_MAX_TOTAL_BYTES_ENV} to override.",
-                )
-                continue
-            content = file_path.read_bytes()
-            total_bytes += len(content)
-            staged_files.append(
-                {
-                    "source_path": str(file_path.resolve()),
-                    "relative_path": relative_path,
-                    "content_base64": base64.b64encode(content).decode("ascii"),
-                }
-            )
-
+    staged_files = _staging.collect_staged_artifact_files(
+        output_dir,
+        payload,
+        max_file_bytes=max_file_bytes,
+        max_total_bytes=max_total_bytes,
+        file_limit_env=_WORKFLOW_ARTIFACT_MAX_FILE_BYTES_ENV,
+        total_limit_env=_WORKFLOW_ARTIFACT_MAX_TOTAL_BYTES_ENV,
+    )
     if staged_files:
         payload[_STAGED_WORKFLOW_ARTIFACTS_KEY] = staged_files
     return payload
 
 
 def _use_staged_workflow_artifact_dir(backend: SandboxMode) -> bool:
-    return backend in {SandboxMode.DOCKER, SandboxMode.DAYTONA, SandboxMode.MODAL}
+    return _staging.use_staged_artifact_dir(backend)
 
 
 def _bundle_staged_workflow_artifacts(backend: SandboxMode) -> bool:
-    return backend in {SandboxMode.DAYTONA, SandboxMode.MODAL}
+    return _staging.bundle_staged_artifacts(backend)
 
 
 def _sandbox_workflow_artifact_dir(
     backend: SandboxMode,
 ) -> Optional[str]:
-    if backend == SandboxMode.DOCKER:
-        return "/io/artifacts"
-    if backend == SandboxMode.DAYTONA:
-        return f".ts_agents_io/artifacts/{uuid.uuid4().hex[:8]}"
-    if backend == SandboxMode.MODAL:
-        return f"/tmp/ts_agents_workflow_artifacts/{uuid.uuid4().hex[:8]}"
-    return None
+    # The Docker path is now unique per run (previously the static
+    # /io/artifacts, which collided across concurrent workflow runs).
+    return _staging.sandbox_artifact_dir(
+        backend, modal_prefix="ts_agents_workflow_artifacts"
+    )
 
 
 def execute_serialized_workflow_request(
@@ -263,7 +204,7 @@ class WorkflowExecutor:
 
         try:
             workflow = get_workflow(workflow_name)
-        except KeyError as exc:
+        except KeyError:
             return ExecutionResult(
                 status=ExecutionStatus.FAILED,
                 error=ToolError(
@@ -486,6 +427,12 @@ def _materialize_remote_workflow_output_paths(
     if not isinstance(staged_files, list) or not staged_files:
         return
 
+    # Resolved once for the whole bundle. When no output dir was requested a
+    # single temp dir is created lazily; previously mkdtemp ran per staged
+    # file, scattering one bundle across as many temp dirs as files.
+    destination_root: Optional[Path] = (
+        Path(requested_output_dir).resolve() if requested_output_dir else None
+    )
     destination_dir: Optional[Path] = None
     rewritten_paths: Dict[str, Path] = {}
     for staged_file in staged_files:
@@ -503,11 +450,10 @@ def _materialize_remote_workflow_output_paths(
                 f"Skipped restoring remote artifact '{relative_path}' because absolute paths are not allowed.",
             )
             continue
-        destination_root = (
-            Path(requested_output_dir).resolve()
-            if requested_output_dir
-            else Path(tempfile.mkdtemp(prefix="ts_agents_workflow_output_")).resolve()
-        )
+        if destination_root is None:
+            destination_root = Path(
+                tempfile.mkdtemp(prefix="ts_agents_workflow_output_")
+            ).resolve()
         destination = destination_root / candidate
         resolved_destination = destination.resolve(strict=False)
         try:
@@ -529,8 +475,14 @@ def _materialize_remote_workflow_output_paths(
         if destination_dir is None:
             destination_dir = destination_root
             destination_dir.mkdir(parents=True, exist_ok=True)
-        resolved_destination.parent.mkdir(parents=True, exist_ok=True)
-        resolved_destination.write_bytes(content)
+        try:
+            _staging.write_bytes_atomically(resolved_destination, content)
+        except OSError as exc:
+            _append_payload_warning(
+                payload,
+                f"Skipped restoring remote artifact '{relative_path}' because it could not be written: {exc}",
+            )
+            continue
         if isinstance(source_path, str):
             rewritten_paths[source_path] = resolved_destination
 

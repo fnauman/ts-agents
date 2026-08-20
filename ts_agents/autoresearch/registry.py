@@ -19,6 +19,22 @@ class AutoresearchBudget:
 
 
 @dataclass(frozen=True)
+class AutoresearchDependencyRule:
+    """Optional-dependency requirement for running a loop on the host.
+
+    ``modules`` maps import names to pip distribution names. When ``models``
+    is set the rule only applies if the selected models intersect it, and
+    ``skip_on_dry_run`` exempts dry runs that never import the dependency.
+    """
+
+    modules: tuple[tuple[str, str], ...]
+    install_extra: str
+    models: tuple[str, ...] | None = None
+    skip_on_dry_run: bool = False
+    label: str = "dependencies"
+
+
+@dataclass(frozen=True)
 class AutoresearchLoopDefinition:
     """Machine-readable metadata for one autoresearch loop."""
 
@@ -33,6 +49,7 @@ class AutoresearchLoopDefinition:
     required_extras: list[str] = field(default_factory=list)
     output_root: str = "outputs/autoresearch"
     capabilities: dict[str, Any] = field(default_factory=dict)
+    dependency_rules: tuple[AutoresearchDependencyRule, ...] = ()
 
 
 FOUNDATION_CHRONOS_LOOP_NAME = "foundation-chronos-smoke"
@@ -74,6 +91,13 @@ _LOOPS: dict[str, AutoresearchLoopDefinition] = {
         secondary_metrics=["mae", "rmse", "mape", "elapsed_seconds", "failure_rate"],
         budget=_DAYTONA_BUDGET,
         required_extras=["forecasting"],
+        dependency_rules=(
+            AutoresearchDependencyRule(
+                modules=(("statsforecast", "statsforecast"),),
+                install_extra="forecasting",
+                models=("theta", "ets", "arima"),
+            ),
+        ),
         capabilities={
             "horizon": 18,
             "season_length": 12,
@@ -104,6 +128,13 @@ _LOOPS: dict[str, AutoresearchLoopDefinition] = {
             notes=list(_DAYTONA_BUDGET.notes),
         ),
         required_extras=["classification"],
+        dependency_rules=(
+            AutoresearchDependencyRule(
+                modules=(("aeon", "aeon"), ("sklearn", "scikit-learn")),
+                install_extra="classification",
+                models=("knn", "minirocket", "rocket"),
+            ),
+        ),
         capabilities={
             "window_sizes": [32, 64, 96, 128, 160],
             "labeling": "strict",
@@ -140,6 +171,14 @@ _LOOPS: dict[str, AutoresearchLoopDefinition] = {
             ],
         ),
         required_extras=["foundation"],
+        dependency_rules=(
+            AutoresearchDependencyRule(
+                modules=(("chronos", "chronos-forecasting"), ("torch", "torch")),
+                install_extra="foundation",
+                skip_on_dry_run=True,
+                label="foundation-model dependencies",
+            ),
+        ),
         capabilities={
             "status": "executable_optional_dependency",
             "generates_metrics": True,
