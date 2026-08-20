@@ -14,6 +14,12 @@ TARGETS=(
   ts_agents/config.py
   ts_agents/runtime_paths.py
   ts_agents/hosted_app.py
+  ts_agents/cli/runs.py
+  ts_agents/cli/jobs.py
+  ts_agents/cli/jobs_worker.py
+  ts_agents/tools/artifact_staging.py
+  tests/cli/test_runs.py
+  tests/cli/test_jobs.py
   tests/test_package_metadata.py
   tests/test_hosted_app.py
   tests/cli/test_entrypoints.py

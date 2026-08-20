@@ -10,9 +10,9 @@ import os
 from pathlib import Path
 import tempfile
 from typing import Any, Dict, Optional, Tuple
-import uuid
 
 from ts_agents.cli.output import to_jsonable
+from ts_agents.tools import artifact_staging as _staging
 from ts_agents.tools.executor import (
     DockerBackend,
     ExecutionContext,
@@ -29,20 +29,24 @@ from ts_agents.tools.executor import (
 )
 from ts_agents.tools.results import format_result, serialize_result
 
-from .registry import FOUNDATION_CHRONOS_INSTALL_HINT, FOUNDATION_CHRONOS_LOOP_NAME, get_loop
+from .registry import get_loop
 from .runner import run_autoresearch_loop
 
 _AUTORESEARCH_PREFIX = "autoresearch:"
-_SANDBOX_ARTIFACT_DIR_ENV = "TS_AGENTS_TOOL_ARTIFACT_DIR"
+_SANDBOX_ARTIFACT_DIR_ENV = _staging.SANDBOX_ARTIFACT_DIR_ENV
 _STAGED_AUTORESEARCH_ARTIFACTS_KEY = "_ts_agents_staged_autoresearch_artifacts"
-_AUTORESEARCH_ARTIFACT_MAX_FILE_BYTES_ENV = "TS_AGENTS_AUTORESEARCH_ARTIFACT_MAX_FILE_BYTES"
-_AUTORESEARCH_ARTIFACT_MAX_TOTAL_BYTES_ENV = "TS_AGENTS_AUTORESEARCH_ARTIFACT_MAX_TOTAL_BYTES"
-_WORKFLOW_ARTIFACT_MAX_FILE_BYTES_ENV = "TS_AGENTS_WORKFLOW_ARTIFACT_MAX_FILE_BYTES"
-_WORKFLOW_ARTIFACT_MAX_TOTAL_BYTES_ENV = "TS_AGENTS_WORKFLOW_ARTIFACT_MAX_TOTAL_BYTES"
-_DEFAULT_AUTORESEARCH_ARTIFACT_MAX_FILE_BYTES = 16 * 1024 * 1024
-_DEFAULT_AUTORESEARCH_ARTIFACT_MAX_TOTAL_BYTES = 64 * 1024 * 1024
-_STATSFORECAST_METHODS = {"theta", "ets", "arima"}
-_CLASSIFICATION_METHODS = {"knn", "minirocket", "rocket"}
+_AUTORESEARCH_ARTIFACT_MAX_FILE_BYTES_ENV = _staging.AUTORESEARCH_ARTIFACT_MAX_FILE_BYTES_ENV
+_AUTORESEARCH_ARTIFACT_MAX_TOTAL_BYTES_ENV = _staging.AUTORESEARCH_ARTIFACT_MAX_TOTAL_BYTES_ENV
+_WORKFLOW_ARTIFACT_MAX_FILE_BYTES_ENV = _staging.WORKFLOW_ARTIFACT_MAX_FILE_BYTES_ENV
+_WORKFLOW_ARTIFACT_MAX_TOTAL_BYTES_ENV = _staging.WORKFLOW_ARTIFACT_MAX_TOTAL_BYTES_ENV
+
+_enforce_host_availability_for_backend = _staging.enforce_host_availability_for_backend
+_append_payload_warning = _staging.append_payload_warning
+_path_contains_symlink = _staging.path_contains_symlink
+_valid_relative_artifact_path = _staging.valid_relative_artifact_path
+_safe_destination_for_relative_path = _staging.safe_destination_for_relative_path
+_relative_artifact_path = _staging.relative_artifact_path
+_write_bytes_atomically = _staging.write_bytes_atomically
 
 
 def _autoresearch_target_name(loop_name: str) -> str:
@@ -54,36 +58,13 @@ def is_autoresearch_target(tool_name: str) -> bool:
     return tool_name.startswith(_AUTORESEARCH_PREFIX)
 
 
-def _parse_artifact_limit(var_names: tuple[str, ...], default: int) -> Optional[int]:
-    for var_name in var_names:
-        raw = os.environ.get(var_name)
-        if raw is None or not raw.strip():
-            continue
-        try:
-            value = int(raw.strip())
-        except ValueError:
-            continue
-        if value <= 0:
-            return None
-        return value
-    return default
-
-
 def _autoresearch_artifact_bundle_limits() -> Tuple[Optional[int], Optional[int]]:
-    return (
-        _parse_artifact_limit(
-            (_AUTORESEARCH_ARTIFACT_MAX_FILE_BYTES_ENV, _WORKFLOW_ARTIFACT_MAX_FILE_BYTES_ENV),
-            _DEFAULT_AUTORESEARCH_ARTIFACT_MAX_FILE_BYTES,
-        ),
-        _parse_artifact_limit(
-            (_AUTORESEARCH_ARTIFACT_MAX_TOTAL_BYTES_ENV, _WORKFLOW_ARTIFACT_MAX_TOTAL_BYTES_ENV),
-            _DEFAULT_AUTORESEARCH_ARTIFACT_MAX_TOTAL_BYTES,
-        ),
+    # Workflow limit env vars still apply as a fallback so one knob can tune
+    # both staging surfaces.
+    return _staging.artifact_bundle_limits(
+        (_AUTORESEARCH_ARTIFACT_MAX_FILE_BYTES_ENV, _WORKFLOW_ARTIFACT_MAX_FILE_BYTES_ENV),
+        (_AUTORESEARCH_ARTIFACT_MAX_TOTAL_BYTES_ENV, _WORKFLOW_ARTIFACT_MAX_TOTAL_BYTES_ENV),
     )
-
-
-def _enforce_host_availability_for_backend(backend: SandboxMode) -> bool:
-    return backend in {SandboxMode.LOCAL, SandboxMode.SUBPROCESS}
 
 
 def _selected_models_for_availability(
@@ -102,45 +83,33 @@ def _selected_models_for_availability(
 def _autoresearch_availability(
     loop_definition: Any, options: Dict[str, Any]
 ) -> Dict[str, Any]:
+    """Check the loop's declared dependency rules against the host."""
     models = _selected_models_for_availability(loop_definition, options)
     missing: list[str] = []
-    if loop_definition.name == "forecast-daytona" and set(models).intersection(
-        _STATSFORECAST_METHODS
-    ):
-        if find_spec("statsforecast") is None:
-            missing.append("statsforecast")
-    if loop_definition.name == "classify-daytona" and set(models).intersection(
-        _CLASSIFICATION_METHODS
-    ):
-        if find_spec("aeon") is None:
-            missing.append("aeon")
-        if find_spec("sklearn") is None:
-            missing.append("scikit-learn")
-    if loop_definition.name == FOUNDATION_CHRONOS_LOOP_NAME and not options.get("dry_run"):
-        if find_spec("chronos") is None:
-            missing.append("chronos-forecasting")
-        if find_spec("torch") is None:
-            missing.append("torch")
+    hint_label = "dependencies"
+    hint_extra: Optional[str] = None
+    for rule in getattr(loop_definition, "dependency_rules", ()) or ():
+        if rule.models is not None and not set(models).intersection(rule.models):
+            continue
+        if rule.skip_on_dry_run and options.get("dry_run"):
+            continue
+        rule_missing = [
+            distribution_name
+            for import_name, distribution_name in rule.modules
+            if find_spec(import_name) is None
+        ]
+        if rule_missing:
+            missing.extend(rule_missing)
+            if hint_extra is None:
+                hint_label = rule.label
+                hint_extra = rule.install_extra
     if not missing:
         return {"available": True, "missing": []}
-    if loop_definition.name == FOUNDATION_CHRONOS_LOOP_NAME:
-        install_hint = (
-            f"Autoresearch loop {loop_definition.name!r} requires optional "
-            "foundation-model dependencies: "
-            f"{', '.join(missing)}. Install with: "
-            f"{FOUNDATION_CHRONOS_INSTALL_HINT}"
-        )
-    else:
-        extra = (
-            "forecasting"
-            if loop_definition.name == "forecast-daytona"
-            else "classification"
-        )
-        install_hint = (
-            f"Autoresearch loop {loop_definition.name!r} requires optional "
-            f"dependencies: {', '.join(missing)}. Install with: "
-            f"pip install 'ts-agents[{extra}]'"
-        )
+    install_hint = (
+        f"Autoresearch loop {loop_definition.name!r} requires optional "
+        f"{hint_label}: {', '.join(missing)}. Install with: "
+        f"pip install 'ts-agents[{hint_extra}]'"
+    )
     return {
         "available": False,
         "missing": missing,
@@ -196,38 +165,14 @@ def _attach_staged_autoresearch_artifacts(result: Any, output_dir: Path) -> Any:
         return payload
 
     max_file_bytes, max_total_bytes = _autoresearch_artifact_bundle_limits()
-    total_bytes = 0
-    staged_files = []
-    if output_dir.exists():
-        for file_path in sorted(output_dir.rglob("*")):
-            if not file_path.is_file():
-                continue
-            file_size = file_path.stat().st_size
-            relative_path = file_path.relative_to(output_dir).as_posix()
-            if max_file_bytes is not None and file_size > max_file_bytes:
-                _append_payload_warning(
-                    payload,
-                    f"Skipped remote artifact staging for '{relative_path}' because it exceeds {max_file_bytes} bytes. "
-                    f"Set {_AUTORESEARCH_ARTIFACT_MAX_FILE_BYTES_ENV} to override.",
-                )
-                continue
-            if max_total_bytes is not None and total_bytes + file_size > max_total_bytes:
-                _append_payload_warning(
-                    payload,
-                    f"Skipped remote artifact staging for '{relative_path}' because total bundle would exceed {max_total_bytes} bytes. "
-                    f"Set {_AUTORESEARCH_ARTIFACT_MAX_TOTAL_BYTES_ENV} to override.",
-                )
-                continue
-            content = file_path.read_bytes()
-            total_bytes += len(content)
-            staged_files.append(
-                {
-                    "source_path": str(file_path.resolve()),
-                    "relative_path": relative_path,
-                    "content_base64": base64.b64encode(content).decode("ascii"),
-                }
-            )
-
+    staged_files = _staging.collect_staged_artifact_files(
+        output_dir,
+        payload,
+        max_file_bytes=max_file_bytes,
+        max_total_bytes=max_total_bytes,
+        file_limit_env=_AUTORESEARCH_ARTIFACT_MAX_FILE_BYTES_ENV,
+        total_limit_env=_AUTORESEARCH_ARTIFACT_MAX_TOTAL_BYTES_ENV,
+    )
     if staged_files:
         payload[_STAGED_AUTORESEARCH_ARTIFACTS_KEY] = staged_files
     return payload
@@ -438,124 +383,17 @@ class AutoresearchExecutor:
 
 
 def _use_staged_autoresearch_artifact_dir(backend: SandboxMode) -> bool:
-    return backend in {SandboxMode.DOCKER, SandboxMode.DAYTONA, SandboxMode.MODAL}
+    return _staging.use_staged_artifact_dir(backend)
 
 
 def _bundle_staged_autoresearch_artifacts(backend: SandboxMode) -> bool:
-    return backend in {SandboxMode.DAYTONA, SandboxMode.MODAL}
+    return _staging.bundle_staged_artifacts(backend)
 
 
 def _sandbox_autoresearch_artifact_dir(backend: SandboxMode) -> Optional[str]:
-    if backend == SandboxMode.DOCKER:
-        return f"/io/artifacts/{uuid.uuid4().hex[:8]}"
-    if backend == SandboxMode.DAYTONA:
-        return f".ts_agents_io/artifacts/{uuid.uuid4().hex[:8]}"
-    if backend == SandboxMode.MODAL:
-        return f"/tmp/ts_agents_autoresearch_artifacts/{uuid.uuid4().hex[:8]}"
-    return None
-
-
-def _append_payload_warning(payload: Dict[str, Any], warning: str) -> None:
-    warnings = payload.get("warnings")
-    if not isinstance(warnings, list):
-        warnings = []
-        payload["warnings"] = warnings
-    if warning not in warnings:
-        warnings.append(warning)
-
-
-def _path_contains_symlink(path: Path) -> bool:
-    current = Path(path.anchor) if path.is_absolute() else Path.cwd()
-    parts = path.parts[1:] if path.is_absolute() else path.parts
-    for part in parts:
-        current = current / part
-        if current.is_symlink():
-            return True
-        if not current.exists():
-            return False
-    return False
-
-
-def _valid_relative_artifact_path(relative_path: str) -> Optional[Path]:
-    candidate = Path(relative_path)
-    if candidate.is_absolute() or not candidate.parts:
-        return None
-    if any(part in {"", ".", ".."} for part in candidate.parts):
-        return None
-    return candidate
-
-
-def _safe_destination_for_relative_path(
-    destination_root: Path,
-    relative_path: str,
-    payload: Dict[str, Any],
-) -> Optional[Path]:
-    candidate = _valid_relative_artifact_path(relative_path)
-    if candidate is None:
-        _append_payload_warning(
-            payload,
-            f"Skipped restoring artifact '{relative_path}' because it is not a safe relative path.",
-        )
-        return None
-
-    parent = destination_root
-    for part in candidate.parts[:-1]:
-        parent = parent / part
-        if parent.is_symlink():
-            _append_payload_warning(
-                payload,
-                f"Skipped restoring artifact '{relative_path}' because a destination directory is a symlink.",
-            )
-            return None
-        try:
-            parent.mkdir(exist_ok=True)
-        except OSError as exc:
-            _append_payload_warning(
-                payload,
-                f"Skipped restoring artifact '{relative_path}' because its destination directory could not be created: {exc}",
-            )
-            return None
-        if not parent.is_dir() or parent.is_symlink():
-            _append_payload_warning(
-                payload,
-                f"Skipped restoring artifact '{relative_path}' because its destination directory is unsafe.",
-            )
-            return None
-
-    destination = parent / candidate.name
-    if destination.is_symlink():
-        _append_payload_warning(
-            payload,
-            f"Skipped restoring artifact '{relative_path}' because the destination is a symlink.",
-        )
-        return None
-    return destination
-
-
-def _relative_artifact_path(source: Path, source_root: Optional[Path]) -> str:
-    if source_root is not None:
-        try:
-            relative = source.resolve().relative_to(source_root)
-            safe = _valid_relative_artifact_path(relative.as_posix())
-            if safe is not None:
-                return safe.as_posix()
-        except ValueError:
-            pass
-    return source.name
-
-
-def _write_bytes_atomically(destination: Path, content: bytes) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
-    try:
-        temp_path.write_bytes(content)
-        os.replace(temp_path, destination)
-    finally:
-        try:
-            if temp_path.exists():
-                temp_path.unlink()
-        except OSError:
-            pass
+    return _staging.sandbox_artifact_dir(
+        backend, modal_prefix="ts_agents_autoresearch_artifacts"
+    )
 
 
 def _materialize_existing_artifacts(

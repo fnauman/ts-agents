@@ -52,3 +52,29 @@ jobs:
 
       - name: Run tests
         run: uv run --frozen --python ${{ matrix.python-version }} python -m pytest -q
+
+  # The base wheel installs and runs on 3.14 even though heavy extras
+  # (numba via stumpy/aeon) do not yet publish 3.14 builds, so the full
+  # test matrix stays on 3.11-3.13 while this job guards the install path.
+  wheel-smoke-314:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Smoke test installed wheel on 3.14
+        shell: bash
+        run: bash scripts/smoke_install_wheel.sh "3.14" dist

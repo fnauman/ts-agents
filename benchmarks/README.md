@@ -41,5 +41,4 @@ decisions can be grounded without turning this repo into a model hub.
 
 Files:
 
-- `benchmarks/external/gift_eval_snapshot.json` — machine-readable external context
-- `benchmarks/external/summary.md` — compact reading guide
+- `benchmarks/external/summary.md` — external benchmark and comparator context

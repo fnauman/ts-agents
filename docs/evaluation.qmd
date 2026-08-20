@@ -68,7 +68,6 @@ External forecasting claims should be compared against benchmark surfaces such a
 GIFT-Eval before being presented as model-performance evidence. The repo now tracks
 that context in:
 
-- `benchmarks/external/gift_eval_snapshot.json`
 - `benchmarks/external/summary.md`
 
 TimeCopilot is treated as a comparator and interoperability target because it has a
