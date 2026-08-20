@@ -1,0 +1,70 @@
+name: Foundation Smoke
+
+# Runs the foundation-chronos-smoke loop unmocked (real chronos-forecasting,
+# real torch, real chronos-t5-tiny download) so chronos API drift is caught
+# here instead of by the first user. Weekly because it downloads a model and
+# exercises optional heavy dependencies that the main CI matrix mocks away.
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+jobs:
+  chronos-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Cache Hugging Face models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-chronos-t5-tiny-v1
+
+      - name: Install with foundation extras
+        run: uv sync --frozen --extra foundation --extra viz
+
+      - name: Run foundation-chronos-smoke unmocked
+        run: |
+          uv run --frozen ts-agents autoresearch run foundation-chronos-smoke \
+            --output-dir outputs/foundation-smoke-ci \
+            --json > smoke_envelope.json
+
+      - name: Verify smoke results
+        run: |
+          uv run --frozen python - <<'PY'
+          import json
+          import math
+          from pathlib import Path
+
+          envelope = json.loads(Path("smoke_envelope.json").read_text())
+          assert envelope["ok"] is True, envelope
+          summary = json.loads(
+              Path("outputs/foundation-smoke-ci/summary.json").read_text()
+          )
+          ranking = summary["model_ranking"]
+          assert ranking, "no models ranked"
+          smape = ranking[0]["smape"]
+          assert isinstance(smape, (int, float)) and math.isfinite(smape), smape
+          print(f"unmocked chronos smoke ok: smape={smape:.3f}")
+          PY
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: foundation-smoke-outputs
+          path: outputs/foundation-smoke-ci/
