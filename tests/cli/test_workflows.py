@@ -616,6 +616,33 @@ def test_run_serialized_workflow_warns_when_artifact_bundle_limits_are_exceeded(
     assert "Skipped remote artifact staging" in payload["warnings"][0]
 
 
+def test_shared_artifact_bundler_rejects_file_symlinks(tmp_path):
+    from ts_agents.tools.artifact_staging import collect_staged_artifact_files
+
+    output_dir = tmp_path / "artifacts"
+    output_dir.mkdir()
+    outside = tmp_path / "outside-secret.txt"
+    outside.write_text("must not be bundled", encoding="utf-8")
+    linked = output_dir / "linked-secret.txt"
+    try:
+        linked.symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+    payload = {}
+    staged = collect_staged_artifact_files(
+        output_dir,
+        payload,
+        max_file_bytes=None,
+        max_total_bytes=None,
+        file_limit_env="TEST_FILE_LIMIT",
+        total_limit_env="TEST_TOTAL_LIMIT",
+    )
+
+    assert staged == []
+    assert "symlink" in payload["warnings"][0]
+
+
 def test_workflow_executor_materializes_remote_artifacts_to_requested_output_dir(monkeypatch, tmp_path):
     import ts_agents.workflows.executor as workflow_executor_mod
     from ts_agents.tools.executor import ExecutionContext, ExecutionResult, ExecutionStatus, SandboxMode

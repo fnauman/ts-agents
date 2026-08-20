@@ -193,8 +193,12 @@ def test_runs_gc_dry_run_then_apply(tmp_path, monkeypatch, capsys):
     outputs = tmp_path / "outputs"
     old_dir = outputs / "inspect" / "old-run"
     new_dir = outputs / "inspect" / "new-run"
-    _write_workflow_manifest(old_dir, run_id="old-run", created_at="2020-01-01T00:00:00Z")
-    _write_workflow_manifest(new_dir, run_id="new-run", created_at="2099-01-01T00:00:00Z")
+    _write_workflow_manifest(
+        old_dir, run_id="old-run", created_at="2020-01-01T00:00:00Z"
+    )
+    _write_workflow_manifest(
+        new_dir, run_id="new-run", created_at="2099-01-01T00:00:00Z"
+    )
 
     code = run(["runs", "gc", "--older-than", "30", "--json"])
     assert code == 0
@@ -215,7 +219,9 @@ def test_runs_gc_refuses_root_and_escaping_directories(tmp_path, monkeypatch, ca
     monkeypatch.chdir(tmp_path)
     outputs = tmp_path / "outputs"
     # A manifest directly in the outputs root must never delete the root.
-    _write_workflow_manifest(outputs, run_id="root-run", created_at="2020-01-01T00:00:00Z")
+    _write_workflow_manifest(
+        outputs, run_id="root-run", created_at="2020-01-01T00:00:00Z"
+    )
 
     code = run(["runs", "gc", "--older-than", "1", "--apply", "--json"])
     assert code == 0
@@ -225,3 +231,56 @@ def test_runs_gc_refuses_root_and_escaping_directories(tmp_path, monkeypatch, ca
     assert len(skipped) == 1
     assert skipped[0]["run_id"] == "root-run"
     assert outputs.exists()
+
+
+def test_runs_gc_preserves_unselected_nested_runs(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    outputs = tmp_path / "outputs"
+    outer = outputs / "workflow" / "failed-outer"
+    child = outer / "successful-child"
+    _write_workflow_manifest(outer, run_id="failed-outer", status="failed")
+    _write_workflow_manifest(child, run_id="successful-child", status="ok")
+
+    code = run(["runs", "gc", "--status", "failed", "--apply", "--json"])
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["result"]["runs"] == []
+    assert payload["result"]["matched"] == 0
+    assert payload["result"]["skipped"][0]["run_id"] == "failed-outer"
+    assert "successful-child" in payload["result"]["skipped"][0]["reason"]
+    assert outer.exists()
+    assert child.exists()
+
+
+def test_runs_gc_counts_selected_nested_tree_once(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    outputs = tmp_path / "outputs"
+    outer = outputs / "workflow" / "outer"
+    child = outer / "child"
+    _write_workflow_manifest(outer, run_id="outer", status="failed")
+    _write_workflow_manifest(child, run_id="child", status="failed")
+
+    code = run(["runs", "gc", "--status", "failed", "--json"])
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["result"]["matched"] == 1
+    assert [entry["run_id"] for entry in payload["result"]["runs"]] == ["outer"]
+    assert outer.exists()
+
+    code = run(["runs", "gc", "--status", "failed", "--apply", "--json"])
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["result"]["matched"] == 1
+    assert not outer.exists()
+
+
+def test_runs_reject_negative_limits(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert run(["runs", "gc", "--older-than", "-1", "--json"]) == 2
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "usage_error"
+
+    assert run(["runs", "list", "--limit", "-1", "--json"]) == 2
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "usage_error"
+
+    assert run(["runs", "gc", "--older-than", "nan", "--json"]) == 2
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "usage_error"

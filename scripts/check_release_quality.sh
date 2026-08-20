@@ -17,6 +17,7 @@ TARGETS=(
   ts_agents/cli/runs.py
   ts_agents/cli/jobs.py
   ts_agents/cli/jobs_worker.py
+  ts_agents/tools/artifact_staging.py
   tests/cli/test_runs.py
   tests/cli/test_jobs.py
   tests/test_package_metadata.py

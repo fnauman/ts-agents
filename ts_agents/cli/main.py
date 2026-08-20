@@ -7,6 +7,7 @@ from difflib import get_close_matches
 from functools import partial
 from importlib.util import find_spec
 import json
+import math
 import os
 from pathlib import Path
 import shlex
@@ -1069,6 +1070,27 @@ def _add_capabilities_subcommand(subparsers: argparse._SubParsersAction) -> None
     _add_output_args(capabilities_parser)
 
 
+def _nonnegative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be zero or a positive integer")
+    return parsed
+
+
+def _nonnegative_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed < 0:
+        raise argparse.ArgumentTypeError("must be a finite nonnegative number")
+    return parsed
+
+
+def _positive_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a finite positive number")
+    return parsed
+
+
 def _add_runs_subcommands(subparsers: argparse._SubParsersAction) -> None:
     runs_parser = subparsers.add_parser(
         "runs",
@@ -1103,7 +1125,7 @@ def _add_runs_subcommands(subparsers: argparse._SubParsersAction) -> None:
     )
     list_parser.add_argument(
         "--limit",
-        type=int,
+        type=_nonnegative_int,
         default=None,
         help="Show at most this many runs (newest first)",
     )
@@ -1148,7 +1170,7 @@ def _add_runs_subcommands(subparsers: argparse._SubParsersAction) -> None:
     )
     gc_parser.add_argument(
         "--older-than",
-        type=float,
+        type=_nonnegative_float,
         default=None,
         metavar="DAYS",
         help="Only delete runs created more than DAYS days ago",
@@ -1209,7 +1231,7 @@ def _add_jobs_subcommands(subparsers: argparse._SubParsersAction) -> None:
     logs_parser.add_argument("job_id", help="Job id to read logs for")
     logs_parser.add_argument(
         "--tail",
-        type=int,
+        type=_nonnegative_int,
         default=None,
         metavar="N",
         help="Only show the last N log lines",
@@ -1230,7 +1252,7 @@ def _add_jobs_subcommands(subparsers: argparse._SubParsersAction) -> None:
     )
     cancel_parser.add_argument(
         "--wait",
-        type=float,
+        type=_positive_float,
         default=10.0,
         metavar="SECONDS",
         help="How long to wait for the job to exit (default: 10)",

@@ -20,8 +20,12 @@ SANDBOX_ARTIFACT_DIR_ENV = "TS_AGENTS_TOOL_ARTIFACT_DIR"
 
 WORKFLOW_ARTIFACT_MAX_FILE_BYTES_ENV = "TS_AGENTS_WORKFLOW_ARTIFACT_MAX_FILE_BYTES"
 WORKFLOW_ARTIFACT_MAX_TOTAL_BYTES_ENV = "TS_AGENTS_WORKFLOW_ARTIFACT_MAX_TOTAL_BYTES"
-AUTORESEARCH_ARTIFACT_MAX_FILE_BYTES_ENV = "TS_AGENTS_AUTORESEARCH_ARTIFACT_MAX_FILE_BYTES"
-AUTORESEARCH_ARTIFACT_MAX_TOTAL_BYTES_ENV = "TS_AGENTS_AUTORESEARCH_ARTIFACT_MAX_TOTAL_BYTES"
+AUTORESEARCH_ARTIFACT_MAX_FILE_BYTES_ENV = (
+    "TS_AGENTS_AUTORESEARCH_ARTIFACT_MAX_FILE_BYTES"
+)
+AUTORESEARCH_ARTIFACT_MAX_TOTAL_BYTES_ENV = (
+    "TS_AGENTS_AUTORESEARCH_ARTIFACT_MAX_TOTAL_BYTES"
+)
 
 DEFAULT_ARTIFACT_MAX_FILE_BYTES = 16 * 1024 * 1024
 DEFAULT_ARTIFACT_MAX_TOTAL_BYTES = 64 * 1024 * 1024
@@ -191,8 +195,21 @@ def collect_staged_artifact_files(
     for file_path in sorted(output_dir.rglob("*")):
         if not file_path.is_file():
             continue
-        file_size = file_path.stat().st_size
         relative_path = file_path.relative_to(output_dir).as_posix()
+        if file_path.is_symlink() or path_contains_symlink(file_path):
+            append_payload_warning(
+                payload,
+                f"Skipped remote artifact staging for '{relative_path}' because it is or contains a symlink.",
+            )
+            continue
+        try:
+            file_size = file_path.stat().st_size
+        except OSError as exc:
+            append_payload_warning(
+                payload,
+                f"Skipped remote artifact staging for '{relative_path}' because it could not be inspected: {exc}",
+            )
+            continue
         if max_file_bytes is not None and file_size > max_file_bytes:
             append_payload_warning(
                 payload,
@@ -209,7 +226,14 @@ def collect_staged_artifact_files(
                 f"Set {total_limit_env} to override.",
             )
             continue
-        content = file_path.read_bytes()
+        try:
+            content = file_path.read_bytes()
+        except OSError as exc:
+            append_payload_warning(
+                payload,
+                f"Skipped remote artifact staging for '{relative_path}' because it could not be read: {exc}",
+            )
+            continue
         total_bytes += len(content)
         staged_files.append(
             {

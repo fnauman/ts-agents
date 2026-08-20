@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import json
+import math
 from pathlib import Path
 import shutil
 from typing import Any, Dict, List, Optional, Tuple
@@ -106,6 +107,10 @@ def filter_runs(
     status: Optional[List[str]] = None,
     older_than_days: Optional[float] = None,
 ) -> List[Dict[str, Any]]:
+    if older_than_days is not None and (
+        not math.isfinite(older_than_days) or older_than_days < 0
+    ):
+        raise ValueError("--older-than must be a finite nonnegative number of days.")
     filtered = records
     if kind:
         filtered = [record for record in filtered if record["kind"] == kind]
@@ -223,9 +228,9 @@ def gc_runs(
 ) -> Dict[str, Any]:
     """Delete (or preview deleting) run directories matching the filters.
 
-    Without ``apply`` this is a dry run listing candidates. Nested runs are
-    handled by deleting outermost directories first and skipping children
-    that disappear with their parent.
+    Without ``apply`` this is a dry run listing candidates. A selected outer
+    run is refused when it contains any unselected cataloged run; when every
+    nested run is selected, only the outermost directory is counted/deleted.
     """
     root_path = Path(root)
     records, warnings = scan_runs(root_path)
@@ -240,19 +245,53 @@ def gc_runs(
     deleted: List[Dict[str, Any]] = []
     skipped: List[Dict[str, Any]] = []
     freed_bytes = 0
-    for record in sorted(candidates, key=lambda item: len(Path(item["output_dir"]).parts)):
+    candidate_manifests = {
+        str(Path(record["manifest_path"]).resolve()) for record in candidates
+    }
+    deletion_roots: List[Path] = []
+    for record in sorted(
+        candidates, key=lambda item: len(Path(item["output_dir"]).parts)
+    ):
         output_dir = Path(record["output_dir"])
+        resolved_output_dir = output_dir.resolve()
+        if any(
+            deletion_root == resolved_output_dir
+            or deletion_root in resolved_output_dir.parents
+            for deletion_root in deletion_roots
+        ):
+            continue
         if not output_dir.exists():
             continue
         reason = _safe_gc_target(root_path, output_dir)
         if reason is not None:
             skipped.append({**record, "reason": reason})
             continue
+        unselected_nested = [
+            nested
+            for nested in records
+            if resolved_output_dir in Path(nested["output_dir"]).resolve().parents
+            and str(Path(nested["manifest_path"]).resolve()) not in candidate_manifests
+        ]
+        if unselected_nested:
+            nested_ids = ", ".join(
+                str(nested.get("run_id") or nested["output_dir"])
+                for nested in unselected_nested[:5]
+            )
+            if len(unselected_nested) > 5:
+                nested_ids += f", and {len(unselected_nested) - 5} more"
+            skipped.append(
+                {
+                    **record,
+                    "reason": f"contains unselected nested run(s): {nested_ids}",
+                }
+            )
+            continue
         size_bytes = _directory_size_bytes(output_dir)
         freed_bytes += size_bytes
         if apply:
             shutil.rmtree(output_dir)
         deleted.append({**record, "size_bytes": size_bytes})
+        deletion_roots.append(resolved_output_dir)
 
     return {
         "root": str(root_path.resolve()),
