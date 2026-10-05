@@ -339,9 +339,8 @@ one release cycle, but they now emit deprecation warnings. Prefer
 ## Installation
 
 Prerequisites:
-- Python 3.11 or newer (the base install is tested through 3.14; some heavy
-  extras such as `patterns` and `classification` depend on numba, which does
-  not yet ship Python 3.14 builds)
+- Python 3.11-3.14 for the base CLI; use 3.11-3.13 for the qualified locked
+  optional dependency stack. Heavy extras are not release-qualified on 3.14.
 - [uv](https://github.com/astral-sh/uv)
 
 Install from PyPI:

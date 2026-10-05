@@ -37,8 +37,8 @@ plus a run/jobs control plane.
 
 - `requires-python` is now `>=3.11` (previously capped `<3.14`). The base
   wheel installs and runs on Python 3.14; the locked optional dependency stack
-  remains qualified on 3.11-3.13; 3.14 qualification covers the base CLI. CI gains a 3.14 wheel-smoke job and the publish workflows smoke
-  3.14.
+  remains qualified on 3.11-3.13; 3.14 qualification covers the base CLI.
+  CI and publish workflows smoke-test base wheels on 3.11-3.14.
 - Shared artifact-staging module: the workflow and autoresearch sandbox
   executors now use one hardened implementation for path validation, symlink
   rejection, atomic writes, and staging limits.
