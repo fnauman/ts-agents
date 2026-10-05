@@ -1,0 +1,7 @@
+include AGENTS.md CHANGELOG.md ROADMAP.md LICENSE README.md pyproject.toml uv.lock main.py app.py
+recursive-include scripts *.sh *.py
+recursive-include tests *.py
+recursive-include skills *.md
+recursive-include examples *.py *.md
+include data/README.md data/short_real.csv data/wisdm_subset.csv data/m4_monthly_mini.csv
+recursive-include data *.py

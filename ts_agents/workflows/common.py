@@ -237,7 +237,8 @@ def attach_workflow_run_metadata(
         "artifacts": [to_jsonable(artifact) for artifact in (*payload.artifacts, manifest_artifact)],
         "provenance": to_jsonable(payload.provenance),
     }
-    payload_text = render_output(to_jsonable(manifest_payload), json_output=True)
-    write_output(payload_text, str(manifest_path))
+    from ts_agents.workflows.lifecycle import write_manifest
+
+    write_manifest(manifest_path, manifest_payload)
     payload.artifacts.append(manifest_artifact)
     return payload

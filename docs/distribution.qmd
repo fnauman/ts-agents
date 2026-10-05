@@ -19,8 +19,9 @@ Publishing automation lives in `.github/workflows/publish-pypi.yml`.
 The workflow is designed for GitHub Actions -> PyPI trusted publishing and runs
 on version tags (`v*`) or manual dispatch.
 
-TestPyPI validation lives in `.github/workflows/publish-testpypi.yml` and is
-intended to be run manually before the first real release.
+Optional TestPyPI validation lives in `.github/workflows/publish-testpypi.yml`.
+It is a separate build/publication and does not establish byte identity with a
+later PyPI build.
 
 ## GitHub Release Flow
 
@@ -29,17 +30,23 @@ Release tags use the form `vX.Y.Z`.
 Recommended release steps:
 
 1. update `CHANGELOG.md`
-2. run `bash scripts/clean_release_artifacts.sh`
-3. run `bash scripts/check_release_quality.sh`
-4. run `uv run python -m pytest -q`
-5. run `uv build`
-6. run `uv tool run twine check dist/*`
-7. run `bash scripts/smoke_install_wheel.sh 3.12 dist`
-8. manually dispatch `publish-testpypi.yml`
-9. inspect the rendered TestPyPI project page and verify the install path there
-10. create/push the git tag
-11. create the GitHub release
-12. let `.github/workflows/publish-pypi.yml` publish the already-validated artifact
+2. merge the release changes and synchronize a clean source revision
+3. install the locked test profile with `uv sync --frozen --all-extras` on Python 3.11-3.13
+4. run `bash scripts/check_release_quality.sh` and `uv run --no-sync python -m pytest -q`
+5. build into a fresh directory with `uv build --out-dir /tmp/ts-agents-release-dist`
+6. check metadata with `uv tool run twine check /tmp/ts-agents-release-dist/*`
+7. run `python scripts/verify_release_artifacts.py --dist-dir /tmp/ts-agents-release-dist --report /tmp/artifact-verification.json`
+8. run `bash scripts/smoke_install_wheel.sh <python-version> /tmp/ts-agents-release-dist` on Python 3.11-3.14 and rebuild/install from an extracted, Git-free sdist
+9. record the commit/tree, source digest, commands, environment, test counts, and qualification limits
+10. push an annotated version tag targeting that revision
+11. let `publish-pypi.yml` qualify the tagged source, build once, verify contents, smoke-install those artifacts, and publish those same artifacts
+12. download the workflow distributions, compare PyPI downloads against their hashes, and create a GitHub release with the distributions, checksums, and qualification evidence
+
+The base install is qualified on Python 3.11-3.14. Full tests use the locked
+optional dependency stack on 3.11-3.13. Background jobs require POSIX
+(Linux/macOS or WSL); Linux is the CI qualification platform. Remote sandbox
+termination, native Windows background jobs, real LLM adapters, and browser UI
+behavior are outside this release qualification.
 
 ## Sandbox Container Image
 
@@ -64,12 +71,13 @@ of requiring a local Docker build before first use.
 
 ## Notes
 
-- CI now builds once and smoke-tests the wheel on Python 3.11, 3.12, and 3.13.
+- CI smoke-tests the base wheel on Python 3.11-3.14 outside the checkout, including
+  discovery, skills, workflows, autoresearch, run catalogs, and job completion.
 - CI also runs a narrow `ruff` + `mypy` quality gate over the release/package
   surface.
 - The publish workflow also gates real PyPI publishing on the same artifact
   smoke matrix.
-- The current dependency minimums intentionally track the validated `0.1.1`
-  release stack; broader lower-bound compatibility can be widened later.
-- Before creating the real release tag, run the TestPyPI workflow and inspect
-  the rendered page for the exact artifact you plan to publish.
+- Locked-stack tests and fresh base dependency resolution cover different
+  environments. Neither establishes compatibility with every declared minimum.
+- Retain source identity, workflow logs, and artifact hashes with each release.
+  GitHub/PyPI publication must be verified by downloading the artifacts.

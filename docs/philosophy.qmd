@@ -53,11 +53,12 @@ Why:
 Every workflow run gets a generated run ID, a run-scoped directory under
 `outputs/<workflow>/<run-id>/`, a `run_manifest.json` capturing inputs/params/
 execution backend metadata/artifacts, and non-clobbering defaults with explicit
-`--overwrite` / `--resume` semantics.
+`--overwrite` / `--resume` semantics. Resume reruns the same input and options;
+it does not recover a computational checkpoint.
 
 Why:
 
-- long autonomous sessions remain reproducible and resumable
+- long autonomous sessions remain traceable and safe to rerun
 - retry loops don't corrupt previous outputs
 - downstream steps can materialize artifacts from any working directory
 
