@@ -1255,7 +1255,7 @@ def _add_jobs_subcommands(subparsers: argparse._SubParsersAction) -> None:
     cancel_parser.add_argument(
         "--force",
         action="store_true",
-        help="Send SIGKILL instead of SIGTERM",
+        help="Force termination of the supervised local command process group",
     )
     cancel_parser.add_argument(
         "--wait",
@@ -2554,6 +2554,12 @@ def _handle_capabilities_command(args: argparse.Namespace) -> Tuple[Any, str]:
                 "ts-agents jobs logs <job-id> --tail <n> --json",
                 "ts-agents jobs cancel <job-id> --json",
             ],
+        },
+        "background_jobs": {
+            "available": os.name == "posix",
+            "required_platform": "POSIX (Linux/macOS or WSL)",
+            "cancellation_scope": "supervised local command process group",
+            "remote_cancellation_confirmed": False,
         },
         "install_profile": install_profile,
         "status_contract": _capabilities_status_contract(),
