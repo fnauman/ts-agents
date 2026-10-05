@@ -511,6 +511,53 @@ def test_host_finalizes_manifest_when_remote_manifest_was_not_staged(tmp_path, c
     assert manifest["status"] == "ok" and manifest["resume_identity"]
 
 
+@pytest.mark.parametrize("field", ["time_values", "labels", "provenance"])
+def test_resume_fingerprint_preserves_nonfinite_distinctions(field):
+    from ts_agents.workflows.lifecycle import resume_identity
+
+    digests = []
+    for value in (None, float("nan"), float("inf"), float("-inf")):
+        source = SimpleNamespace(series=np.array([1., 2., 3.]))
+        setattr(source, field, {"value": value} if field == "provenance" else [value])
+        digests.append(resume_identity("inspect-series", source, {})["input_sha256"])
+    assert len(set(digests)) == 4
+
+
+def test_failed_resume_retains_creation_time(tmp_path, capsys, monkeypatch):
+    from ts_agents.workflows import lifecycle
+
+    output = tmp_path / "run"
+    argv = ["workflow", "run", "inspect-series", "--input-json", '{"series":[1,2,3,4,5]}',
+            "--output-dir", str(output), "--skip-plots", "--json"]
+    assert run(argv) == 0
+    capsys.readouterr()
+    path = output / "run_manifest.json"
+    original = json.loads(path.read_text())
+    original["created_at"] = "2020-01-01T00:00:00Z"
+    path.write_text(json.dumps(original))
+    write = lifecycle.write_manifest
+    def fail_finalization(path, manifest):
+        if manifest["status"] == "ok":
+            raise OSError("controlled finalization error")
+        write(path, manifest)
+    monkeypatch.setattr(lifecycle, "write_manifest", fail_finalization)
+    assert run(argv + ["--resume"]) == 6
+    capsys.readouterr()
+    failed = json.loads(path.read_text())
+    assert failed["status"] == "failed"
+    assert failed["created_at"] == original["created_at"]
+    assert failed["run_id"] == original["run_id"]
+
+
+def test_invalid_sandbox_context_is_cataloged_as_failed(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("TS_AGENTS_SANDBOX_MODE", "invalid-backend")
+    output = tmp_path / "run"
+    assert run(["workflow", "run", "inspect-series", "--input-json", '{"series":[1,2,3,4,5]}',
+                "--output-dir", str(output), "--skip-plots", "--json"]) == 2
+    capsys.readouterr()
+    assert json.loads((output / "run_manifest.json").read_text())["status"] == "failed"
+
+
 def test_workflow_run_resume_rejects_invalid_manifest_json(capsys, tmp_path):
     output_dir = tmp_path / "inspect"
     output_dir.mkdir()

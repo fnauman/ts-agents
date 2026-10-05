@@ -3075,13 +3075,13 @@ def _handle_workflow_command(args: argparse.Namespace) -> Tuple[Any, Optional[st
         created_at = begin_run(run_lifecycle, identity, _workflow_input_source_ref(workflow_input))
 
         sandbox_mode = getattr(args, "sandbox", None) or os.environ.get("TS_AGENTS_SANDBOX_MODE")
-        context = ExecutionContext(
-            sandbox_mode=sandbox_mode,
-            allow_network=getattr(args, "allow_network", False),
-            allow_fallback=allow_fallback,
-            fallback_backend=fallback_backend,
-        )
         try:
+            context = ExecutionContext(
+                sandbox_mode=sandbox_mode,
+                allow_network=getattr(args, "allow_network", False),
+                allow_fallback=allow_fallback,
+                fallback_backend=fallback_backend,
+            )
             execution = execute_workflow(
                 args.workflow_name,
                 workflow_input,
