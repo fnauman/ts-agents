@@ -14,39 +14,60 @@ from typing import Any
 from ts_agents.cli.output import to_jsonable
 
 
-def resume_identity(workflow: str, workflow_input: Any, options: dict) -> dict:
-    """Fingerprint normalized input, interpretation, and options.
+def _identity_value(value: Any) -> Any:
+    """Encode input types/values without presentation-time JSON sanitization."""
+    import numpy as np
 
-    Only output location is excluded. Resume requires the same analysis and
-    presentation settings; it is a rerun, not checkpoint recovery.
+    if isinstance(value, np.ndarray):
+        content = (_identity_value(value.tolist()) if value.dtype.hasobject
+                   else hashlib.sha256(value.tobytes(order="C")).hexdigest())
+        return ["array", str(value.dtype), list(value.shape), content]
+    if isinstance(value, np.generic):
+        return _identity_value(value.item())
+    if value is None:
+        return ["null"]
+    if isinstance(value, bool):
+        return ["bool", value]
+    if isinstance(value, int):
+        return ["int", str(value)]
+    if isinstance(value, float):
+        return ["float", value.hex()]
+    if isinstance(value, str):
+        return ["str", value]
+    if isinstance(value, dict):
+        pairs = [[_identity_value(key), _identity_value(item)] for key, item in value.items()]
+        return ["dict", sorted(pairs, key=lambda pair: json.dumps(pair[0], sort_keys=True))]
+    if isinstance(value, (list, tuple)):
+        return [type(value).__name__, [_identity_value(item) for item in value]]
+    return [type(value).__module__, type(value).__name__, to_jsonable(value)]
+
+
+def _identity_digest(value: Any) -> str:
+    digest = hashlib.sha256()
+    encoder = json.JSONEncoder(sort_keys=True, allow_nan=False, separators=(",", ":"))
+    for chunk in encoder.iterencode(_identity_value(value)):
+        digest.update(chunk.encode("utf-8"))
+    return digest.hexdigest()
+
+
+def resume_identity(workflow: str, workflow_input: Any, options: dict) -> dict:
+    """Fingerprint all normalized input fields and analysis/presentation options.
+
+    Only output location is excluded. Resume is a rerun, not checkpoint recovery.
+    Numeric/nonfinite distinctions survive in arrays, labels, times, and metadata.
     """
     fields = (
         "series", "values", "labels", "time_values", "time_column",
         "value_column", "value_columns", "label_column", "source_type",
         "input_path", "label", "provenance",
     )
-    normalized = {
-        name: to_jsonable(getattr(workflow_input, name))
-        for name in fields if hasattr(workflow_input, name)
-    }
-    # Preserve nonfinite values distinctly: JSON sanitization would otherwise
-    # collapse NaN and both infinities to null in the compatibility digest.
-    for name in ("series", "values"):
-        array = getattr(workflow_input, name, None)
-        if array is not None:
-            normalized[name] = {
-                "dtype": str(array.dtype), "shape": list(array.shape),
-                "sha256": hashlib.sha256(array.tobytes(order="C")).hexdigest(),
-            }
-    digest = hashlib.sha256()
-    encoder = json.JSONEncoder(sort_keys=True, allow_nan=False, separators=(",", ":"))
-    for chunk in encoder.iterencode(normalized):
-        digest.update(chunk.encode("utf-8"))
+    normalized = {name: getattr(workflow_input, name) for name in fields if hasattr(workflow_input, name)}
+    analysis_options = {key: value for key, value in options.items() if key != "output_dir"}
     return {
-        "version": "1",
-        "workflow": workflow,
-        "input_sha256": digest.hexdigest(),
-        "options": to_jsonable({key: value for key, value in options.items() if key != "output_dir"}),
+        "version": "1", "workflow": workflow,
+        "input_sha256": _identity_digest(normalized),
+        "options_sha256": _identity_digest(analysis_options),
+        "options": to_jsonable(analysis_options),
     }
 
 
@@ -135,6 +156,7 @@ def begin_run(lifecycle: dict, identity: dict, source: dict) -> str:
         "artifacts": [],
     }
     write_manifest(lifecycle["manifest_path"], manifest)
+    lifecycle["_created_at"] = manifest["created_at"]
     return manifest["created_at"]
 
 
@@ -143,6 +165,7 @@ def fail_run(lifecycle: dict, error: Exception, identity: dict) -> None:
     path = Path(lifecycle["manifest_path"])
     manifest = json.loads(path.read_text())
     manifest["status"] = "failed"
+    manifest["created_at"] = lifecycle["_created_at"]
     manifest["resume_identity"] = identity
     manifest["error"] = {"type": type(error).__name__, "message": str(error)}
     manifest["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
