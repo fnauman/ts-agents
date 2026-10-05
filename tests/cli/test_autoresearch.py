@@ -25,6 +25,106 @@ def test_autoresearch_list_json_returns_loops(capsys):
     assert "foundation-gpu-plan" in names
 
 
+def test_autoresearch_leases_unpublished_output_and_final_manifest(
+    tmp_path, monkeypatch, capsys,
+):
+    import ts_agents.autoresearch.executor as executor_module
+    import ts_agents.cli.main as cli_module
+    from ts_agents.cli.runs import gc_runs
+    from ts_agents.workflows.lifecycle import lock_run_output
+
+    outer = tmp_path / "outputs" / "outer"
+    outer.mkdir(parents=True)
+    (outer / "run_manifest.json").write_text(json.dumps({
+        "workflow": "inspect-series", "run_id": "outer", "status": "failed",
+        "created_at": "2026-05-01T12:00:00Z",
+    }))
+    child = outer / "child"
+    original_execute = executor_module.execute_autoresearch
+    original_sync = cli_module._synchronize_autoresearch_manifest
+    stages = []
+
+    def execute(*args, **kwargs):
+        assert not child.exists()
+        result = gc_runs(tmp_path / "outputs", apply=True)
+        assert result["runs"] == []
+        assert "busy" in result["skipped"][0]["reason"]
+        with pytest.raises(ValueError, match="busy"):
+            with lock_run_output(outer):
+                pytest.fail("parent overwrite acquired the active child's lease")
+        stages.append("execute")
+        return original_execute(*args, **kwargs)
+
+    def synchronize(*args, **kwargs):
+        with pytest.raises(ValueError, match="busy"):
+            with lock_run_output(child):
+                pytest.fail("output lease released before host manifest update")
+        stages.append("synchronize")
+        return original_sync(*args, **kwargs)
+
+    monkeypatch.setattr(executor_module, "execute_autoresearch", execute)
+    monkeypatch.setattr(cli_module, "_synchronize_autoresearch_manifest", synchronize)
+    assert run([
+        "autoresearch", "run", "forecast-daytona", "--profile", "smoke",
+        "--models", "seasonal_naive", "--max-trials", "1", "--skip-plots",
+        "--output-dir", str(child), "--json",
+    ]) == 0
+    assert json.loads(capsys.readouterr().out)["ok"] is True
+    assert stages == ["execute", "synchronize"]
+    assert (child / "run_manifest.json").is_file()
+    with lock_run_output(child):
+        pass  # The lease is released after successful completion.
+
+
+@pytest.mark.parametrize("busy_scope", ["same", "parent", "child", "home"])
+def test_autoresearch_refuses_conflicting_output_lease(
+    tmp_path, monkeypatch, capsys, busy_scope,
+):
+    import ts_agents.autoresearch.executor as executor_module
+    from ts_agents.workflows.lifecycle import lock_run_output
+
+    output = tmp_path / "output"
+    scopes = {"same": output, "parent": tmp_path, "child": output / "nested", "home": output}
+    monkeypatch.setenv("HOME", str(tmp_path))
+    output_arg = "~/output" if busy_scope == "home" else str(output)
+
+    def unexpected_execute(*_args, **_kwargs):
+        pytest.fail("execution started despite a conflicting output lease")
+
+    monkeypatch.setattr(executor_module, "execute_autoresearch", unexpected_execute)
+    with lock_run_output(scopes[busy_scope]):
+        code = run([
+            "autoresearch", "run", "forecast-daytona", "--dry-run",
+            "--output-dir", output_arg, "--json",
+        ])
+    assert code == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert "busy" in payload["error"]["message"]
+    assert not output.exists()
+
+
+def test_autoresearch_releases_output_lease_on_failure(tmp_path, monkeypatch, capsys):
+    import ts_agents.autoresearch.executor as executor_module
+    from ts_agents.workflows.lifecycle import lock_run_output
+
+    output = tmp_path / "failed"
+
+    def fail_execute(*_args, **_kwargs):
+        with pytest.raises(ValueError, match="busy"):
+            with lock_run_output(output):
+                pytest.fail("execution was not protected by an output lease")
+        raise ValueError("controlled execution failure")
+
+    monkeypatch.setattr(executor_module, "execute_autoresearch", fail_execute)
+    assert run([
+        "autoresearch", "run", "forecast-daytona", "--dry-run",
+        "--output-dir", str(output), "--json",
+    ]) == 2
+    assert "controlled execution failure" in json.loads(capsys.readouterr().out)["error"]["message"]
+    with lock_run_output(output):
+        pass
+
+
 def test_autoresearch_show_json_returns_budget(capsys):
     code = run(["autoresearch", "show", "forecast-daytona", "--json"])
 
