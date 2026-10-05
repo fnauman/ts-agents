@@ -329,3 +329,26 @@ def test_runs_gc_rechecks_identity_before_deleting(tmp_path, monkeypatch):
     result = runs_module.gc_runs(tmp_path / "outputs", apply=True)
     assert result["runs"] == []
     assert json.loads((output / "run_manifest.json").read_text())["run_id"] == "new"
+
+
+def test_gc_refuses_parent_with_unpublished_nested_writer(tmp_path):
+    from ts_agents.cli.runs import gc_runs
+    from ts_agents.workflows.lifecycle import lock_run_output
+
+    outer = tmp_path / "outputs" / "outer"
+    _write_workflow_manifest(outer, run_id="outer", status="failed")
+    # The child has acquired ownership but has not even created its directory.
+    with lock_run_output(outer / "child"):
+        result = gc_runs(tmp_path / "outputs", apply=True)
+        assert result["runs"] == []
+        assert "busy" in result["skipped"][0]["reason"]
+    assert outer.exists()
+
+
+def test_gc_accepts_completed_plan_only_runs(tmp_path):
+    from ts_agents.cli.runs import gc_runs
+
+    output = tmp_path / "outputs" / "plan"
+    _write_autoresearch_manifest(output, run_id="plan", status="plan-only", loop="foundation-gpu-plan")
+    assert gc_runs(tmp_path / "outputs", status=["plan-only"], apply=True)["matched"] == 1
+    assert not output.exists()

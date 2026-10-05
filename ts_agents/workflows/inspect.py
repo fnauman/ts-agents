@@ -29,6 +29,7 @@ def run_inspect_series_workflow(
     run_id: Optional[str] = None,
     resumed: bool = False,
     output_dir_mode: str = "explicit",
+    defer_finalization: bool = False,
 ) -> ToolPayload:
     """Run a lightweight diagnostics workflow on an arbitrary series."""
     from ts_agents.core.recommendations import recommend_forecasting_method
@@ -161,6 +162,7 @@ def run_inspect_series_workflow(
         },
         resumed=resumed,
         output_dir_mode=output_dir_mode,
+        defer_finalization=defer_finalization,
     )
 
 

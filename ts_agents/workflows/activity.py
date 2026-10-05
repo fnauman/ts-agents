@@ -42,6 +42,7 @@ def run_activity_recognition_workflow(
     run_id: Optional[str] = None,
     resumed: bool = False,
     output_dir_mode: str = "explicit",
+    defer_finalization: bool = False,
 ) -> ToolPayload:
     """Run window-size selection and evaluation on a labeled sensor stream."""
     from ts_agents.core.windowing import evaluate_windowed_classifier, select_window_size
@@ -236,6 +237,7 @@ def run_activity_recognition_workflow(
         },
         resumed=resumed,
         output_dir_mode=output_dir_mode,
+        defer_finalization=defer_finalization,
     )
 
 

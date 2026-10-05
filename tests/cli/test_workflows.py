@@ -2,6 +2,7 @@ import base64
 import argparse
 import io
 import json
+import os
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -443,6 +444,71 @@ def test_workflow_catalogs_active_and_failed_execution(capsys, tmp_path, monkeyp
     assert manifest["status"] == "failed"
     assert manifest["error"]["message"] == "controlled execution failure"
     assert manifest["resume_identity"]["input_sha256"]
+
+
+def test_parent_overwrite_refuses_unpublished_nested_writer(tmp_path, capsys):
+    from ts_agents.workflows.lifecycle import lock_run_output
+
+    outer = tmp_path / "parent"
+    outer.mkdir()
+    evidence = outer / "keep.txt"
+    evidence.write_text("keep")
+    with lock_run_output(outer / "child"):
+        assert run(["workflow", "run", "inspect-series", "--input-json", '{"series":[1,2,3,4,5]}',
+                    "--output-dir", str(outer), "--overwrite", "--skip-plots", "--json"]) == 2
+        assert "busy" in json.loads(capsys.readouterr().out)["error"]["message"]
+    assert evidence.read_text() == "keep"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="shared ancestor leases on POSIX")
+def test_independent_sibling_output_leases_can_coexist(tmp_path):
+    from ts_agents.workflows.lifecycle import lock_run_output
+
+    with lock_run_output(tmp_path / "first"), lock_run_output(tmp_path / "second"):
+        pass
+
+
+def test_persistent_status_write_error_preserves_original_exception(tmp_path, capsys, monkeypatch):
+    from ts_agents.workflows import executor, lifecycle
+
+    original_write = lifecycle.write_manifest
+    def write_once(path, manifest):
+        if Path(path).exists():
+            raise OSError("status storage unavailable")
+        original_write(path, manifest)
+    monkeypatch.setattr(lifecycle, "write_manifest", write_once)
+    def fail(*args, **kwargs):
+        raise ValueError("original workflow failure")
+    monkeypatch.setattr(executor, "execute_workflow", fail)
+    output = tmp_path / "run"
+    assert run(["workflow", "run", "inspect-series", "--input-json", '{"series":[1,2,3,4,5]}',
+                "--output-dir", str(output), "--skip-plots", "--json"]) == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["message"] == "original workflow failure"
+    assert payload["error"]["details"]["status_recording_error"] == "status storage unavailable"
+    assert json.loads((output / "run_manifest.json").read_text())["status"] == "running"
+
+
+def test_host_finalizes_manifest_when_remote_manifest_was_not_staged(tmp_path, capsys, monkeypatch):
+    from ts_agents.workflows import executor
+    from ts_agents.tools.executor import ExecutionResult, ExecutionStatus
+    from ts_agents.contracts import ToolPayload
+
+    def remote_result(*args, **kwargs):
+        return ExecutionResult(status=ExecutionStatus.SUCCESS,
+            result=ToolPayload(kind="workflow", summary="remote inspection", status="ok", data={
+                "manifest_path": "/unavailable-sandbox/run_manifest.json",
+                "output_dir": "/unavailable-sandbox", "source": {},
+            }), metadata={"backend_actual": "daytona"})
+    monkeypatch.setattr(executor, "execute_workflow", remote_result)
+    output = tmp_path / "run"
+    assert run(["workflow", "run", "inspect-series", "--input-json", '{"series":[1,2,3,4,5]}',
+                "--output-dir", str(output), "--skip-plots", "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)["result"]
+    assert result["data"]["manifest_path"] == str(output / "run_manifest.json")
+    assert result["artifacts"][-1]["path"] == str(output / "run_manifest.json")
+    manifest = json.loads((output / "run_manifest.json").read_text())
+    assert manifest["status"] == "ok" and manifest["resume_identity"]
 
 
 def test_workflow_run_resume_rejects_invalid_manifest_json(capsys, tmp_path):

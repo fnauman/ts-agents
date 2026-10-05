@@ -25,7 +25,7 @@ DEFAULT_OUTPUT_ROOT = "outputs"
 RUN_KIND_WORKFLOW = "workflow"
 RUN_KIND_AUTORESEARCH = "autoresearch"
 RUN_KIND_UNKNOWN = "unknown"
-TERMINAL_RUN_STATUSES = {"ok", "degraded", "failed", "completed", "cancelled", "planned"}
+TERMINAL_RUN_STATUSES = {"ok", "degraded", "failed", "completed", "cancelled", "planned", "plan-only"}
 
 
 def _parse_timestamp(value: Any) -> Optional[datetime]:
@@ -276,12 +276,6 @@ def gc_runs(
         with ExitStack() as locks:
             try:
                 locks.enter_context(lock_run_output(output_dir))
-                # Retain existing nested writers even before their first
-                # manifest has been finalized.
-                for nested in records:
-                    nested_output = Path(nested["output_dir"])
-                    if resolved_output_dir in nested_output.resolve().parents:
-                        locks.enter_context(lock_run_output(nested_output))
             except ValueError as exc:
                 skipped.append({**record, "reason": str(exc)})
                 continue

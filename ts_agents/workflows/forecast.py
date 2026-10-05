@@ -35,6 +35,7 @@ def run_forecast_series_workflow(
     run_id: Optional[str] = None,
     resumed: bool = False,
     output_dir_mode: str = "explicit",
+    defer_finalization: bool = False,
 ) -> ToolPayload:
     """Run the baseline forecasting workflow."""
     import pandas as pd
@@ -201,6 +202,7 @@ def run_forecast_series_workflow(
         },
         resumed=resumed,
         output_dir_mode=output_dir_mode,
+        defer_finalization=defer_finalization,
     )
 
 

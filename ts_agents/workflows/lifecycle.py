@@ -87,30 +87,42 @@ def write_manifest(path: str | Path, manifest: dict) -> None:
 
 @contextmanager
 def lock_run_output(output_dir: str | Path):
-    """Exclude simultaneous writers/cleanup of the same output directory.
+    """Hold shared ancestor leases and an exclusive output lease.
 
-    Locks live outside the directory so overwrite/GC cannot unlink an active
-    lease and let another process acquire a different inode for the same run.
+    A parent overwrite/GC therefore conflicts with every nested writer,
+    including one that has not published a manifest. Independent sibling runs
+    can execute concurrently on POSIX. Leases are outside deletable run trees.
+    Native Windows uses conservative exclusive locks for every scope.
     """
+    from contextlib import ExitStack
     from ts_agents.cli.jobs import _try_lock_lease, _unlock_lease
 
     output = Path(output_dir).resolve()
-    lock_root = output.parent / ".ts-agents-locks"
-    lock_root.mkdir(parents=True, exist_ok=True)
-    name = hashlib.sha256(str(output).encode()).hexdigest()
-    with (lock_root / f"{name}.lease").open("a+b") as handle:
-        if handle.tell() == 0:
-            handle.write(b"0")
-            handle.flush()
-        if not _try_lock_lease(handle):
-            raise ValueError(f"Run output directory is busy: {output}")
-        try:
-            yield
-        finally:
-            _unlock_lease(handle)
+    user = str(os.getuid()) if hasattr(os, "getuid") else os.environ.get("USERNAME", "default")
+    lock_root = Path(tempfile.gettempdir()) / ("ts-agents-run-locks-" + hashlib.sha256(user.encode()).hexdigest()[:16])
+    lock_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    scopes = [*reversed(output.parents), output]
+    with ExitStack() as stack:
+        for scope in scopes:
+            name = hashlib.sha256(str(scope).encode()).hexdigest()
+            handle = stack.enter_context((lock_root / f"{name}.lease").open("a+b"))
+            if handle.tell() == 0:
+                handle.write(b"0")
+                handle.flush()
+            if os.name == "posix":
+                import fcntl
+                operation = fcntl.LOCK_EX if scope == output else fcntl.LOCK_SH
+                try:
+                    fcntl.flock(handle.fileno(), operation | fcntl.LOCK_NB)
+                except BlockingIOError as exc:
+                    raise ValueError(f"Run output directory is busy: {output}") from exc
+            elif not _try_lock_lease(handle):
+                raise ValueError(f"Run output directory is busy: {output}")
+            stack.callback(_unlock_lease, handle)
+        yield
 
 
-def begin_run(lifecycle: dict, identity: dict, source: dict) -> None:
+def begin_run(lifecycle: dict, identity: dict, source: dict) -> str:
     """Catalog active work before execution so GC can retain it."""
     previous = lifecycle.get("_existing_manifest") or {}
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -123,6 +135,7 @@ def begin_run(lifecycle: dict, identity: dict, source: dict) -> None:
         "artifacts": [],
     }
     write_manifest(lifecycle["manifest_path"], manifest)
+    return manifest["created_at"]
 
 
 def fail_run(lifecycle: dict, error: Exception, identity: dict) -> None:
