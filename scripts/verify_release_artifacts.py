@@ -9,7 +9,7 @@ from email.parser import Parser
 import hashlib
 import io
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import subprocess
 import tarfile
 import tomllib
@@ -32,8 +32,8 @@ def verify(source: Path, dist: Path) -> dict:
     package_files = [name for name in tracked if name.startswith("ts_agents/")]
     root_files = {"AGENTS.md", "CHANGELOG.md", "ROADMAP.md", "LICENSE", "README.md", "pyproject.toml",
                   "uv.lock", "main.py", "app.py", "MANIFEST.in"}
-    source_files = [name for name in tracked if name in root_files or name.startswith(
-        ("ts_agents/", "scripts/", "tests/", "skills/", "examples/", "data/"))]
+    maintained_prefixes = ("ts_agents/", "scripts/", "tests/", "skills/", "examples/", "data/")
+    source_files = [name for name in tracked if name in root_files or name.startswith(maintained_prefixes)]
     if not package_files:
         raise ValueError("Source checkout has no tracked package files")
     git_archive = subprocess.check_output(["git", "-C", str(source), "archive", commit])
@@ -76,10 +76,30 @@ def verify(source: Path, dist: Path) -> dict:
             if digest != expected or size != str(len(data)):
                 raise ValueError(f"RECORD integrity mismatch: {name}")
     with tarfile.open(sdists[0]) as archive:
-        roots = {member.name.split("/")[0] for member in archive.getmembers()}
+        members = archive.getmembers()
+        for member in members:
+            name = member.name.removesuffix("/") if member.isdir() else member.name
+            if (PurePosixPath(name).is_absolute() or PurePosixPath(name).as_posix() != name
+                    or ".." in PurePosixPath(name).parts or "\\" in name):
+                raise ValueError(f"Noncanonical source archive member: {member.name}")
+            if not member.isfile() and not member.isdir():
+                raise ValueError(f"Nonregular source archive member: {member.name}")
+        roots = {member.name.split("/")[0] for member in members}
         if len(roots) != 1:
             raise ValueError("Expected one source archive root")
         root = roots.pop()
+        if root != sdists[0].name.removesuffix(".tar.gz"):
+            raise ValueError("Source archive root differs from distribution filename")
+        maintained_members = [member for member in members if not member.isdir()
+                              and (member.name.removeprefix(f"{root}/") in root_files
+                                   or member.name.removeprefix(f"{root}/").startswith(maintained_prefixes))]
+        actual_source = {member.name.removeprefix(f"{root}/") for member in maintained_members}
+        if len(maintained_members) != len(actual_source):
+            raise ValueError("Duplicate maintained source archive members")
+        if actual_source != set(source_files):
+            raise ValueError(f"Source archive inventory mismatch: {sorted(actual_source ^ set(source_files))}")
+        if any(not member.isfile() for member in maintained_members):
+            raise ValueError("Maintained source archive members must be regular files")
         for name in source_files:
             extracted = archive.extractfile(f"{root}/{name}")
             if extracted is None or extracted.read() != committed_files[name]:

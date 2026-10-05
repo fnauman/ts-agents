@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.1] - 2026-10-05
+
+### Fixed
+
+- Source-archive verification now rejects untracked and duplicate members in
+  maintained namespaces, path aliases, and nonregular members. A late review identified
+  the gate gap after 0.2.0 publication; independent inventory comparison
+  confirmed that the published 0.2.0 archive contained no extra files.
+  The runtime CLI behavior and dependency profiles are unchanged.
+
 ## [0.2.0] - 2026-10-05
 
 First release since March, bundling the agent-facing surface work since 0.1.1
