@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
+import signal
 import subprocess
 import sys
 import time
 from types import SimpleNamespace
+
+import pytest
 
 from ts_agents.cli import jobs as jobs_module
 from ts_agents.cli import jobs_worker
@@ -102,6 +106,65 @@ def test_jobs_start_requires_a_command(tmp_path, monkeypatch, capsys):
     assert payload["error"]["code"] == "validation_error"
 
 
+def test_jobs_start_refuses_unimplemented_windows_supervision(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs_module, "_IS_POSIX", False)
+    with pytest.raises(jobs_module.ToolError) as exc:
+        jobs_module.start_job(["capabilities"], root=tmp_path / "jobs")
+    assert exc.value.code == jobs_module.ToolErrorCode.BACKEND_UNAVAILABLE
+    assert not (tmp_path / "jobs").exists()
+
+
+def test_command_group_liveness_without_procfs(monkeypatch):
+    process = SimpleNamespace(pid=1234, poll=lambda: 0)
+    monkeypatch.setattr(jobs_worker.Path, "glob", lambda *_args: iter(()))
+    signals = []
+    monkeypatch.setattr(jobs_worker.os, "killpg", lambda pid, sig: signals.append((pid, sig)))
+    assert jobs_worker._command_group_alive(process)
+    assert signals == [(1234, 0)]
+
+
+def test_live_command_does_not_scan_procfs(monkeypatch):
+    process = SimpleNamespace(pid=1234, poll=lambda: None)
+    def fail_scan(*_args):
+        raise AssertionError("live leader must not trigger a procfs scan")
+    monkeypatch.setattr(jobs_worker.Path, "glob", fail_scan)
+    assert jobs_worker._command_group_alive(process)
+
+
+def test_supervisor_cleans_up_command_when_record_write_fails(tmp_path, monkeypatch):
+    import signal
+
+    process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+    original_popen = subprocess.Popen
+    monkeypatch.setattr(jobs_worker.subprocess, "Popen", lambda *_args, **_kwargs: process)
+    def fail_write(*_args):
+        raise OSError("controlled write failure")
+    monkeypatch.setattr(jobs_worker, "write_job_record", fail_write)
+    try:
+        with pytest.raises(OSError, match="controlled write failure"):
+            jobs_worker._supervise_command(tmp_path / "record.json", {"argv": ["capabilities"]})
+        assert process.poll() is not None
+    finally:
+        monkeypatch.setattr(jobs_worker.subprocess, "Popen", original_popen)
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+
+
+def test_cancel_detects_supervisor_loss_during_wait(tmp_path, monkeypatch):
+    job_id = "lost-worker"
+    jobs_module.write_job_record(jobs_module.job_record_path(tmp_path, job_id), {
+        "job_id": job_id, "status": "running", "pid": 1234,
+        "cancel_path": str(jobs_module.job_cancel_path(tmp_path, job_id)),
+    })
+    # Initial effective status and ownership checks pass; the wait then loses it.
+    checks = iter([True, True, True, False])
+    monkeypatch.setattr(jobs_module, "_worker_identity_matches", lambda _record: next(checks, False))
+    result = jobs_module.cancel_job(tmp_path, job_id, wait_seconds=1)
+    assert result["status"] == "stale"
+    assert "unconfirmed" in result["error"]
+
+
 def test_jobs_start_rejects_nested_jobs(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     code = run(["jobs", "start", "--json", "--", "jobs", "list"])
@@ -118,49 +181,82 @@ def test_jobs_status_unknown_id_returns_not_found(tmp_path, monkeypatch, capsys)
     assert payload["error"]["code"] == "not_found"
 
 
-def test_jobs_cancel_terminates_running_process(tmp_path, monkeypatch, capsys):
+@pytest.mark.skipif(os.name != "posix", reason="real POSIX process-group regression")
+@pytest.mark.parametrize("resistant", [False, True])
+def test_jobs_cancel_terminates_running_process(tmp_path, monkeypatch, resistant):
     monkeypatch.chdir(tmp_path)
     jobs_root = tmp_path / "jobs"
     jobs_root.mkdir()
 
-    popen_kwargs = {"start_new_session": True} if os.name == "posix" else {}
-    process = subprocess.Popen(
-        [sys.executable, "-c", "import time; time.sleep(60)"],
-        **popen_kwargs,
+    job_id = "20260101T000000Z-cancelme"
+    record_path = jobs_module.job_record_path(jobs_root, job_id)
+    lease_path = jobs_module.job_lease_path(jobs_root, job_id)
+    token = "real-supervisor-token"
+    jobs_module.initialize_worker_lease(lease_path, token)
+    ready = tmp_path / "ready"
+    child_pid_path = tmp_path / "child.pid"
+    child_script = (
+        "import signal,time; from pathlib import Path; "
+        + ("signal.signal(signal.SIGTERM, signal.SIG_IGN); " if resistant else "")
+        + f"Path({str(ready)!r}).touch(); time.sleep(60)"
     )
+    command_script = tmp_path / "command.py"
+    command_script.write_text(
+        "import subprocess,sys,time\nfrom pathlib import Path\n"
+        f"child=subprocess.Popen([sys.executable, '-c', {child_script!r}])\n"
+        f"Path({str(child_pid_path)!r}).write_text(str(child.pid))\n"
+        "time.sleep(60)\n"
+    )
+    jobs_module.write_job_record(record_path, {
+        "job_id": job_id, "argv": ["capabilities"], "status": "launching",
+        "created_at": jobs_module._utc_now_iso(), "worker_token": token,
+        "lease_path": str(lease_path), "pid": None,
+        "cancel_path": str(jobs_module.job_cancel_path(jobs_root, job_id)),
+    })
+    # Exercise the real supervisor/lease/markers with a controlled CLI process
+    # that spawns a descendant. Only the command selection is substituted.
+    supervisor_script = (
+        "import sys\nfrom ts_agents.cli import jobs_worker as w\n"
+        "original=w.subprocess.Popen\n"
+        f"w.subprocess.Popen=lambda argv, **kw: original([sys.executable, {str(command_script)!r}], **kw)\n"
+        f"sys.exit(w.main([{str(record_path)!r}]))\n"
+    )
+    process = subprocess.Popen([sys.executable, "-c", supervisor_script], start_new_session=True)
+    command_pid = None
     try:
-        job_id = "20260101T000000Z-cancelme"
-        record = {
-            "schema_version": jobs_module.JOB_SCHEMA_VERSION,
-            "job_id": job_id,
-            "argv": ["capabilities"],
-            "status": jobs_module.JOB_STATUS_RUNNING,
-            "created_at": "2026-01-01T00:00:00Z",
-            "started_at": "2026-01-01T00:00:00Z",
-            "finished_at": None,
-            "pid": process.pid,
-            "cancel_path": str(jobs_module.job_cancel_path(jobs_root, job_id)),
-            "exit_code": None,
-            "error": None,
-            "log_path": str(jobs_root / f"{job_id}.log"),
-        }
-        jobs_module.write_job_record(
-            jobs_module.job_record_path(jobs_root, job_id), record
-        )
-        monkeypatch.setattr(
-            jobs_module,
-            "_worker_identity_matches",
-            lambda candidate: jobs_module._pid_alive(candidate.get("pid")),
-        )
-
-        code = run(["jobs", "cancel", job_id, "--jobs-root", str(jobs_root), "--json"])
-        assert code == 0
-        payload = json.loads(capsys.readouterr().out)
-        assert payload["result"]["status"] == "cancelled"
-        assert process.wait(timeout=10) is not None
+        deadline = time.monotonic() + 10
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert ready.exists()
+        record = jobs_module.read_job(jobs_root, job_id)
+        command_pid = record["command_pid"]
+        child_pid = int(child_pid_path.read_text())
+        assert jobs_module._worker_identity_matches(record)
+        if resistant:
+            with pytest.raises(jobs_module.ToolError) as exc:
+                jobs_module.cancel_job(jobs_root, job_id, wait_seconds=0.3)
+            assert exc.value.code == jobs_module.ToolErrorCode.TIMEOUT
+            assert jobs_module.job_status(jobs_root, job_id)["status"] == "running"
+            os.kill(child_pid, 0)
+        result = jobs_module.cancel_job(jobs_root, job_id, force=resistant)
+        assert result["status"] == "cancelled"
+        assert result["exit_code"] == 130
+        assert process.wait(timeout=10) == 130
+        if sys.platform == "linux" and Path(f"/proc/{child_pid}/stat").exists():
+            assert Path(f"/proc/{child_pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "Z"
+        else:
+            assert not jobs_module._pid_alive(child_pid)
     finally:
+        if command_pid is None:
+            command_pid = jobs_module.read_job(jobs_root, job_id).get("command_pid")
+        if command_pid is not None:
+            try:
+                os.killpg(command_pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
         if process.poll() is None:
             process.kill()
+        process.wait()
 
 
 def test_jobs_cancel_stale_record_is_finalized(tmp_path, monkeypatch, capsys):
@@ -184,7 +280,8 @@ def test_jobs_cancel_stale_record_is_finalized(tmp_path, monkeypatch, capsys):
     code = run(["jobs", "cancel", job_id, "--jobs-root", str(jobs_root), "--json"])
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["result"]["status"] == "cancelled"
+    assert payload["result"]["status"] == "stale"
+    assert "unconfirmed" in payload["result"]["error"]
 
 
 def test_jobs_worker_finalizes_record_in_process(tmp_path, monkeypatch, capsys):
@@ -318,7 +415,7 @@ def test_jobs_cancel_never_signals_unverified_reused_pid(tmp_path, monkeypatch):
 
     monkeypatch.setattr(jobs_module, "_terminate_process_tree", fail_if_signalled)
     result = jobs_module.cancel_job(jobs_root, job_id)
-    assert result["status"] == jobs_module.JOB_STATUS_CANCELLED
+    assert result["status"] == jobs_module.JOB_STATUS_STALE
     assert "identity could not be verified" in result["error"]
 
 
