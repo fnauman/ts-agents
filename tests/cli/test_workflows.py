@@ -468,6 +468,72 @@ def test_independent_sibling_output_leases_can_coexist(tmp_path):
         pass
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX ownership and no-follow leases")
+@pytest.mark.parametrize("poison", ["directory-link", "public-directory", "lease-link", "lease-hardlink"])
+def test_output_leases_refuse_poisoned_paths(tmp_path, monkeypatch, poison):
+    import hashlib
+    from ts_agents.workflows import lifecycle
+
+    monkeypatch.setattr(lifecycle.tempfile, "gettempdir", lambda: str(tmp_path))
+    name = hashlib.sha256(str(os.getuid()).encode()).hexdigest()[:16]
+    root = tmp_path / f"ts-agents-run-locks-{name}"
+    target = tmp_path / "untouched"
+    target.write_bytes(b"")
+    if poison == "directory-link":
+        real = tmp_path / "other-directory"
+        real.mkdir(mode=0o700)
+        root.symlink_to(real, target_is_directory=True)
+    else:
+        root.mkdir(mode=0o700)
+        if poison == "public-directory":
+            root.chmod(0o777)
+        else:
+            lease = root / (hashlib.sha256(b"/").hexdigest() + ".lease")
+            if poison == "lease-link":
+                lease.symlink_to(target)
+            else:
+                os.link(target, lease)
+    with pytest.raises((ValueError, OSError)):
+        with lifecycle.lock_run_output(tmp_path / "run"):
+            pytest.fail("poisoned lease was accepted")
+    assert target.read_bytes() == b""
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX directory ownership")
+def test_output_leases_refuse_wrong_owner(tmp_path, monkeypatch):
+    from ts_agents.workflows import lifecycle
+
+    monkeypatch.setattr(lifecycle.tempfile, "gettempdir", lambda: str(tmp_path))
+    fstat = os.fstat
+    def wrong_owner(fd):
+        value = fstat(fd)
+        return SimpleNamespace(st_uid=value.st_uid + 1, st_mode=value.st_mode)
+    monkeypatch.setattr(lifecycle.os, "fstat", wrong_owner)
+    with pytest.raises(ValueError, match="owned by the current user"):
+        with lifecycle.lock_run_output(tmp_path / "run"):
+            pytest.fail("foreign lease directory was accepted")
+
+
+def test_intermediate_manifest_write_failure_preserves_catalog(tmp_path, monkeypatch, capsys):
+    from ts_agents.workflows import lifecycle
+
+    dump = lifecycle.json.dump
+    def fail_intermediate(value, handle, *args, **kwargs):
+        if value.get("status") == "running" and "summary" in value:
+            handle.write("{partial")
+            raise OSError("controlled intermediate write failure")
+        return dump(value, handle, *args, **kwargs)
+    monkeypatch.setattr(lifecycle.json, "dump", fail_intermediate)
+    output = tmp_path / "run"
+    assert run(["workflow", "run", "inspect-series", "--input-json", '{"series":[1,2,3,4,5]}',
+                "--output-dir", str(output), "--skip-plots", "--json"]) == 6
+    capsys.readouterr()
+    manifest = json.loads((output / "run_manifest.json").read_text())
+    assert manifest["status"] == "failed"
+    assert manifest["resume_identity"] and manifest["run_id"]
+    assert "controlled intermediate write failure" in manifest["error"]["message"]
+
+
 def test_persistent_status_write_error_preserves_original_exception(tmp_path, capsys, monkeypatch):
     from ts_agents.workflows import executor, lifecycle
 

@@ -25,8 +25,9 @@ def verify(source: Path, dist: Path) -> dict:
     sdists = list(dist.glob("ts_agents-*.tar.gz"))
     if len(wheels) != 1 or len(sdists) != 1:
         raise ValueError("Expected exactly one wheel and one sdist")
+    commit = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
     tracked = subprocess.check_output(
-        ["git", "-C", str(source), "ls-files", "-z"], text=True,
+        ["git", "-C", str(source), "ls-tree", "-r", "--name-only", "-z", commit], text=True,
     ).split("\0")
     package_files = [name for name in tracked if name.startswith("ts_agents/")]
     root_files = {"AGENTS.md", "CHANGELOG.md", "ROADMAP.md", "LICENSE", "README.md", "pyproject.toml",
@@ -35,8 +36,18 @@ def verify(source: Path, dist: Path) -> dict:
         ("ts_agents/", "scripts/", "tests/", "skills/", "examples/", "data/"))]
     if not package_files:
         raise ValueError("Source checkout has no tracked package files")
+    git_archive = subprocess.check_output(["git", "-C", str(source), "archive", commit])
+    with tarfile.open(fileobj=io.BytesIO(git_archive)) as archive:
+        committed_files = {}
+        for name in source_files:
+            extracted = archive.extractfile(name)
+            if extracted is None:
+                raise ValueError(f"Missing committed source file: {name}")
+            committed_files[name] = extracted.read()
+            if (source / name).read_bytes() != committed_files[name]:
+                raise ValueError(f"Working source differs from recorded commit: {name}")
     with zipfile.ZipFile(wheels[0]) as wheel:
-        project = tomllib.loads((source / "pyproject.toml").read_text())["project"]
+        project = tomllib.loads(committed_files["pyproject.toml"].decode())["project"]
         metadata_path = next(name for name in wheel.namelist() if name.endswith(".dist-info/METADATA"))
         metadata = Parser().parsestr(wheel.read(metadata_path).decode())
         if metadata["Version"] != project["version"] or metadata["Requires-Python"] != project["requires-python"]:
@@ -45,7 +56,7 @@ def verify(source: Path, dist: Path) -> dict:
         if actual_package != set(package_files):
             raise ValueError(f"Wheel package inventory mismatch: {sorted(actual_package ^ set(package_files))}")
         for name in package_files:
-            if wheel.read(name) != (source / name).read_bytes():
+            if wheel.read(name) != committed_files[name]:
                 raise ValueError(f"Wheel source mismatch: {name}")
         record_names = [name for name in wheel.namelist() if name.endswith(".dist-info/RECORD")]
         if len(record_names) != 1:
@@ -71,13 +82,13 @@ def verify(source: Path, dist: Path) -> dict:
         root = roots.pop()
         for name in source_files:
             extracted = archive.extractfile(f"{root}/{name}")
-            if extracted is None or extracted.read() != (source / name).read_bytes():
+            if extracted is None or extracted.read() != committed_files[name]:
                 raise ValueError(f"Source archive mismatch: {name}")
-    source_hashes = {name: sha256((source / name).read_bytes()) for name in sorted(source_files)}
+    source_hashes = {name: sha256(committed_files[name]) for name in sorted(source_files)}
     return {
         "version": project["version"],
-        "commit": subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip(),
-        "tree": subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD^{tree}"], text=True).strip(),
+        "commit": commit,
+        "tree": subprocess.check_output(["git", "-C", str(source), "rev-parse", f"{commit}^{{tree}}"], text=True).strip(),
         "source_digest": sha256(json.dumps(source_hashes, sort_keys=True, separators=(",", ":")).encode()),
         "source_files": source_hashes,
         "wheel_package_files_verified": len(package_files),

@@ -7,6 +7,7 @@ from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
+import stat
 import tempfile
 from datetime import datetime, timezone
 from typing import Any
@@ -124,9 +125,36 @@ def lock_run_output(output_dir: str | Path):
     lock_root.mkdir(mode=0o700, parents=True, exist_ok=True)
     scopes = [*reversed(output.parents), output]
     with ExitStack() as stack:
+        directory_fd = None
+        if os.name == "posix":
+            directory_fd = os.open(lock_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            stack.callback(os.close, directory_fd)
+            root_stat = os.fstat(directory_fd)
+            if root_stat.st_uid != os.getuid() or root_stat.st_mode & 0o077:
+                raise ValueError("Run lease directory must be owned by the current user and private.")
+        elif lock_root.is_symlink():
+            raise ValueError("Run lease directory must not be a symlink.")
         for scope in scopes:
             name = hashlib.sha256(str(scope).encode()).hexdigest()
-            handle = stack.enter_context((lock_root / f"{name}.lease").open("a+b"))
+            if directory_fd is not None:
+                fd = os.open(f"{name}.lease", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW,
+                             0o600, dir_fd=directory_fd)
+                try:
+                    lease_stat = os.fstat(fd)
+                    if (not stat.S_ISREG(lease_stat.st_mode) or lease_stat.st_uid != os.getuid()
+                            or lease_stat.st_nlink != 1):
+                        raise ValueError("Run lease file must be a private, owned regular file with no links.")
+                    os.fchmod(fd, 0o600)
+                    handle = os.fdopen(fd, "a+b")
+                except BaseException:
+                    os.close(fd)
+                    raise
+                stack.enter_context(handle)
+            else:
+                lease_path = lock_root / f"{name}.lease"
+                if lease_path.is_symlink():
+                    raise ValueError("Run lease file must not be a symlink.")
+                handle = stack.enter_context(lease_path.open("a+b"))
             if handle.tell() == 0:
                 handle.write(b"0")
                 handle.flush()

@@ -62,6 +62,8 @@ plus a run/jobs control plane.
   Legacy manifests without fingerprints require a new output directory.
 - Active/failed workflow runs remain cataloged, concurrent writes to the same
   output directory are refused, and manifest-write errors are reported.
+  All workflow manifest writes are atomic; POSIX leases validate private
+  directory ownership and reject symlinks and multiply linked files.
 - Installed-wheel checks execute the public CLI surface outside the checkout;
   source archives include tests, canonical skills, examples, and release tooling.
   Build gates verify source identity and wheel RECORD hashes.
