@@ -363,7 +363,7 @@ def test_workflow_run_resume_reuses_manifest_run_id(capsys, tmp_path):
             "run",
             "inspect-series",
             "--input-json",
-            '{"series":[1,2,3,4,5,6]}',
+            '{"series":[1,2,3,4,5]}',
             "--output-dir",
             str(output_dir),
             "--resume",
@@ -376,6 +376,70 @@ def test_workflow_run_resume_reuses_manifest_run_id(capsys, tmp_path):
     second_payload = json.loads(capsys.readouterr().out)
     assert second_payload["result"]["data"]["run_id"] == first_run_id
     assert second_payload["result"]["data"]["run"]["resumed"] is True
+
+
+@pytest.mark.parametrize("change", ["workflow", "input", "options", "legacy"])
+def test_workflow_resume_rejects_incompatible_run_without_modifying_evidence(capsys, tmp_path, change):
+    output_dir = tmp_path / "run"
+    argv = ["workflow", "run", "inspect-series", "--input-json",
+            '{"series":[1,2,3,4,5]}', "--output-dir", str(output_dir), "--skip-plots", "--json"]
+    assert run(argv) == 0
+    capsys.readouterr()
+    manifest_path = output_dir / "run_manifest.json"
+    if change == "legacy":
+        manifest = json.loads(manifest_path.read_text())
+        manifest.pop("resume_identity")
+        manifest_path.write_text(json.dumps(manifest))
+    before = {path.name: path.read_bytes() for path in output_dir.iterdir() if path.is_file()}
+    resumed = argv + ["--resume"]
+    if change == "workflow":
+        resumed[2] = "forecast-series"
+        resumed.extend(["--horizon", "2", "--methods", "seasonal_naive"])
+    elif change == "input":
+        resumed[4] = '{"series":[1,2,3,4,6]}'
+    elif change == "options":
+        resumed.extend(["--max-lag", "2"])
+    assert run(resumed) == 2
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "validation_error"
+    after = {path.name: path.read_bytes() for path in output_dir.iterdir() if path.is_file()}
+    assert after == before
+
+
+def test_workflow_resume_detects_changed_file_contents(capsys, tmp_path):
+    source = tmp_path / "data.json"
+    source.write_text('{"series":[1,2,3,4,5]}')
+    argv = ["workflow", "run", "inspect-series", "--input-json", str(source),
+            "--output-dir", str(tmp_path / "run"), "--skip-plots", "--json"]
+    assert run(argv) == 0
+    capsys.readouterr()
+    before = (tmp_path / "run" / "run_manifest.json").read_bytes()
+    source.write_text('{"series":[1,2,3,4,6]}')
+    assert run(argv + ["--resume"]) == 2
+    capsys.readouterr()
+    assert (tmp_path / "run" / "run_manifest.json").read_bytes() == before
+
+
+def test_workflow_catalogs_active_and_failed_execution(capsys, tmp_path, monkeypatch):
+    from ts_agents.workflows import executor as executor_module
+    from ts_agents.cli.runs import gc_runs, scan_runs
+
+    output_dir = tmp_path / "outputs" / "run"
+
+    def fail_execution(*args, **kwargs):
+        records, warnings = scan_runs(tmp_path / "outputs")
+        assert warnings == []
+        assert records[0]["status"] == "running"
+        assert gc_runs(tmp_path / "outputs", apply=True)["runs"] == []
+        raise RuntimeError("controlled execution failure")
+
+    monkeypatch.setattr(executor_module, "execute_workflow", fail_execution)
+    assert run(["workflow", "run", "inspect-series", "--input-json", '{"series":[1,2,3,4,5]}',
+                "--output-dir", str(output_dir), "--skip-plots", "--json"]) == 6
+    capsys.readouterr()
+    manifest = json.loads((output_dir / "run_manifest.json").read_text())
+    assert manifest["status"] == "failed"
+    assert manifest["error"]["message"] == "controlled execution failure"
+    assert manifest["resume_identity"]["input_sha256"]
 
 
 def test_workflow_run_resume_rejects_invalid_manifest_json(capsys, tmp_path):

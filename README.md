@@ -195,6 +195,17 @@ Workflow runs produce:
 - non-clobbering defaults, plus `--overwrite` / `--resume` semantics for retry
   loops and long sessions
 
+`--resume` reruns the computation with the same workflow, normalized input
+content, source interpretation, and options while keeping the run ID and
+original creation time. It does not recover a computational checkpoint.
+Changed analyses and legacy manifests without a resume fingerprint require a
+new output directory. Active/interrupted runs are retained for inspection;
+failed executions remain visible in the run catalog.
+
+GC previews candidates by default and retains directories containing
+unreadable, unclassified, or nonterminal run manifests. Stop concurrent work
+and inspect the preview before applying cleanup.
+
 Past runs are a first-class surface. `runs` catalogs every manifest under the
 outputs root, and `jobs` runs any CLI command in a detached background worker
 with a durable record, log capture, and cancellation:

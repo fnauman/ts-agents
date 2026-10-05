@@ -460,7 +460,7 @@ def _add_workflow_run_lifecycle_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--resume",
         action="store_true",
-        help="Resume into an existing explicit output directory that already has a workflow manifest.",
+        help="Rerun the same workflow, input, and options in an existing run directory (not checkpoint recovery).",
     )
 
 
@@ -656,7 +656,10 @@ def _workflow_execution_metadata(execution: Any) -> Dict[str, Any]:
     return {key: value for key, value in execution_metadata.items() if value is not None}
 
 
-def _synchronize_workflow_manifest(result: Any, execution: Any) -> None:
+def _synchronize_workflow_manifest(
+    result: Any, execution: Any, *, resume_identity: Optional[Dict[str, Any]] = None,
+    original_created_at: Optional[str] = None,
+) -> None:
     if isinstance(result, dict):
         data = result.get("data")
         status = result.get("status")
@@ -716,12 +719,15 @@ def _synchronize_workflow_manifest(result: Any, execution: Any) -> None:
         manifest_payload["provenance"] = to_jsonable(provenance)
     if execution_metadata:
         manifest_payload["execution"] = dict(execution_metadata)
+    if resume_identity is not None:
+        manifest_payload["resume_identity"] = resume_identity
+    if original_created_at is not None:
+        manifest_payload["updated_at"] = manifest_payload.get("created_at")
+        manifest_payload["created_at"] = original_created_at
 
-    payload_text = render_output(to_jsonable(manifest_payload), json_output=True)
-    try:
-        write_output(payload_text, str(manifest_path))
-    except OSError:
-        return
+    from ts_agents.workflows.lifecycle import write_manifest
+
+    write_manifest(manifest_path, manifest_payload)
 
 
 def _quality_payload(result: Any) -> Tuple[Optional[str], Optional[bool], Optional[bool]]:
@@ -927,6 +933,7 @@ def _prepare_workflow_run_output(args: argparse.Namespace, workflow: Any) -> Dic
         "manifest_path": str(output_path / WORKFLOW_MANIFEST_FILENAME),
         "output_dir": str(output_path),
         "_clear_output_dir": bool(explicit_output_dir and overwrite and output_path.exists()),
+        "_existing_manifest": existing_manifest,
     }
 
 
@@ -2984,6 +2991,12 @@ def _handle_workflow_command(args: argparse.Namespace) -> Tuple[Any, Optional[st
 
     workflow_input = workflow.load_input(args)
     runner_kwargs = workflow.build_runner_kwargs(args)
+    from ts_agents.workflows.lifecycle import begin_run, fail_run, resume_identity, validate_resume
+
+    identity = resume_identity(workflow.name, workflow_input, runner_kwargs)
+    existing_manifest = run_lifecycle["_existing_manifest"]
+    if run_lifecycle["resumed"]:
+        validate_resume(existing_manifest, identity)
     runner_kwargs.update(
         {
             "run_id": run_lifecycle["run_id"],
@@ -3016,6 +3029,7 @@ def _handle_workflow_command(args: argparse.Namespace) -> Tuple[Any, Optional[st
         )
 
     _materialize_workflow_output_dir(run_lifecycle)
+    begin_run(run_lifecycle, identity, _workflow_input_source_ref(workflow_input))
 
     sandbox_mode = getattr(args, "sandbox", None) or os.environ.get("TS_AGENTS_SANDBOX_MODE")
     context = ExecutionContext(
@@ -3024,19 +3038,26 @@ def _handle_workflow_command(args: argparse.Namespace) -> Tuple[Any, Optional[st
         allow_fallback=allow_fallback,
         fallback_backend=fallback_backend,
     )
-    execution = execute_workflow(
-        args.workflow_name,
-        workflow_input,
-        runner_kwargs,
-        context=context,
-    )
-    args._ts_execution_result = execution
-    if not execution.success:
-        if execution.error:
-            raise execution.error
-        raise RuntimeError(execution.formatted_output or "Workflow execution failed")
+    try:
+        execution = execute_workflow(
+            args.workflow_name,
+            workflow_input,
+            runner_kwargs,
+            context=context,
+        )
+        args._ts_execution_result = execution
+        if not execution.success:
+            if execution.error:
+                raise execution.error
+            raise RuntimeError(execution.formatted_output or "Workflow execution failed")
+    except Exception as exc:
+        fail_run(run_lifecycle, exc)
+        raise
 
-    _synchronize_workflow_manifest(execution.result, execution)
+    _synchronize_workflow_manifest(
+        execution.result, execution, resume_identity=identity,
+        original_created_at=(existing_manifest.get("created_at") if existing_manifest else None),
+    )
     return execution.result, execution.formatted_output or None
 
 

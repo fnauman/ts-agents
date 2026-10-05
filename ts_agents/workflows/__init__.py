@@ -165,7 +165,7 @@ def _workflow_global_options() -> List[Dict[str, Any]]:
         _option_contract(
             name="resume",
             type="boolean",
-            description="Reuse an existing explicit output directory that already contains a workflow manifest.",
+            description="Rerun with identical workflow, input content, source interpretation, and options. Not checkpoint recovery.",
             default=False,
         ),
         _option_contract(

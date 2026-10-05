@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from ts_agents.cli.main import run
 
 
@@ -284,3 +286,30 @@ def test_runs_reject_negative_limits(tmp_path, monkeypatch, capsys):
 
     assert run(["runs", "gc", "--older-than", "nan", "--json"]) == 2
     assert json.loads(capsys.readouterr().out)["error"]["code"] == "usage_error"
+
+
+@pytest.mark.parametrize("nested_manifest", ["{broken", "[]", "{}", '{"status":"running"}'])
+@pytest.mark.parametrize("apply", [False, True])
+def test_runs_gc_preserves_unreadable_or_unknown_nested_evidence(tmp_path, nested_manifest, apply):
+    from ts_agents.cli.runs import gc_runs
+
+    outer = tmp_path / "outputs" / "outer"
+    _write_workflow_manifest(outer, run_id="outer", status="failed")
+    nested = outer / "child"
+    nested.mkdir()
+    (nested / "run_manifest.json").write_text(nested_manifest)
+    evidence = nested / "unique.txt"
+    evidence.write_text("preserve this evidence")
+    result = gc_runs(tmp_path / "outputs", status=["failed"], apply=apply)
+    assert result["runs"] == []
+    assert result["skipped"][0]["run_id"] == "outer"
+    assert evidence.read_text() == "preserve this evidence"
+
+
+def test_runs_gc_preserves_nonterminal_runs(tmp_path):
+    from ts_agents.cli.runs import gc_runs
+
+    output = tmp_path / "outputs" / "active"
+    _write_workflow_manifest(output, run_id="active", status="running")
+    assert gc_runs(tmp_path / "outputs", apply=True)["runs"] == []
+    assert output.exists()
