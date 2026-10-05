@@ -50,6 +50,7 @@ cd "$VENV"
 "$VENV/bin/python" -I - <<'PY'
 from importlib.metadata import version
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -80,6 +81,7 @@ with tempfile.TemporaryDirectory(prefix="wheel-cli-", dir=Path.cwd()) as directo
         completed = subprocess.run(
             [sys.executable, "-I", "-m", "ts_agents", *args],
             cwd=workdir, capture_output=True, text=True, timeout=30,
+            env={key: value for key, value in os.environ.items() if key not in {"PYTHONPATH", "PYTHONHOME"}},
         )
         assert completed.returncode == 0, (args, completed.stdout, completed.stderr)
         payload = json.loads(completed.stdout)

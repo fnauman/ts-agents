@@ -5,12 +5,14 @@ from __future__ import annotations
 import argparse
 import base64
 import csv
+from email.parser import Parser
 import hashlib
 import io
 import json
 from pathlib import Path
 import subprocess
 import tarfile
+import tomllib
 import zipfile
 
 
@@ -34,6 +36,11 @@ def verify(source: Path, dist: Path) -> dict:
     if not package_files:
         raise ValueError("Source checkout has no tracked package files")
     with zipfile.ZipFile(wheels[0]) as wheel:
+        project = tomllib.loads((source / "pyproject.toml").read_text())["project"]
+        metadata_path = next(name for name in wheel.namelist() if name.endswith(".dist-info/METADATA"))
+        metadata = Parser().parsestr(wheel.read(metadata_path).decode())
+        if metadata["Version"] != project["version"] or metadata["Requires-Python"] != project["requires-python"]:
+            raise ValueError("Wheel version/Python requirement differs from source metadata")
         actual_package = {name for name in wheel.namelist() if name.startswith("ts_agents/") and not name.endswith("/")}
         if actual_package != set(package_files):
             raise ValueError(f"Wheel package inventory mismatch: {sorted(actual_package ^ set(package_files))}")
@@ -44,6 +51,8 @@ def verify(source: Path, dist: Path) -> dict:
         if len(record_names) != 1:
             raise ValueError("Expected one wheel RECORD")
         rows = list(csv.reader(io.StringIO(wheel.read(record_names[0]).decode())))
+        if len(rows) != len({row[0] for row in rows}):
+            raise ValueError("Duplicate wheel RECORD entries")
         if {row[0] for row in rows} != {name for name in wheel.namelist() if not name.endswith("/")}:
             raise ValueError("RECORD inventory mismatch")
         for name, digest, size in rows:
@@ -66,6 +75,7 @@ def verify(source: Path, dist: Path) -> dict:
                 raise ValueError(f"Source archive mismatch: {name}")
     source_hashes = {name: sha256((source / name).read_bytes()) for name in sorted(source_files)}
     return {
+        "version": project["version"],
         "commit": subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip(),
         "tree": subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD^{tree}"], text=True).strip(),
         "source_digest": sha256(json.dumps(source_hashes, sort_keys=True, separators=(",", ":")).encode()),
