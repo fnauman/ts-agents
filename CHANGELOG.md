@@ -7,7 +7,8 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - Source-archive verification now rejects untracked and duplicate members in
-  maintained namespaces, path aliases, and nonregular members. A late review identified
+  maintained namespaces, path aliases, file/directory collisions, nonregular
+  members, and unexpected files outside the known generated metadata. A late review identified
   the gate gap after 0.2.0 publication; independent inventory comparison
   confirmed that the published 0.2.0 archive contained no extra files.
   The runtime CLI behavior and dependency profiles are unchanged.

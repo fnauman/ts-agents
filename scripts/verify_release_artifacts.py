@@ -84,22 +84,33 @@ def verify(source: Path, dist: Path) -> dict:
                 raise ValueError(f"Noncanonical source archive member: {member.name}")
             if not member.isfile() and not member.isdir():
                 raise ValueError(f"Nonregular source archive member: {member.name}")
+        names = [member.name.removesuffix("/") if member.isdir() else member.name for member in members]
+        if len(names) != len(set(names)):
+            raise ValueError("Duplicate source archive member paths")
+        files = {member.name for member in members if member.isfile()}
+        directories = {name for name, member in zip(names, members) if member.isdir()}
+        for name in names:
+            directories.update(str(parent) for parent in PurePosixPath(name).parents if str(parent) != ".")
+        if files & directories:
+            raise ValueError(f"Source archive file/directory collision: {sorted(files & directories)}")
         roots = {member.name.split("/")[0] for member in members}
         if len(roots) != 1:
             raise ValueError("Expected one source archive root")
         root = roots.pop()
         if root != sdists[0].name.removesuffix(".tar.gz"):
             raise ValueError("Source archive root differs from distribution filename")
+        generated_files = {"PKG-INFO", "setup.cfg", *(
+            f"ts_agents.egg-info/{name}" for name in (
+                "PKG-INFO", "SOURCES.txt", "dependency_links.txt", "entry_points.txt", "requires.txt", "top_level.txt"))}
+        unexpected = {name.removeprefix(f"{root}/") for name in files} - set(source_files) - generated_files
+        if unexpected:
+            raise ValueError(f"Unexpected source archive members: {sorted(unexpected)}")
         maintained_members = [member for member in members if not member.isdir()
                               and (member.name.removeprefix(f"{root}/") in root_files
                                    or member.name.removeprefix(f"{root}/").startswith(maintained_prefixes))]
         actual_source = {member.name.removeprefix(f"{root}/") for member in maintained_members}
-        if len(maintained_members) != len(actual_source):
-            raise ValueError("Duplicate maintained source archive members")
         if actual_source != set(source_files):
             raise ValueError(f"Source archive inventory mismatch: {sorted(actual_source ^ set(source_files))}")
-        if any(not member.isfile() for member in maintained_members):
-            raise ValueError("Maintained source archive members must be regular files")
         for name in source_files:
             extracted = archive.extractfile(f"{root}/{name}")
             if extracted is None or extracted.read() != committed_files[name]:

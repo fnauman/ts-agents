@@ -35,8 +35,8 @@ def test_artifact_verifier_rejects_dirty_committed_source(tmp_path):
 
 @pytest.mark.parametrize("extra", ["tests/extra.py", "scripts/extra.py", "skills/extra.md", "ts_agents/__init__.py",
                                    "./ts_agents/__init__.py", "ts_agents/../ts_agents/__init__.py",
-                                   "ts_agents\\__init__.py", "alias-link"])
-def test_artifact_verifier_rejects_unrecorded_or_duplicate_sdist_members(tmp_path, extra):
+                                   "ts_agents\\__init__.py", "alias-link", "ts_agents", "metadata-collision", "setup.py"])
+def test_artifact_verifier_rejects_unrecorded_or_unsafe_sdist_members(tmp_path, extra):
     source = tmp_path / "source"
     source.mkdir()
     package = source / "ts_agents"
@@ -68,6 +68,9 @@ def test_artifact_verifier_rejects_unrecorded_or_duplicate_sdist_members(tmp_pat
             for name in ["ts_agents/__init__.py", "pyproject.toml"]:
                 archive.add(source / name, arcname=f"ts_agents-0.2.1/{name}")
             if include_extra:
+                if extra == "metadata-collision":
+                    leaf = tarfile.TarInfo("ts_agents-0.2.1/metadata-collision/leaf.txt")
+                    archive.addfile(leaf, io.BytesIO(b""))
                 content = b"# content outside the recorded inventory\n"
                 member = tarfile.TarInfo(f"ts_agents-0.2.1/{extra}")
                 if extra == "alias-link":
@@ -80,5 +83,7 @@ def test_artifact_verifier_rejects_unrecorded_or_duplicate_sdist_members(tmp_pat
     write_sdist(False)
     assert verify(source, dist)["sdist_source_files_verified"] == 2
     write_sdist(True)
-    with pytest.raises(ValueError, match="inventory mismatch|Duplicate maintained|Noncanonical source|Nonregular source"):
+    message = ("file/directory collision" if extra in {"ts_agents", "metadata-collision"}
+               else "inventory mismatch|Duplicate|Noncanonical source|Nonregular source|Unexpected source")
+    with pytest.raises(ValueError, match=message):
         verify(source, dist)
