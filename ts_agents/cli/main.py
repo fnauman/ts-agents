@@ -2989,76 +2989,82 @@ def _handle_workflow_command(args: argparse.Namespace) -> Tuple[Any, Optional[st
     args.use_test_data_resolved = _resolve_use_test_data(args)
     run_lifecycle = _prepare_workflow_run_output(args, workflow)
 
-    workflow_input = workflow.load_input(args)
-    runner_kwargs = workflow.build_runner_kwargs(args)
-    from ts_agents.workflows.lifecycle import begin_run, fail_run, resume_identity, validate_resume
+    from ts_agents.workflows.lifecycle import lock_run_output
 
-    identity = resume_identity(workflow.name, workflow_input, runner_kwargs)
-    existing_manifest = run_lifecycle["_existing_manifest"]
-    if run_lifecycle["resumed"]:
-        validate_resume(existing_manifest, identity)
-    runner_kwargs.update(
-        {
-            "run_id": run_lifecycle["run_id"],
-            "resumed": run_lifecycle["resumed"],
-            "output_dir_mode": run_lifecycle["output_dir_mode"],
+    with lock_run_output(run_lifecycle["output_dir"]):
+        # Recheck explicit-directory collision/resume state after obtaining the
+        # lease; another invocation may have completed since initial discovery.
+        if _flag_was_provided(args, "--output-dir"):
+            run_lifecycle = _prepare_workflow_run_output(args, workflow)
+        workflow_input = workflow.load_input(args)
+        runner_kwargs = workflow.build_runner_kwargs(args)
+        from ts_agents.workflows.lifecycle import begin_run, fail_run, resume_identity, validate_resume
+
+        identity = resume_identity(workflow.name, workflow_input, runner_kwargs)
+        existing_manifest = run_lifecycle["_existing_manifest"]
+        if run_lifecycle["resumed"]:
+            validate_resume(existing_manifest, identity)
+        runner_kwargs.update(
+            {
+                "run_id": run_lifecycle["run_id"],
+                "resumed": run_lifecycle["resumed"],
+                "output_dir_mode": run_lifecycle["output_dir_mode"],
+            }
+        )
+        public_run_lifecycle = {
+            key: value
+            for key, value in run_lifecycle.items()
+            if not key.startswith("_")
         }
-    )
-    public_run_lifecycle = {
-        key: value
-        for key, value in run_lifecycle.items()
-        if not key.startswith("_")
-    }
-    allow_fallback = getattr(args, "allow_fallback", False)
-    fallback_backend = getattr(args, "fallback_backend", None) or "local"
-    args._ts_input_payload = {
-        "workflow": args.workflow_name,
-        "source": _workflow_input_source_ref(workflow_input),
-        "options": runner_kwargs,
-        "run": public_run_lifecycle,
-        "sandbox": getattr(args, "sandbox", None)
-        or os.environ.get("TS_AGENTS_SANDBOX_MODE")
-        or "local",
-        "allow_fallback": allow_fallback,
-        "fallback_backend": fallback_backend,
-    }
-    if getattr(args, "fallback_backend", None) and not allow_fallback:
-        raise ValueError(
-            "--fallback-backend requires --allow-fallback to take effect. "
-            "Pass --allow-fallback to opt in to backend fallback."
+        allow_fallback = getattr(args, "allow_fallback", False)
+        fallback_backend = getattr(args, "fallback_backend", None) or "local"
+        args._ts_input_payload = {
+            "workflow": args.workflow_name,
+            "source": _workflow_input_source_ref(workflow_input),
+            "options": runner_kwargs,
+            "run": public_run_lifecycle,
+            "sandbox": getattr(args, "sandbox", None)
+            or os.environ.get("TS_AGENTS_SANDBOX_MODE")
+            or "local",
+            "allow_fallback": allow_fallback,
+            "fallback_backend": fallback_backend,
+        }
+        if getattr(args, "fallback_backend", None) and not allow_fallback:
+            raise ValueError(
+                "--fallback-backend requires --allow-fallback to take effect. "
+                "Pass --allow-fallback to opt in to backend fallback."
+            )
+
+        _materialize_workflow_output_dir(run_lifecycle)
+        begin_run(run_lifecycle, identity, _workflow_input_source_ref(workflow_input))
+
+        sandbox_mode = getattr(args, "sandbox", None) or os.environ.get("TS_AGENTS_SANDBOX_MODE")
+        context = ExecutionContext(
+            sandbox_mode=sandbox_mode,
+            allow_network=getattr(args, "allow_network", False),
+            allow_fallback=allow_fallback,
+            fallback_backend=fallback_backend,
         )
-
-    _materialize_workflow_output_dir(run_lifecycle)
-    begin_run(run_lifecycle, identity, _workflow_input_source_ref(workflow_input))
-
-    sandbox_mode = getattr(args, "sandbox", None) or os.environ.get("TS_AGENTS_SANDBOX_MODE")
-    context = ExecutionContext(
-        sandbox_mode=sandbox_mode,
-        allow_network=getattr(args, "allow_network", False),
-        allow_fallback=allow_fallback,
-        fallback_backend=fallback_backend,
-    )
-    try:
-        execution = execute_workflow(
-            args.workflow_name,
-            workflow_input,
-            runner_kwargs,
-            context=context,
-        )
-        args._ts_execution_result = execution
-        if not execution.success:
-            if execution.error:
-                raise execution.error
-            raise RuntimeError(execution.formatted_output or "Workflow execution failed")
-    except Exception as exc:
-        fail_run(run_lifecycle, exc)
-        raise
-
-    _synchronize_workflow_manifest(
-        execution.result, execution, resume_identity=identity,
-        original_created_at=(existing_manifest.get("created_at") if existing_manifest else None),
-    )
-    return execution.result, execution.formatted_output or None
+        try:
+            execution = execute_workflow(
+                args.workflow_name,
+                workflow_input,
+                runner_kwargs,
+                context=context,
+            )
+            args._ts_execution_result = execution
+            if not execution.success:
+                if execution.error:
+                    raise execution.error
+                raise RuntimeError(execution.formatted_output or "Workflow execution failed")
+            _synchronize_workflow_manifest(
+                execution.result, execution, resume_identity=identity,
+                original_created_at=(existing_manifest.get("created_at") if existing_manifest else None),
+            )
+        except Exception as exc:
+            fail_run(run_lifecycle, exc, identity)
+            raise
+        return execution.result, execution.formatted_output or None
 
 
 def _validate_workflow_source_args(args: argparse.Namespace) -> None:

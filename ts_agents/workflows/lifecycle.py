@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -84,6 +85,31 @@ def write_manifest(path: str | Path, manifest: dict) -> None:
             temporary.unlink(missing_ok=True)
 
 
+@contextmanager
+def lock_run_output(output_dir: str | Path):
+    """Exclude simultaneous writers/cleanup of the same output directory.
+
+    Locks live outside the directory so overwrite/GC cannot unlink an active
+    lease and let another process acquire a different inode for the same run.
+    """
+    from ts_agents.cli.jobs import _try_lock_lease, _unlock_lease
+
+    output = Path(output_dir).resolve()
+    lock_root = output.parent / ".ts-agents-locks"
+    lock_root.mkdir(parents=True, exist_ok=True)
+    name = hashlib.sha256(str(output).encode()).hexdigest()
+    with (lock_root / f"{name}.lease").open("a+b") as handle:
+        if handle.tell() == 0:
+            handle.write(b"0")
+            handle.flush()
+        if not _try_lock_lease(handle):
+            raise ValueError(f"Run output directory is busy: {output}")
+        try:
+            yield
+        finally:
+            _unlock_lease(handle)
+
+
 def begin_run(lifecycle: dict, identity: dict, source: dict) -> None:
     """Catalog active work before execution so GC can retain it."""
     previous = lifecycle.get("_existing_manifest") or {}
@@ -99,11 +125,12 @@ def begin_run(lifecycle: dict, identity: dict, source: dict) -> None:
     write_manifest(lifecycle["manifest_path"], manifest)
 
 
-def fail_run(lifecycle: dict, error: Exception) -> None:
+def fail_run(lifecycle: dict, error: Exception, identity: dict) -> None:
     """Retain failed-run identity and the error for catalog inspection."""
     path = Path(lifecycle["manifest_path"])
     manifest = json.loads(path.read_text())
     manifest["status"] = "failed"
+    manifest["resume_identity"] = identity
     manifest["error"] = {"type": type(error).__name__, "message": str(error)}
     manifest["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     write_manifest(path, manifest)

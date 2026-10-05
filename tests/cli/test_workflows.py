@@ -129,18 +129,19 @@ def test_workflow_run_inspect_series_accepts_stdin_json(monkeypatch, capsys, tmp
     assert payload["result"]["data"]["autocorrelation"]["requested_max_lag"] == 8
 
 
-def test_workflow_run_manifest_sync_write_failure_does_not_fail_cli(monkeypatch, capsys, tmp_path):
+def test_workflow_run_manifest_sync_write_failure_is_reported(monkeypatch, capsys, tmp_path):
     import importlib
 
     cli_main = importlib.import_module("ts_agents.cli.main")
-    original_write_output = cli_main.write_output
+    from ts_agents.workflows import lifecycle
+    original_write_manifest = lifecycle.write_manifest
 
-    def flaky_write_output(content, path):
-        if str(path).endswith("run_manifest.json"):
+    def flaky_write_manifest(path, manifest):
+        if manifest["status"] == "ok":
             raise OSError("disk full")
-        return original_write_output(content, path)
+        return original_write_manifest(path, manifest)
 
-    monkeypatch.setattr(cli_main, "write_output", flaky_write_output)
+    monkeypatch.setattr(lifecycle, "write_manifest", flaky_write_manifest)
 
     output_dir = tmp_path / "inspect"
     code = cli_main.run(
@@ -157,12 +158,11 @@ def test_workflow_run_manifest_sync_write_failure_does_not_fail_cli(monkeypatch,
         ]
     )
 
-    assert code == 0
+    assert code == 6
     payload = json.loads(capsys.readouterr().out)
-    assert payload["ok"] is True
-    assert payload["result"]["data"]["execution"]["backend_requested"] == "local"
-    assert payload["result"]["data"]["execution"]["backend_actual"] == "local"
-    assert (output_dir / "run_manifest.json").exists()
+    assert payload["ok"] is False
+    assert payload["error"]["message"] == "disk full"
+    assert json.loads((output_dir / "run_manifest.json").read_text())["status"] == "failed"
 
 
 def test_workflow_run_inspect_series_supports_subprocess_sandbox(capsys, tmp_path):
@@ -430,6 +430,9 @@ def test_workflow_catalogs_active_and_failed_execution(capsys, tmp_path, monkeyp
         assert warnings == []
         assert records[0]["status"] == "running"
         assert gc_runs(tmp_path / "outputs", apply=True)["runs"] == []
+        assert run(["workflow", "run", "inspect-series", "--input-json", '{"series":[1,2,3,4,5]}',
+                    "--output-dir", str(output_dir), "--overwrite", "--skip-plots", "--json"]) == 2
+        assert json.loads((output_dir / "run_manifest.json").read_text())["status"] == "running"
         raise RuntimeError("controlled execution failure")
 
     monkeypatch.setattr(executor_module, "execute_workflow", fail_execution)

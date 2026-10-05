@@ -313,3 +313,19 @@ def test_runs_gc_preserves_nonterminal_runs(tmp_path):
     _write_workflow_manifest(output, run_id="active", status="running")
     assert gc_runs(tmp_path / "outputs", apply=True)["runs"] == []
     assert output.exists()
+
+
+def test_runs_gc_rechecks_identity_before_deleting(tmp_path, monkeypatch):
+    from ts_agents.cli import runs as runs_module
+
+    output = tmp_path / "outputs" / "reused"
+    _write_workflow_manifest(output, run_id="old", status="failed")
+    original_size = runs_module._directory_size_bytes
+    def change_run(path):
+        size = original_size(path)
+        _write_workflow_manifest(output, run_id="new", status="failed")
+        return size
+    monkeypatch.setattr(runs_module, "_directory_size_bytes", change_run)
+    result = runs_module.gc_runs(tmp_path / "outputs", apply=True)
+    assert result["runs"] == []
+    assert json.loads((output / "run_manifest.json").read_text())["run_id"] == "new"

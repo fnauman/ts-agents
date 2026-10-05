@@ -9,6 +9,7 @@ and ``loop``) into one catalog record.
 
 from __future__ import annotations
 
+from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 import json
 import math
@@ -249,6 +250,9 @@ def gc_runs(
     candidate_manifests = {
         str(Path(record["manifest_path"]).resolve()) for record in candidates
     }
+    original_records = {
+        str(Path(record["manifest_path"]).resolve()): record for record in records
+    }
     deletion_roots: List[Path] = []
     for record in sorted(
         candidates, key=lambda item: len(Path(item["output_dir"]).parts)
@@ -267,70 +271,68 @@ def gc_runs(
         if reason is not None:
             skipped.append({**record, "reason": reason})
             continue
-        # Reinspect the whole tree, including manifests the catalog could not
-        # parse. An outer directory is not safe merely because its own manifest
-        # matched a filter. Refuse uncertain evidence and newly added runs.
-        size_bytes = _directory_size_bytes(output_dir)
-        tree_records, tree_warnings = scan_runs(output_dir)
-        selected_now = {
-            str(Path(item["manifest_path"]).resolve())
-            for item in filter_runs(
-                tree_records, kind=kind, name=name, status=status,
-                older_than_days=older_than_days,
-            )
-        }
-        uncertain = [
-            item for item in tree_records
-            if item["kind"] == RUN_KIND_UNKNOWN
-            or not isinstance(item.get("name"), str)
-            or not isinstance(item.get("run_id"), str)
-            or not item["run_id"]
-            or not isinstance(item.get("status"), str)
-            or item["status"] not in TERMINAL_RUN_STATUSES
-        ]
-        if tree_warnings or uncertain:
-            skipped.append({
-                **record,
-                "reason": "contains unreadable, unclassified, or nonterminal run evidence",
-            })
-            warnings.extend(warning for warning in tree_warnings if warning not in warnings)
-            continue
-        if any(
-            str(Path(item["manifest_path"]).resolve()) not in candidate_manifests
-            or str(Path(item["manifest_path"]).resolve()) not in selected_now
-            for item in tree_records
-        ):
-            skipped.append({
-                **record,
-                "reason": "contains unselected or changed run evidence: "
-                + ", ".join(str(item["run_id"]) for item in tree_records),
-            })
-            continue
-        unselected_nested = [
-            nested
-            for nested in records
-            if resolved_output_dir in Path(nested["output_dir"]).resolve().parents
-            and str(Path(nested["manifest_path"]).resolve()) not in candidate_manifests
-        ]
-        if unselected_nested:
-            nested_ids = ", ".join(
-                str(nested.get("run_id") or nested["output_dir"])
-                for nested in unselected_nested[:5]
-            )
-            if len(unselected_nested) > 5:
-                nested_ids += f", and {len(unselected_nested) - 5} more"
-            skipped.append(
-                {
+        from ts_agents.workflows.lifecycle import lock_run_output
+
+        with ExitStack() as locks:
+            try:
+                locks.enter_context(lock_run_output(output_dir))
+                # Retain existing nested writers even before their first
+                # manifest has been finalized.
+                for nested in records:
+                    nested_output = Path(nested["output_dir"])
+                    if resolved_output_dir in nested_output.resolve().parents:
+                        locks.enter_context(lock_run_output(nested_output))
+            except ValueError as exc:
+                skipped.append({**record, "reason": str(exc)})
+                continue
+            # Reinspect the whole tree, including manifests the catalog could not
+            # parse. An outer directory is not safe merely because its own manifest
+            # matched a filter. Refuse uncertain evidence and newly added runs.
+            size_bytes = _directory_size_bytes(output_dir)
+            tree_records, tree_warnings = scan_runs(output_dir)
+            selected_now = {
+                str(Path(item["manifest_path"]).resolve())
+                for item in filter_runs(
+                    tree_records, kind=kind, name=name, status=status,
+                    older_than_days=older_than_days,
+                )
+            }
+            uncertain = [
+                item for item in tree_records
+                if item["kind"] == RUN_KIND_UNKNOWN
+                or not isinstance(item.get("name"), str)
+                or not isinstance(item.get("run_id"), str)
+                or not item["run_id"]
+                or not isinstance(item.get("status"), str)
+                or item["status"] not in TERMINAL_RUN_STATUSES
+            ]
+            if tree_warnings or uncertain or not tree_records:
+                skipped.append({
                     **record,
-                    "reason": f"contains unselected nested run(s): {nested_ids}",
-                }
-            )
-            continue
-        freed_bytes += size_bytes
-        if apply:
-            shutil.rmtree(output_dir)
-        deleted.append({**record, "size_bytes": size_bytes})
-        deletion_roots.append(resolved_output_dir)
+                    "reason": "contains unreadable, unclassified, or nonterminal run evidence",
+                })
+                warnings.extend(warning for warning in tree_warnings if warning not in warnings)
+                continue
+            if any(
+                str(Path(item["manifest_path"]).resolve()) not in candidate_manifests
+                or str(Path(item["manifest_path"]).resolve()) not in selected_now
+                or any(
+                    item[key] != original_records.get(str(Path(item["manifest_path"]).resolve()), {}).get(key)
+                    for key in ("run_id", "kind", "name", "created_at", "status")
+                )
+                for item in tree_records
+            ):
+                skipped.append({
+                    **record,
+                    "reason": "contains unselected or changed run evidence: "
+                    + ", ".join(str(item["run_id"]) for item in tree_records),
+                })
+                continue
+            freed_bytes += size_bytes
+            if apply:
+                shutil.rmtree(output_dir)
+            deleted.append({**record, "size_bytes": size_bytes})
+            deletion_roots.append(resolved_output_dir)
 
     return {
         "root": str(root_path.resolve()),
