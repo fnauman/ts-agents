@@ -189,6 +189,7 @@ def attach_workflow_run_metadata(
     options: dict[str, Any],
     resumed: bool = False,
     output_dir_mode: str = "explicit",
+    defer_finalization: bool = False,
 ) -> ToolPayload:
     """Attach run metadata to a workflow payload and write a manifest artifact."""
     output_path = Path(output_dir).resolve()
@@ -222,7 +223,7 @@ def attach_workflow_run_metadata(
         "schema_version": CLI_SCHEMA_VERSION,
         "workflow": workflow_name,
         "run_id": resolved_run_id,
-        "status": payload.status,
+        "status": "running" if defer_finalization else payload.status,
         "summary": payload.summary,
         "output_dir": str(output_path),
         "manifest_path": str(manifest_path),

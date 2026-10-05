@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from ts_agents.cli.main import run
 
 
@@ -284,3 +286,69 @@ def test_runs_reject_negative_limits(tmp_path, monkeypatch, capsys):
 
     assert run(["runs", "gc", "--older-than", "nan", "--json"]) == 2
     assert json.loads(capsys.readouterr().out)["error"]["code"] == "usage_error"
+
+
+@pytest.mark.parametrize("nested_manifest", ["{broken", "[]", "{}", '{"status":"running"}'])
+@pytest.mark.parametrize("apply", [False, True])
+def test_runs_gc_preserves_unreadable_or_unknown_nested_evidence(tmp_path, nested_manifest, apply):
+    from ts_agents.cli.runs import gc_runs
+
+    outer = tmp_path / "outputs" / "outer"
+    _write_workflow_manifest(outer, run_id="outer", status="failed")
+    nested = outer / "child"
+    nested.mkdir()
+    (nested / "run_manifest.json").write_text(nested_manifest)
+    evidence = nested / "unique.txt"
+    evidence.write_text("preserve this evidence")
+    result = gc_runs(tmp_path / "outputs", status=["failed"], apply=apply)
+    assert result["runs"] == []
+    assert result["skipped"][0]["run_id"] == "outer"
+    assert evidence.read_text() == "preserve this evidence"
+
+
+def test_runs_gc_preserves_nonterminal_runs(tmp_path):
+    from ts_agents.cli.runs import gc_runs
+
+    output = tmp_path / "outputs" / "active"
+    _write_workflow_manifest(output, run_id="active", status="running")
+    assert gc_runs(tmp_path / "outputs", apply=True)["runs"] == []
+    assert output.exists()
+
+
+def test_runs_gc_rechecks_identity_before_deleting(tmp_path, monkeypatch):
+    from ts_agents.cli import runs as runs_module
+
+    output = tmp_path / "outputs" / "reused"
+    _write_workflow_manifest(output, run_id="old", status="failed")
+    original_size = runs_module._directory_size_bytes
+    def change_run(path):
+        size = original_size(path)
+        _write_workflow_manifest(output, run_id="new", status="failed")
+        return size
+    monkeypatch.setattr(runs_module, "_directory_size_bytes", change_run)
+    result = runs_module.gc_runs(tmp_path / "outputs", apply=True)
+    assert result["runs"] == []
+    assert json.loads((output / "run_manifest.json").read_text())["run_id"] == "new"
+
+
+def test_gc_refuses_parent_with_unpublished_nested_writer(tmp_path):
+    from ts_agents.cli.runs import gc_runs
+    from ts_agents.workflows.lifecycle import lock_run_output
+
+    outer = tmp_path / "outputs" / "outer"
+    _write_workflow_manifest(outer, run_id="outer", status="failed")
+    # The child has acquired ownership but has not even created its directory.
+    with lock_run_output(outer / "child"):
+        result = gc_runs(tmp_path / "outputs", apply=True)
+        assert result["runs"] == []
+        assert "busy" in result["skipped"][0]["reason"]
+    assert outer.exists()
+
+
+def test_gc_accepts_completed_plan_only_runs(tmp_path):
+    from ts_agents.cli.runs import gc_runs
+
+    output = tmp_path / "outputs" / "plan"
+    _write_autoresearch_manifest(output, run_id="plan", status="plan-only", loop="foundation-gpu-plan")
+    assert gc_runs(tmp_path / "outputs", status=["plan-only"], apply=True)["matched"] == 1
+    assert not output.exists()
