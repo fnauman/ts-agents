@@ -2076,7 +2076,7 @@ def test_handle_workflow_command_uses_registry_runner(monkeypatch):
     def fake_runner(series_input, **kwargs):
         observed["series_input"] = series_input
         observed["kwargs"] = kwargs
-        return {"ok": True}
+        return {"status": "ok", "summary": "fake workflow", "data": {}, "artifacts": []}
 
     def fake_build_runner_kwargs(args):
         observed["builder_args"] = args.workflow_name
@@ -2131,7 +2131,7 @@ def test_handle_workflow_command_uses_registry_runner(monkeypatch):
     result, text = cli_main._handle_workflow_command(args)
 
     assert text is None
-    assert result == {"ok": True}
+    assert result["status"] == "ok"
     assert observed["series_input"] is fake_series_input
     assert observed["loader_args"] == "inspect-series"
     assert observed["builder_args"] == "inspect-series"

@@ -677,6 +677,8 @@ def _synchronize_workflow_manifest(
         provenance = getattr(result, "provenance", None)
 
     if not isinstance(data, dict):
+        if host_manifest_path is not None:
+            raise RuntimeError("Workflow result has no metadata to finalize the host manifest.")
         return
 
     execution_metadata = _workflow_execution_metadata(execution)
@@ -692,13 +694,19 @@ def _synchronize_workflow_manifest(
 
     manifest_path = Path(manifest_path_raw)
     if not manifest_path.exists():
+        if host_manifest_path is not None:
+            raise RuntimeError("Host workflow manifest disappeared before finalization.")
         return
 
     try:
         manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError) as exc:
+        if host_manifest_path is not None:
+            raise RuntimeError("Cannot read the host workflow manifest for finalization.") from exc
         return
     if not isinstance(manifest_payload, dict):
+        if host_manifest_path is not None:
+            raise RuntimeError("Host workflow manifest is not a JSON object.")
         return
     if host_manifest_path is not None:
         from ts_agents.workflows.common import artifact_ref
