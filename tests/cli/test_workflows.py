@@ -2,6 +2,7 @@ import base64
 import argparse
 import io
 import json
+import os
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -129,18 +130,19 @@ def test_workflow_run_inspect_series_accepts_stdin_json(monkeypatch, capsys, tmp
     assert payload["result"]["data"]["autocorrelation"]["requested_max_lag"] == 8
 
 
-def test_workflow_run_manifest_sync_write_failure_does_not_fail_cli(monkeypatch, capsys, tmp_path):
+def test_workflow_run_manifest_sync_write_failure_is_reported(monkeypatch, capsys, tmp_path):
     import importlib
 
     cli_main = importlib.import_module("ts_agents.cli.main")
-    original_write_output = cli_main.write_output
+    from ts_agents.workflows import lifecycle
+    original_write_manifest = lifecycle.write_manifest
 
-    def flaky_write_output(content, path):
-        if str(path).endswith("run_manifest.json"):
+    def flaky_write_manifest(path, manifest):
+        if manifest["status"] == "ok":
             raise OSError("disk full")
-        return original_write_output(content, path)
+        return original_write_manifest(path, manifest)
 
-    monkeypatch.setattr(cli_main, "write_output", flaky_write_output)
+    monkeypatch.setattr(lifecycle, "write_manifest", flaky_write_manifest)
 
     output_dir = tmp_path / "inspect"
     code = cli_main.run(
@@ -157,12 +159,11 @@ def test_workflow_run_manifest_sync_write_failure_does_not_fail_cli(monkeypatch,
         ]
     )
 
-    assert code == 0
+    assert code == 6
     payload = json.loads(capsys.readouterr().out)
-    assert payload["ok"] is True
-    assert payload["result"]["data"]["execution"]["backend_requested"] == "local"
-    assert payload["result"]["data"]["execution"]["backend_actual"] == "local"
-    assert (output_dir / "run_manifest.json").exists()
+    assert payload["ok"] is False
+    assert payload["error"]["message"] == "disk full"
+    assert json.loads((output_dir / "run_manifest.json").read_text())["status"] == "failed"
 
 
 def test_workflow_run_inspect_series_supports_subprocess_sandbox(capsys, tmp_path):
@@ -363,7 +364,7 @@ def test_workflow_run_resume_reuses_manifest_run_id(capsys, tmp_path):
             "run",
             "inspect-series",
             "--input-json",
-            '{"series":[1,2,3,4,5,6]}',
+            '{"series":[1,2,3,4,5]}',
             "--output-dir",
             str(output_dir),
             "--resume",
@@ -376,6 +377,185 @@ def test_workflow_run_resume_reuses_manifest_run_id(capsys, tmp_path):
     second_payload = json.loads(capsys.readouterr().out)
     assert second_payload["result"]["data"]["run_id"] == first_run_id
     assert second_payload["result"]["data"]["run"]["resumed"] is True
+
+
+@pytest.mark.parametrize("change", ["workflow", "input", "options", "legacy"])
+def test_workflow_resume_rejects_incompatible_run_without_modifying_evidence(capsys, tmp_path, change):
+    output_dir = tmp_path / "run"
+    argv = ["workflow", "run", "inspect-series", "--input-json",
+            '{"series":[1,2,3,4,5]}', "--output-dir", str(output_dir), "--skip-plots", "--json"]
+    assert run(argv) == 0
+    capsys.readouterr()
+    manifest_path = output_dir / "run_manifest.json"
+    if change == "legacy":
+        manifest = json.loads(manifest_path.read_text())
+        manifest.pop("resume_identity")
+        manifest_path.write_text(json.dumps(manifest))
+    before = {path.name: path.read_bytes() for path in output_dir.iterdir() if path.is_file()}
+    resumed = argv + ["--resume"]
+    if change == "workflow":
+        resumed[2] = "forecast-series"
+        resumed.extend(["--horizon", "2", "--methods", "seasonal_naive"])
+    elif change == "input":
+        resumed[4] = '{"series":[1,2,3,4,6]}'
+    elif change == "options":
+        resumed.extend(["--max-lag", "2"])
+    assert run(resumed) == 2
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "validation_error"
+    after = {path.name: path.read_bytes() for path in output_dir.iterdir() if path.is_file()}
+    assert after == before
+
+
+def test_workflow_resume_detects_changed_file_contents(capsys, tmp_path):
+    source = tmp_path / "data.json"
+    source.write_text('{"series":[1,2,3,4,5]}')
+    argv = ["workflow", "run", "inspect-series", "--input-json", str(source),
+            "--output-dir", str(tmp_path / "run"), "--skip-plots", "--json"]
+    assert run(argv) == 0
+    capsys.readouterr()
+    before = (tmp_path / "run" / "run_manifest.json").read_bytes()
+    source.write_text('{"series":[1,2,3,4,6]}')
+    assert run(argv + ["--resume"]) == 2
+    capsys.readouterr()
+    assert (tmp_path / "run" / "run_manifest.json").read_bytes() == before
+
+
+def test_workflow_catalogs_active_and_failed_execution(capsys, tmp_path, monkeypatch):
+    from ts_agents.workflows import executor as executor_module
+    from ts_agents.cli.runs import gc_runs, scan_runs
+
+    output_dir = tmp_path / "outputs" / "run"
+
+    def fail_execution(*args, **kwargs):
+        records, warnings = scan_runs(tmp_path / "outputs")
+        assert warnings == []
+        assert records[0]["status"] == "running"
+        assert gc_runs(tmp_path / "outputs", apply=True)["runs"] == []
+        assert run(["workflow", "run", "inspect-series", "--input-json", '{"series":[1,2,3,4,5]}',
+                    "--output-dir", str(output_dir), "--overwrite", "--skip-plots", "--json"]) == 2
+        assert json.loads((output_dir / "run_manifest.json").read_text())["status"] == "running"
+        raise RuntimeError("controlled execution failure")
+
+    monkeypatch.setattr(executor_module, "execute_workflow", fail_execution)
+    assert run(["workflow", "run", "inspect-series", "--input-json", '{"series":[1,2,3,4,5]}',
+                "--output-dir", str(output_dir), "--skip-plots", "--json"]) == 6
+    capsys.readouterr()
+    manifest = json.loads((output_dir / "run_manifest.json").read_text())
+    assert manifest["status"] == "failed"
+    assert manifest["error"]["message"] == "controlled execution failure"
+    assert manifest["resume_identity"]["input_sha256"]
+
+
+def test_parent_overwrite_refuses_unpublished_nested_writer(tmp_path, capsys):
+    from ts_agents.workflows.lifecycle import lock_run_output
+
+    outer = tmp_path / "parent"
+    outer.mkdir()
+    evidence = outer / "keep.txt"
+    evidence.write_text("keep")
+    with lock_run_output(outer / "child"):
+        assert run(["workflow", "run", "inspect-series", "--input-json", '{"series":[1,2,3,4,5]}',
+                    "--output-dir", str(outer), "--overwrite", "--skip-plots", "--json"]) == 2
+        assert "busy" in json.loads(capsys.readouterr().out)["error"]["message"]
+    assert evidence.read_text() == "keep"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="shared ancestor leases on POSIX")
+def test_independent_sibling_output_leases_can_coexist(tmp_path):
+    from ts_agents.workflows.lifecycle import lock_run_output
+
+    with lock_run_output(tmp_path / "first"), lock_run_output(tmp_path / "second"):
+        pass
+
+
+def test_persistent_status_write_error_preserves_original_exception(tmp_path, capsys, monkeypatch):
+    from ts_agents.workflows import executor, lifecycle
+
+    original_write = lifecycle.write_manifest
+    def write_once(path, manifest):
+        if Path(path).exists():
+            raise OSError("status storage unavailable")
+        original_write(path, manifest)
+    monkeypatch.setattr(lifecycle, "write_manifest", write_once)
+    def fail(*args, **kwargs):
+        raise ValueError("original workflow failure")
+    monkeypatch.setattr(executor, "execute_workflow", fail)
+    output = tmp_path / "run"
+    assert run(["workflow", "run", "inspect-series", "--input-json", '{"series":[1,2,3,4,5]}',
+                "--output-dir", str(output), "--skip-plots", "--json"]) == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["message"] == "original workflow failure"
+    assert payload["error"]["details"]["status_recording_error"] == "status storage unavailable"
+    assert json.loads((output / "run_manifest.json").read_text())["status"] == "running"
+
+
+def test_host_finalizes_manifest_when_remote_manifest_was_not_staged(tmp_path, capsys, monkeypatch):
+    from ts_agents.workflows import executor
+    from ts_agents.tools.executor import ExecutionResult, ExecutionStatus
+    from ts_agents.contracts import ToolPayload
+
+    def remote_result(*args, **kwargs):
+        return ExecutionResult(status=ExecutionStatus.SUCCESS,
+            result=ToolPayload(kind="workflow", summary="remote inspection", status="ok", data={
+                "manifest_path": "/unavailable-sandbox/run_manifest.json",
+                "output_dir": "/unavailable-sandbox", "source": {},
+            }), metadata={"backend_actual": "daytona"})
+    monkeypatch.setattr(executor, "execute_workflow", remote_result)
+    output = tmp_path / "run"
+    assert run(["workflow", "run", "inspect-series", "--input-json", '{"series":[1,2,3,4,5]}',
+                "--output-dir", str(output), "--skip-plots", "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)["result"]
+    assert result["data"]["manifest_path"] == str(output / "run_manifest.json")
+    assert result["artifacts"][-1]["path"] == str(output / "run_manifest.json")
+    manifest = json.loads((output / "run_manifest.json").read_text())
+    assert manifest["status"] == "ok" and manifest["resume_identity"]
+
+
+@pytest.mark.parametrize("field", ["time_values", "labels", "provenance"])
+def test_resume_fingerprint_preserves_nonfinite_distinctions(field):
+    from ts_agents.workflows.lifecycle import resume_identity
+
+    digests = []
+    for value in (None, float("nan"), float("inf"), float("-inf")):
+        source = SimpleNamespace(series=np.array([1., 2., 3.]))
+        setattr(source, field, {"value": value} if field == "provenance" else [value])
+        digests.append(resume_identity("inspect-series", source, {})["input_sha256"])
+    assert len(set(digests)) == 4
+
+
+def test_failed_resume_retains_creation_time(tmp_path, capsys, monkeypatch):
+    from ts_agents.workflows import lifecycle
+
+    output = tmp_path / "run"
+    argv = ["workflow", "run", "inspect-series", "--input-json", '{"series":[1,2,3,4,5]}',
+            "--output-dir", str(output), "--skip-plots", "--json"]
+    assert run(argv) == 0
+    capsys.readouterr()
+    path = output / "run_manifest.json"
+    original = json.loads(path.read_text())
+    original["created_at"] = "2020-01-01T00:00:00Z"
+    path.write_text(json.dumps(original))
+    write = lifecycle.write_manifest
+    def fail_finalization(path, manifest):
+        if manifest["status"] == "ok":
+            raise OSError("controlled finalization error")
+        write(path, manifest)
+    monkeypatch.setattr(lifecycle, "write_manifest", fail_finalization)
+    assert run(argv + ["--resume"]) == 6
+    capsys.readouterr()
+    failed = json.loads(path.read_text())
+    assert failed["status"] == "failed"
+    assert failed["created_at"] == original["created_at"]
+    assert failed["run_id"] == original["run_id"]
+
+
+def test_invalid_sandbox_context_is_cataloged_as_failed(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("TS_AGENTS_SANDBOX_MODE", "invalid-backend")
+    output = tmp_path / "run"
+    assert run(["workflow", "run", "inspect-series", "--input-json", '{"series":[1,2,3,4,5]}',
+                "--output-dir", str(output), "--skip-plots", "--json"]) == 2
+    capsys.readouterr()
+    assert json.loads((output / "run_manifest.json").read_text())["status"] == "failed"
 
 
 def test_workflow_run_resume_rejects_invalid_manifest_json(capsys, tmp_path):
@@ -1943,7 +2123,7 @@ def test_handle_workflow_command_uses_registry_runner(monkeypatch):
     def fake_runner(series_input, **kwargs):
         observed["series_input"] = series_input
         observed["kwargs"] = kwargs
-        return {"ok": True}
+        return {"status": "ok", "summary": "fake workflow", "data": {}, "artifacts": []}
 
     def fake_build_runner_kwargs(args):
         observed["builder_args"] = args.workflow_name
@@ -1998,7 +2178,7 @@ def test_handle_workflow_command_uses_registry_runner(monkeypatch):
     result, text = cli_main._handle_workflow_command(args)
 
     assert text is None
-    assert result == {"ok": True}
+    assert result["status"] == "ok"
     assert observed["series_input"] is fake_series_input
     assert observed["loader_args"] == "inspect-series"
     assert observed["builder_args"] == "inspect-series"
