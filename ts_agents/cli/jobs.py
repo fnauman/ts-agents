@@ -10,6 +10,7 @@ invocation (or another agent) can manage the job.
 
 from __future__ import annotations
 
+from collections import deque
 from datetime import datetime, timezone
 import errno
 import json
@@ -213,7 +214,7 @@ def _cancellation_requested(record: Dict[str, Any]) -> bool:
     return isinstance(cancel_path, str) and Path(cancel_path).is_file()
 
 
-def _request_cancellation(record: Dict[str, Any]) -> None:
+def _request_cancellation(record: Dict[str, Any], *, force: bool = False) -> None:
     cancel_path = record.get("cancel_path")
     if not isinstance(cancel_path, str):
         raise ToolError(
@@ -222,7 +223,15 @@ def _request_cancellation(record: Dict[str, Any]) -> None:
         )
     marker = Path(cancel_path)
     marker.parent.mkdir(parents=True, exist_ok=True)
+    if force:
+        # A separate marker makes escalation monotonic across concurrent callers.
+        Path(f"{marker}.force").touch(exist_ok=True)
     marker.touch(exist_ok=True)
+
+
+def _force_cancellation_requested(record: Dict[str, Any]) -> bool:
+    cancel_path = record.get("cancel_path")
+    return isinstance(cancel_path, str) and Path(f"{cancel_path}.force").is_file()
 
 
 def effective_status(record: Dict[str, Any]) -> str:
@@ -352,15 +361,13 @@ def read_job_log(
     # Derive the log path from the validated id rather than trusting a mutable
     # path stored inside the JSON record.
     log_path = job_log_path(root, job_id)
-    if not log_path.is_file():
-        content = ""
-    else:
-        content = log_path.read_text(encoding="utf-8", errors="replace")
-    lines = content.splitlines()
-    if tail is not None:
-        if tail < 0:
-            raise ValueError("--tail must be zero or a positive integer.")
-        lines = lines[-tail:] if tail else []
+    if tail is not None and tail < 0:
+        raise ValueError("--tail must be zero or a positive integer.")
+    lines: List[str] = []
+    if log_path.is_file() and tail != 0:
+        with log_path.open(encoding="utf-8", errors="replace") as handle:
+            selected = deque(handle, maxlen=tail) if tail is not None else handle
+            lines = [line.rstrip("\r\n") for line in selected]
     return {
         "job_id": job_id,
         "status": effective_status(record),
@@ -433,14 +440,19 @@ def cancel_job(
     force: bool = False,
     wait_seconds: float = 10.0,
 ) -> Dict[str, Any]:
-    """Signal a running job's process group and stamp the record cancelled."""
+    """Request supervisor-owned cancellation and wait for its final record.
+
+    The worker retains its lease until the command's process group has stopped.
+    A timeout leaves the job running so a later ``--force`` request can escalate.
+    No process is signalled using a PID from an unverified stale record.
+    """
     if not math.isfinite(wait_seconds) or wait_seconds <= 0:
         raise ValueError("--wait must be a finite positive number of seconds.")
     record = read_job(root, job_id)
     status = effective_status(record)
     if status in TERMINAL_STATUSES:
         return _record_view(record)
-    _request_cancellation(record)
+    _request_cancellation(record, force=force)
     # Re-read after publishing the marker. A worker that has not started its
     # command yet is required to observe this marker before doing so.
     record = read_job(root, job_id)
@@ -459,49 +471,40 @@ def cancel_job(
         or not isinstance(pid, int)
         or not _worker_identity_matches(record)
     ):
-        record["status"] = JOB_STATUS_CANCELLED
-        record["finished_at"] = _utc_now_iso()
+        record["status"] = JOB_STATUS_STALE
         record["error"] = (
             record.get("error")
-            or "worker identity could not be verified before cancellation"
+            or "worker identity could not be verified; cancellation is unconfirmed "
+            "and descendants may remain"
         )
         write_job_record(job_record_path(root, job_id), record)
         return _record_view(record)
 
-    _terminate_process_tree(pid, force=force)
     deadline = time.monotonic() + wait_seconds
     while time.monotonic() < deadline:
+        current = read_job(root, job_id)
+        if current.get("status") in TERMINAL_STATUSES:
+            return _record_view(current)
         # If the job process happens to be our child, reap it so it does not
         # linger as a zombie that os.kill(pid, 0) still reports as alive.
         if hasattr(os, "waitpid") and hasattr(os, "WNOHANG"):
             try:
                 reaped, _ = os.waitpid(pid, os.WNOHANG)
                 if reaped == pid:
-                    break
+                    continue
             except (ChildProcessError, OSError):
                 pass
-        if not _worker_identity_matches(record):
-            break
         time.sleep(0.1)
     else:
         raise ToolError(
             code=ToolErrorCode.TIMEOUT,
             message=(
                 f"Job {job_id} (pid {pid}) did not exit within "
-                f"{wait_seconds:.0f}s of SIGTERM."
+                f"{wait_seconds:g}s of the cancellation request."
             ),
             recoverable=True,
-            hint="Retry with --force to send SIGKILL.",
+            hint="Retry with --force to terminate the command process group immediately.",
         )
-
-    # Re-read in case the worker finalized between the signal and now.
-    record = read_job(root, job_id)
-    if record.get("status") not in TERMINAL_STATUSES:
-        record["status"] = JOB_STATUS_CANCELLED
-        record["finished_at"] = _utc_now_iso()
-        write_job_record(job_record_path(root, job_id), record)
-    return _record_view(record)
-
 
 def render_jobs_table(records: List[Dict[str, Any]]) -> str:
     if not records:

@@ -1248,7 +1248,7 @@ def _add_jobs_subcommands(subparsers: argparse._SubParsersAction) -> None:
     cancel_parser.add_argument(
         "--force",
         action="store_true",
-        help="Send SIGKILL instead of SIGTERM",
+        help="Force termination of the supervised local command process group",
     )
     cancel_parser.add_argument(
         "--wait",

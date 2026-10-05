@@ -210,6 +210,12 @@ ts-agents jobs logs <job-id> --tail 50
 ts-agents jobs cancel <job-id> --json
 ```
 
+Cancellation is supervised: a timeout leaves the job active so
+`jobs cancel <job-id> --force` can terminate a resistant local command process
+group. A missing worker is reported as `stale`, with cancellation unconfirmed.
+This does not establish termination of remote Docker/Daytona/Modal work or
+processes that detach themselves into another session.
+
 ### 5. Artifacts over chat
 
 Tool/workflow outputs are written to real files (PNG plots, JSON, CSV,
