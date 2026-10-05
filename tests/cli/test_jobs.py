@@ -200,6 +200,89 @@ def test_cancel_preserves_terminal_record_after_ownership_loss(
     assert jobs_module.read_job(tmp_path, job_id) == terminal
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX concurrent record-lock regression")
+def test_stale_cancellation_serializes_with_supervisor_finalization(tmp_path, monkeypatch):
+    import threading
+
+    job_id = "concurrent-finalization"
+    path = jobs_module.job_record_path(tmp_path, job_id)
+    running = {"job_id": job_id, "status": "running", "pid": 1234}
+    terminal = {**running, "status": "completed", "exit_code": 0,
+                "finished_at": "2026-10-05T12:00:00Z"}
+    jobs_module.write_job_record(path, running)
+    original_read = jobs_module.read_job
+    attempted = threading.Event()
+    finished = threading.Event()
+    failures = []
+
+    def finalize():
+        attempted.set()
+        try:
+            jobs_module.write_job_record(path, terminal)
+        except BaseException as exc:
+            failures.append(exc)
+        finally:
+            finished.set()
+
+    writer = threading.Thread(target=finalize)
+
+    def read_then_finalize(*args):
+        snapshot = original_read(*args)
+        writer.start()
+        assert attempted.wait(timeout=2)
+        # Without a shared lock the terminal write finishes here, and a stale
+        # transition overwrites it immediately after this read returns.
+        finished.wait(timeout=0.1)
+        return snapshot
+
+    monkeypatch.setattr(jobs_module, "read_job", read_then_finalize)
+    monkeypatch.setattr(jobs_module, "_worker_identity_matches", lambda _record: False)
+    try:
+        jobs_module._finalize_stale_cancellation(tmp_path, job_id, "ownership lost")
+    finally:
+        writer.join(timeout=2)
+    assert not writer.is_alive()
+    assert not failures
+    assert original_read(tmp_path, job_id) == terminal
+
+
+def test_launching_cancellation_preserves_concurrently_finalized_record(tmp_path, monkeypatch):
+    job_id = "launch-finalization"
+    path = jobs_module.job_record_path(tmp_path, job_id)
+    launching = {
+        "job_id": job_id, "status": "launching", "created_at": jobs_module._utc_now_iso(),
+        "cancel_path": str(jobs_module.job_cancel_path(tmp_path, job_id)),
+    }
+    terminal = {**launching, "status": "completed", "exit_code": 0,
+                "finished_at": "2026-10-05T12:00:00Z"}
+    jobs_module.write_job_record(path, launching)
+    original_status = jobs_module.effective_status
+    checks = 0
+
+    def finalize_after_read(record):
+        nonlocal checks
+        checks += 1
+        if checks == 2:
+            jobs_module.write_job_record(path, terminal)
+        return original_status(record)
+
+    monkeypatch.setattr(jobs_module, "effective_status", finalize_after_read)
+    assert jobs_module.cancel_job(tmp_path, job_id)["status"] == "completed"
+    assert jobs_module.read_job(tmp_path, job_id) == terminal
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX no-follow record-lock regression")
+def test_job_record_lock_refuses_symlinks(tmp_path):
+    target = tmp_path / "job.json"
+    sentinel = tmp_path / "sentinel"
+    sentinel.write_bytes(b"")
+    target.with_name("job.json.lock").symlink_to(sentinel)
+    with pytest.raises(OSError):
+        jobs_module.write_job_record(target, {"status": "running"})
+    assert sentinel.read_bytes() == b""
+    assert not target.exists()
+
+
 def test_jobs_start_rejects_nested_jobs(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     code = run(["jobs", "start", "--json", "--", "jobs", "list"])

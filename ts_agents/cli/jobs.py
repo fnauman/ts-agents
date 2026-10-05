@@ -11,6 +11,7 @@ invocation (or another agent) can manage the job.
 from __future__ import annotations
 
 from collections import deque
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import errno
 import json
@@ -20,6 +21,7 @@ from pathlib import Path
 import re
 import secrets
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -76,8 +78,45 @@ def job_cancel_path(root: str | Path, job_id: str) -> Path:
     return Path(root) / f"{_validate_job_id(job_id)}.cancel"
 
 
+@contextmanager
+def _lock_job_record(path: str | Path):
+    """Serialize record writers independently of the worker ownership lease."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = target.with_name(f"{target.name}.lock")
+    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    with os.fdopen(fd, "r+b") as handle:
+        lock_stat = os.fstat(handle.fileno())
+        if (not stat.S_ISREG(lock_stat.st_mode) or lock_stat.st_nlink != 1
+                or (hasattr(os, "getuid") and lock_stat.st_uid != os.getuid())):
+            raise ValueError("Job record lock must be an owned regular file with no links.")
+        if lock_stat.st_size == 0:
+            handle.write(b"0")
+            handle.flush()
+        if _IS_POSIX:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        elif _IS_WINDOWS:
+            import msvcrt
+
+            handle.seek(0)
+            getattr(msvcrt, "locking")(handle.fileno(), getattr(msvcrt, "LK_LOCK"), 1)
+        else:
+            raise RuntimeError("Background job record locks are unsupported on this platform.")
+        try:
+            yield
+        finally:
+            _unlock_lease(handle)
+
+
 def write_job_record(path: str | Path, record: Dict[str, Any]) -> None:
-    """Write the record atomically so concurrent readers never see partial JSON."""
+    """Serialize writers and atomically publish complete JSON to readers."""
+    with _lock_job_record(path):
+        _write_job_record_unlocked(path, record)
+
+
+def _write_job_record_unlocked(path: str | Path, record: Dict[str, Any]) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = target.with_name(
@@ -442,13 +481,15 @@ def _terminate_process_tree(pid: int, *, force: bool = False) -> None:
 def _finalize_stale_cancellation(root: str | Path, job_id: str, error: str) -> Dict[str, Any]:
     # Ownership is checked against a snapshot. The supervisor may have written
     # its terminal record before releasing the lease during that check.
-    record = read_job(root, job_id)
-    if record.get("status") in TERMINAL_STATUSES:
+    path = job_record_path(root, job_id)
+    with _lock_job_record(path):
+        record = read_job(root, job_id)
+        if record.get("status") in TERMINAL_STATUSES:
+            return _record_view(record)
+        record["status"] = JOB_STATUS_STALE
+        record["error"] = record.get("error") or error
+        _write_job_record_unlocked(path, record)
         return _record_view(record)
-    record["status"] = JOB_STATUS_STALE
-    record["error"] = record.get("error") or error
-    write_job_record(job_record_path(root, job_id), record)
-    return _record_view(record)
 
 
 def cancel_job(
@@ -477,13 +518,20 @@ def cancel_job(
     status = effective_status(record)
     if status in TERMINAL_STATUSES:
         return _record_view(record)
-    pid = record.get("pid")
     if status == JOB_STATUS_LAUNCHING:
-        record["status"] = JOB_STATUS_CANCELLED
-        record["finished_at"] = _utc_now_iso()
-        record["error"] = record.get("error") or "cancelled before worker startup"
-        write_job_record(job_record_path(root, job_id), record)
-        return _record_view(record)
+        path = job_record_path(root, job_id)
+        with _lock_job_record(path):
+            record = read_job(root, job_id)
+            if record.get("status") in TERMINAL_STATUSES:
+                return _record_view(record)
+            status = effective_status(record)
+            if status == JOB_STATUS_LAUNCHING:
+                record["status"] = JOB_STATUS_CANCELLED
+                record["finished_at"] = _utc_now_iso()
+                record["error"] = record.get("error") or "cancelled before worker startup"
+                _write_job_record_unlocked(path, record)
+                return _record_view(record)
+    pid = record.get("pid")
     if (
         status == JOB_STATUS_STALE
         or not isinstance(pid, int)
