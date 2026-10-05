@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.2] - 2026-10-05
+
+### Fixed
+
+- Cancellation rereads the job record after detecting lost worker ownership,
+  preserving terminal status, exit code, and completion time when the supervisor
+  finalized between the original read and ownership check.
+- Autoresearch CLI runs now hold hierarchy output leases before output mutation
+  through host manifest synchronization, preventing concurrent GC, parent
+  overwrite, and overlapping runs from removing or replacing active artifacts.
+
 ## [0.2.1] - 2026-10-05
 
 ### Fixed

@@ -2314,14 +2314,19 @@ def _handle_autoresearch_command(args: argparse.Namespace) -> Tuple[Any, Optiona
         allow_fallback=allow_fallback,
         fallback_backend=fallback_backend,
     )
-    execution = execute_autoresearch(args.loop_name, options, context=context)
-    args._ts_execution_result = execution
-    if not execution.success:
-        if execution.error:
-            raise execution.error
-        raise RuntimeError(execution.formatted_output or "Autoresearch execution failed")
+    from ts_agents.workflows.lifecycle import lock_run_output
 
-    _synchronize_autoresearch_manifest(execution.result, execution)
+    # Hold ownership before output preparation, including unpublished nested
+    # runs, through remote artifact materialization and the host manifest update.
+    with lock_run_output(Path(output_dir).expanduser()):
+        execution = execute_autoresearch(args.loop_name, options, context=context)
+        args._ts_execution_result = execution
+        if not execution.success:
+            if execution.error:
+                raise execution.error
+            raise RuntimeError(execution.formatted_output or "Autoresearch execution failed")
+
+        _synchronize_autoresearch_manifest(execution.result, execution)
     return execution.result, execution.formatted_output or None
 
 def _handle_data_command(args: argparse.Namespace) -> Tuple[Any, str]:

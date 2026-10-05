@@ -165,6 +165,41 @@ def test_cancel_detects_supervisor_loss_during_wait(tmp_path, monkeypatch):
     assert "unconfirmed" in result["error"]
 
 
+@pytest.mark.parametrize("finalize_at_check", [2, 3, 4])
+def test_cancel_preserves_terminal_record_after_ownership_loss(
+    tmp_path, monkeypatch, finalize_at_check,
+):
+    job_id = "finalizing-worker"
+    path = jobs_module.job_record_path(tmp_path, job_id)
+    running = {
+        "job_id": job_id, "status": "running", "pid": 1234,
+        "cancel_path": str(jobs_module.job_cancel_path(tmp_path, job_id)),
+    }
+    terminal = {
+        **running, "status": "cancelled", "exit_code": -15,
+        "finished_at": "2026-10-05T12:00:00Z", "error": None,
+    }
+    jobs_module.write_job_record(path, running)
+    checks = 0
+
+    def ownership(_record):
+        nonlocal checks
+        checks += 1
+        if checks == finalize_at_check:
+            # The worker finalizes and releases its lease after the caller read
+            # running, but before the ownership check on that snapshot finishes.
+            jobs_module.write_job_record(path, terminal)
+            return False
+        return True
+
+    monkeypatch.setattr(jobs_module, "_worker_identity_matches", ownership)
+    result = jobs_module.cancel_job(tmp_path, job_id, wait_seconds=1)
+    assert result["status"] == "cancelled"
+    assert result["exit_code"] == -15
+    assert result["finished_at"] == terminal["finished_at"]
+    assert jobs_module.read_job(tmp_path, job_id) == terminal
+
+
 def test_jobs_start_rejects_nested_jobs(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     code = run(["jobs", "start", "--json", "--", "jobs", "list"])

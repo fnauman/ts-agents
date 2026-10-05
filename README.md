@@ -205,6 +205,9 @@ failed executions remain visible in the run catalog.
 GC previews candidates by default and retains directories containing
 unreadable, unclassified, or nonterminal run manifests. Stop concurrent work
 and inspect the preview before applying cleanup.
+Workflow and autoresearch CLI runs hold output leases throughout execution and
+host manifest updates. These leases also protect unpublished nested runs from
+concurrent parent cleanup or overwrite.
 
 Past runs are a first-class surface. `runs` catalogs every manifest under the
 outputs root, and `jobs` runs any CLI command in a detached background worker

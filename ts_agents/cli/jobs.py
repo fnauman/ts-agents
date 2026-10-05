@@ -439,6 +439,18 @@ def _terminate_process_tree(pid: int, *, force: bool = False) -> None:
     )
 
 
+def _finalize_stale_cancellation(root: str | Path, job_id: str, error: str) -> Dict[str, Any]:
+    # Ownership is checked against a snapshot. The supervisor may have written
+    # its terminal record before releasing the lease during that check.
+    record = read_job(root, job_id)
+    if record.get("status") in TERMINAL_STATUSES:
+        return _record_view(record)
+    record["status"] = JOB_STATUS_STALE
+    record["error"] = record.get("error") or error
+    write_job_record(job_record_path(root, job_id), record)
+    return _record_view(record)
+
+
 def cancel_job(
     root: str | Path,
     job_id: str,
@@ -477,14 +489,11 @@ def cancel_job(
         or not isinstance(pid, int)
         or not _worker_identity_matches(record)
     ):
-        record["status"] = JOB_STATUS_STALE
-        record["error"] = (
-            record.get("error")
-            or "worker identity could not be verified; cancellation is unconfirmed "
-            "and descendants may remain"
+        return _finalize_stale_cancellation(
+            root, job_id,
+            "worker identity could not be verified; cancellation is unconfirmed "
+            "and descendants may remain",
         )
-        write_job_record(job_record_path(root, job_id), record)
-        return _record_view(record)
 
     deadline = time.monotonic() + wait_seconds
     while time.monotonic() < deadline:
@@ -492,10 +501,10 @@ def cancel_job(
         if current.get("status") in TERMINAL_STATUSES:
             return _record_view(current)
         if effective_status(current) == JOB_STATUS_STALE:
-            current["status"] = JOB_STATUS_STALE
-            current["error"] = "worker ownership was lost; cancellation is unconfirmed and descendants may remain"
-            write_job_record(job_record_path(root, job_id), current)
-            return _record_view(current)
+            return _finalize_stale_cancellation(
+                root, job_id,
+                "worker ownership was lost; cancellation is unconfirmed and descendants may remain",
+            )
         # If the job process happens to be our child, reap it so it does not
         # linger as a zombie that os.kill(pid, 0) still reports as alive.
         if hasattr(os, "waitpid") and hasattr(os, "WNOHANG"):
