@@ -9,7 +9,7 @@ from email.parser import Parser
 import hashlib
 import io
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import subprocess
 import tarfile
 import tomllib
@@ -76,11 +76,19 @@ def verify(source: Path, dist: Path) -> dict:
             if digest != expected or size != str(len(data)):
                 raise ValueError(f"RECORD integrity mismatch: {name}")
     with tarfile.open(sdists[0]) as archive:
-        roots = {member.name.split("/")[0] for member in archive.getmembers()}
+        members = archive.getmembers()
+        for member in members:
+            name = member.name.removesuffix("/") if member.isdir() else member.name
+            if (PurePosixPath(name).is_absolute() or PurePosixPath(name).as_posix() != name
+                    or ".." in PurePosixPath(name).parts or "\\" in name):
+                raise ValueError(f"Noncanonical source archive member: {member.name}")
+            if not member.isfile() and not member.isdir():
+                raise ValueError(f"Nonregular source archive member: {member.name}")
+        roots = {member.name.split("/")[0] for member in members}
         if len(roots) != 1:
             raise ValueError("Expected one source archive root")
         root = roots.pop()
-        maintained_members = [member for member in archive.getmembers() if not member.isdir()
+        maintained_members = [member for member in members if not member.isdir()
                               and (member.name.removeprefix(f"{root}/") in root_files
                                    or member.name.removeprefix(f"{root}/").startswith(maintained_prefixes))]
         actual_source = {member.name.removeprefix(f"{root}/") for member in maintained_members}

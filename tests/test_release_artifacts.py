@@ -33,7 +33,9 @@ def test_artifact_verifier_rejects_dirty_committed_source(tmp_path):
         verify(source, dist)
 
 
-@pytest.mark.parametrize("extra", ["tests/extra.py", "scripts/extra.py", "skills/extra.md", "ts_agents/__init__.py"])
+@pytest.mark.parametrize("extra", ["tests/extra.py", "scripts/extra.py", "skills/extra.md", "ts_agents/__init__.py",
+                                   "./ts_agents/__init__.py", "ts_agents/../ts_agents/__init__.py",
+                                   "ts_agents\\__init__.py"])
 def test_artifact_verifier_rejects_unrecorded_or_duplicate_sdist_members(tmp_path, extra):
     source = tmp_path / "source"
     source.mkdir()
@@ -73,5 +75,5 @@ def test_artifact_verifier_rejects_unrecorded_or_duplicate_sdist_members(tmp_pat
     write_sdist(False)
     assert verify(source, dist)["sdist_source_files_verified"] == 2
     write_sdist(True)
-    with pytest.raises(ValueError, match="inventory mismatch|Duplicate maintained"):
+    with pytest.raises(ValueError, match="inventory mismatch|Duplicate maintained|Noncanonical source"):
         verify(source, dist)
