@@ -11,6 +11,25 @@ permissions:
   id-token: write
 
 jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+      - name: Qualify tagged source with locked optional stack
+        run: |
+          uv sync --frozen --all-extras --python ${{ matrix.python-version }}
+          uv run --frozen --python ${{ matrix.python-version }} python -m pytest -q
+          bash scripts/check_release_quality.sh
+
   build:
     runs-on: ubuntu-latest
     outputs:
@@ -45,6 +64,15 @@ jobs:
 
       - name: Check package metadata
         run: uv tool run twine check dist/*
+
+      - name: Verify packaged source and wheel RECORD
+        run: python scripts/verify_release_artifacts.py --dist-dir dist --report release-evidence/artifact-verification.json
+
+      - name: Upload source and artifact verification
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifact-verification
+          path: release-evidence/
 
       - name: Upload dist artifacts
         uses: actions/upload-artifact@v4
@@ -83,7 +111,7 @@ jobs:
         run: bash scripts/smoke_install_wheel.sh "${{ matrix.python-version }}" "$GITHUB_WORKSPACE/dist"
 
   publish:
-    needs: [build, smoke-install]
+    needs: [qualify, build, smoke-install]
     runs-on: ubuntu-latest
     environment:
       name: pypi

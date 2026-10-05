@@ -324,7 +324,7 @@ Run-scoped output directories, manifests, artifact refs, cost metadata, and sand
 :::
 
 ::: {.small-note}
-The roadmap is to push this further: async execution, queue/progress/cancel/resume, and richer run history.
+The roadmap is to push this further: progress reporting, checkpoint recovery, and richer run history on top of the current background-job and run-catalog surfaces.
 :::
 
 

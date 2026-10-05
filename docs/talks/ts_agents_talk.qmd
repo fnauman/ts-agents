@@ -488,7 +488,7 @@ Where to invest next to make DS agents feel real.
 
 #### Agent runtime
 
-- Async-first execution: queue/progress/cancel/resume
+- Job progress, queueing, and computational checkpoint recovery
 - Automatic environment resolution: per-tool images/lockfiles + caching
 - Tool routing: hybrid LLM + heuristics + learned rankers
 - Evaluation harness: realistic tasks with latency/cost constraints

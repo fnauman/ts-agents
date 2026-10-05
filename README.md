@@ -4,8 +4,8 @@
 [![Python](https://img.shields.io/badge/python-3.11--3.14-3776AB)](#installation)
 [![License](https://img.shields.io/badge/license-MIT-2EA44F)](https://github.com/fnauman/ts-agents/blob/main/LICENSE)
 
-`ts-agents` is a CLI toolkit for **long-running autonomous agentic workflows**
-on time-series data. It gives agent runtimes a stable, machine-readable surface
+`ts-agents` is a CLI toolkit for time-series analysis used by external agents
+and automation. It gives agent runtimes a stable, machine-readable surface
 so a model can bootstrap, discover what's available, execute real work, and
 produce inspectable artifacts — without hand-written glue code per project.
 
@@ -204,7 +204,9 @@ ts-agents runs list --json
 ts-agents runs show <run-id> --json
 ts-agents runs gc --older-than 30 --apply --json
 
-ts-agents jobs start -- workflow run forecast --input data/demo.csv --json
+ts-agents jobs start --json -- workflow run forecast-series \
+  --input-json '{"series":[1,2,3,4,5,6,7,8,9,10,11,12]}' \
+  --horizon 3 --methods seasonal_naive --skip-plots --json
 ts-agents jobs status <job-id> --json
 ts-agents jobs logs <job-id> --tail 50
 ts-agents jobs cancel <job-id> --json
@@ -274,7 +276,7 @@ Use `ts-agents` when you want:
 - **Framework adapters, not framework lock-in**: LangChain/deep-agent wrappers are convenience layers over the same tool registry. If `deepagents` is unavailable, deep mode reports a LangChain fallback instead of hiding the runtime downgrade.
 - **Scoped TSFM interop, not a model hub**: external projects such as TimeCopilot are comparator and interoperability targets; `ts-agents` keeps foundation-model execution to narrow smoke paths plus reproducible artifacts.
 - **Artifacts over chat**: tools produce inspectable files (plots, JSON, reports), and agents return summaries plus paths.
-- **Run lifecycle as first-class metadata**: every workflow run gets a run ID, a `run_manifest.json`, and non-clobbering defaults — so long, multi-turn sessions remain reproducible and resumable.
+- **Run lifecycle as first-class metadata**: every workflow run gets a run ID, a `run_manifest.json`, and non-clobbering defaults — so long, multi-turn sessions remain traceable and safe to rerun.
 - **Swappable front-ends**: CLI agents, custom agents, and Gradio are interfaces around the same core tools.
 - **Sandboxed execution with explicit fallback**: backends isolate dependencies and scale heavier workloads; the executor never silently downgrades isolation.
 

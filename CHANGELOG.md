@@ -2,9 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.2.0] - 2026-08-20
+## [0.2.0] - 2026-10-05
 
-First release since March, bundling five months of agent-facing surface work
+First release since March, bundling the agent-facing surface work since 0.1.1
 plus a run/jobs control plane.
 
 ### Added
@@ -14,8 +14,9 @@ plus a run/jobs control plane.
   with dry-run-by-default garbage collection.
 - `ts-agents jobs start/list/status/logs/cancel`: background execution of any
   CLI command in a detached worker with a durable JSON job record, combined
-  stdout/stderr log capture, exit-code finalization, and process-group
-  cancellation.
+  stdout/stderr log capture, exit-code finalization, and supervised local process-group
+  cancellation on POSIX (Linux/macOS or WSL). Native Windows background jobs
+  fail with an actionable hint; foreground commands remain available.
 - `ts-agents capabilities`: machine-readable CLI discovery surface for
   autonomous agents (entrypoints, install profile, status contract, sandbox
   backends).
@@ -35,9 +36,8 @@ plus a run/jobs control plane.
 ### Changed
 
 - `requires-python` is now `>=3.11` (previously capped `<3.14`). The base
-  wheel installs and runs on Python 3.14; heavy extras that depend on numba
-  (`patterns`, `classification`) remain 3.11-3.13 until numba ships 3.14
-  support. CI gains a 3.14 wheel-smoke job and the publish workflows smoke
+  wheel installs and runs on Python 3.14; the locked optional dependency stack
+  remains qualified on 3.11-3.13; 3.14 qualification covers the base CLI. CI gains a 3.14 wheel-smoke job and the publish workflows smoke
   3.14.
 - Shared artifact-staging module: the workflow and autoresearch sandbox
   executors now use one hardened implementation for path validation, symlink
@@ -51,6 +51,22 @@ plus a run/jobs control plane.
   supported contract surface.
 
 ### Fixed
+
+- Cancellation now retains the supervisor through descendant termination;
+  graceful timeout permits a later force request. Lost workers remain stale
+  with termination unconfirmed. Log tails use bounded memory.
+- Run GC retains unreadable/unclassified nested evidence and nonterminal runs,
+  revalidates identities before deletion, and respects active output leases.
+- Workflow resume requires the same workflow, input content/source, and options;
+  compatible reruns retain creation time and ID. It is not checkpoint recovery.
+  Legacy manifests without fingerprints require a new output directory.
+- Active/failed workflow runs remain cataloged, concurrent writes to the same
+  output directory are refused, and manifest-write errors are reported.
+- Installed-wheel checks execute the public CLI surface outside the checkout;
+  source archives include tests, canonical skills, examples, and release tooling.
+  Build gates verify source identity and wheel RECORD hashes.
+- Runnable background-job example, release/support documentation, and scripted
+  benchmark claim boundaries are corrected.
 
 - Remote workflow artifact materialization created one temp directory per
   staged file when no output directory was requested, scattering a single
@@ -81,7 +97,7 @@ publish.
 
 ### Notes
 
-- Current package version is `0.1.1` in `pyproject.toml`.
+- This entry describes the published `0.1.1` release.
 
 ## [0.1.0] - 2026-03-05
 
@@ -101,4 +117,4 @@ Initial public release of `ts-agents`.
 
 ### Notes
 
-- Current package version is `0.1.0` in `pyproject.toml`.
+- This entry describes the historical `0.1.0` tag.

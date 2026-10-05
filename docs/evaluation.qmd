@@ -4,7 +4,7 @@ title: "Evaluation"
 
 `ts-agents` now includes a deterministic internal benchmark that compares the
 raw tool surface against the structured discovery, skills, and workflow layers.
-The goal is not to simulate a frontier model; it is to make the repo's own
+No LLM is called, and the command sequences (including deliberate failures) are fixed; it is to make the repo's own
 agent-facing contract measurable and easy to rerun.
 
 ## What the benchmark covers
@@ -59,7 +59,7 @@ Results from the current snapshot:
 - `plain_model` fails every scenario because it produces no machine-runnable contract.
 - `plain_tools` can recover sometimes, but it still guesses wrong once and produces no artifact bundles.
 - `structured_discovery` reaches full task success, but it still leaves artifact completeness at `0.00` because raw tool calls do not write the workflow bundle.
-- `skills_workflows` reaches full task success and full artifact completeness, which is the main proof that the repo's structured surface improves agent outcomes.
+- `skills_workflows` reaches full task success and full artifact completeness, demonstrating the artifact guarantees of these scripted commands. It does not measure whether an LLM chooses better commands.
 
 ## External Context
 

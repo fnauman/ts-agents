@@ -2,8 +2,8 @@
 title: "ts-agents docs"
 ---
 
-`ts-agents` is a CLI toolkit for **long-running autonomous agentic workflows**
-on time-series data. It gives agent runtimes a stable, machine-readable surface
+`ts-agents` is a CLI toolkit for time-series analysis used by external agents
+and automation. It gives agent runtimes a stable, machine-readable surface
 so a model can bootstrap, discover what's available, execute real work, and
 produce inspectable artifacts — without hand-written glue code per project.
 
@@ -30,7 +30,7 @@ rewriting the core toolchain.
   `quality_status`, `degraded`, and `requires_review`.
 - **Run lifecycle metadata:** generated run IDs, `run_manifest.json`, and
   non-clobbering default output directories with `--overwrite` / `--resume`
-  semantics — so long multi-turn sessions remain reproducible and resumable.
+  semantics — so long multi-turn sessions remain traceable and safe to rerun.
 - **Sandbox parity + explicit fallback:** `local`, `subprocess`, `docker`,
   `daytona`, and `modal` all stage workflow artifacts back to the host output
   directory; `sandbox doctor` probes readiness; the executor never silently
