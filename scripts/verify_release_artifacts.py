@@ -88,6 +88,8 @@ def verify(source: Path, dist: Path) -> dict:
         if len(roots) != 1:
             raise ValueError("Expected one source archive root")
         root = roots.pop()
+        if root != sdists[0].name.removesuffix(".tar.gz"):
+            raise ValueError("Source archive root differs from distribution filename")
         maintained_members = [member for member in members if not member.isdir()
                               and (member.name.removeprefix(f"{root}/") in root_files
                                    or member.name.removeprefix(f"{root}/").startswith(maintained_prefixes))]
