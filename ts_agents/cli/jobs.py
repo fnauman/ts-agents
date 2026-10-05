@@ -268,6 +268,12 @@ def start_job(
     root: str | Path = DEFAULT_JOBS_ROOT,
 ) -> Dict[str, Any]:
     """Launch ``ts-agents <argv...>`` in a detached background worker."""
+    if not _IS_POSIX:
+        raise ToolError(
+            code=ToolErrorCode.BACKEND_UNAVAILABLE,
+            message="Background job supervision requires POSIX process groups.",
+            hint="Use foreground CLI commands on native Windows, or run jobs in WSL/Linux.",
+        )
     if not argv:
         raise ValueError(
             "jobs start requires a command to run, e.g. "
@@ -484,6 +490,11 @@ def cancel_job(
     while time.monotonic() < deadline:
         current = read_job(root, job_id)
         if current.get("status") in TERMINAL_STATUSES:
+            return _record_view(current)
+        if effective_status(current) == JOB_STATUS_STALE:
+            current["status"] = JOB_STATUS_STALE
+            current["error"] = "worker ownership was lost; cancellation is unconfirmed and descendants may remain"
+            write_job_record(job_record_path(root, job_id), current)
             return _record_view(current)
         # If the job process happens to be our child, reap it so it does not
         # linger as a zombie that os.kill(pid, 0) still reports as alive.

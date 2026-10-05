@@ -2548,6 +2548,12 @@ def _handle_capabilities_command(args: argparse.Namespace) -> Tuple[Any, str]:
                 "ts-agents jobs cancel <job-id> --json",
             ],
         },
+        "background_jobs": {
+            "available": os.name == "posix",
+            "required_platform": "POSIX (Linux/macOS or WSL)",
+            "cancellation_scope": "supervised local command process group",
+            "remote_cancellation_confirmed": False,
+        },
         "install_profile": install_profile,
         "status_contract": _capabilities_status_contract(),
         "recommended_entrypoints": [

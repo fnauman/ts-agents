@@ -106,6 +106,65 @@ def test_jobs_start_requires_a_command(tmp_path, monkeypatch, capsys):
     assert payload["error"]["code"] == "validation_error"
 
 
+def test_jobs_start_refuses_unimplemented_windows_supervision(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs_module, "_IS_POSIX", False)
+    with pytest.raises(jobs_module.ToolError) as exc:
+        jobs_module.start_job(["capabilities"], root=tmp_path / "jobs")
+    assert exc.value.code == jobs_module.ToolErrorCode.BACKEND_UNAVAILABLE
+    assert not (tmp_path / "jobs").exists()
+
+
+def test_command_group_liveness_without_procfs(monkeypatch):
+    process = SimpleNamespace(pid=1234, poll=lambda: 0)
+    monkeypatch.setattr(jobs_worker.Path, "glob", lambda *_args: iter(()))
+    signals = []
+    monkeypatch.setattr(jobs_worker.os, "killpg", lambda pid, sig: signals.append((pid, sig)))
+    assert jobs_worker._command_group_alive(process)
+    assert signals == [(1234, 0)]
+
+
+def test_live_command_does_not_scan_procfs(monkeypatch):
+    process = SimpleNamespace(pid=1234, poll=lambda: None)
+    def fail_scan(*_args):
+        raise AssertionError("live leader must not trigger a procfs scan")
+    monkeypatch.setattr(jobs_worker.Path, "glob", fail_scan)
+    assert jobs_worker._command_group_alive(process)
+
+
+def test_supervisor_cleans_up_command_when_record_write_fails(tmp_path, monkeypatch):
+    import signal
+
+    process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+    original_popen = subprocess.Popen
+    monkeypatch.setattr(jobs_worker.subprocess, "Popen", lambda *_args, **_kwargs: process)
+    def fail_write(*_args):
+        raise OSError("controlled write failure")
+    monkeypatch.setattr(jobs_worker, "write_job_record", fail_write)
+    try:
+        with pytest.raises(OSError, match="controlled write failure"):
+            jobs_worker._supervise_command(tmp_path / "record.json", {"argv": ["capabilities"]})
+        assert process.poll() is not None
+    finally:
+        monkeypatch.setattr(jobs_worker.subprocess, "Popen", original_popen)
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+
+
+def test_cancel_detects_supervisor_loss_during_wait(tmp_path, monkeypatch):
+    job_id = "lost-worker"
+    jobs_module.write_job_record(jobs_module.job_record_path(tmp_path, job_id), {
+        "job_id": job_id, "status": "running", "pid": 1234,
+        "cancel_path": str(jobs_module.job_cancel_path(tmp_path, job_id)),
+    })
+    # Initial effective status and ownership checks pass; the wait then loses it.
+    checks = iter([True, True, True, False])
+    monkeypatch.setattr(jobs_module, "_worker_identity_matches", lambda _record: next(checks, False))
+    result = jobs_module.cancel_job(tmp_path, job_id, wait_seconds=1)
+    assert result["status"] == "stale"
+    assert "unconfirmed" in result["error"]
+
+
 def test_jobs_start_rejects_nested_jobs(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     code = run(["jobs", "start", "--json", "--", "jobs", "list"])
@@ -188,6 +247,8 @@ def test_jobs_cancel_terminates_running_process(tmp_path, monkeypatch, resistant
         else:
             assert not jobs_module._pid_alive(child_pid)
     finally:
+        if command_pid is None:
+            command_pid = jobs_module.read_job(jobs_root, job_id).get("command_pid")
         if command_pid is not None:
             try:
                 os.killpg(command_pid, signal.SIGKILL)

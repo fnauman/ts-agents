@@ -39,20 +39,26 @@ _CANCELLED_EXIT_CODE = 130
 
 def _command_group_alive(process: subprocess.Popen) -> bool:
     """Check executable members, including descendants after the leader exits."""
-    if os.name != "posix":
-        return process.poll() is None
+    # The common case is constant-time. Enumerate descendants only after the
+    # leader exits, rather than scanning every host process every 50 ms.
+    if process.poll() is None:
+        return True
     if sys.platform == "linux":
         # killpg(..., 0) includes zombies. They cannot execute work, and an
         # orphan's reaping is controlled by the host's init process, not us.
+        inspected = 0
         for path in Path("/proc").glob("[0-9]*/stat"):
             try:
                 fields = path.read_text().rsplit(")", 1)[1].split()
+                inspected += 1
                 if int(fields[2]) == process.pid and fields[0] not in {"Z", "X"}:
                     return True
             except (OSError, ValueError, IndexError):
                 continue
-        return False
-    process.poll()
+        if inspected:
+            return False
+        # No usable procfs: retain the cancellation loop while the group
+        # exists, including descendants after the leader exits.
     try:
         os.killpg(process.pid, 0)
     except ProcessLookupError:
@@ -74,22 +80,19 @@ def _signal_command_group(process: subprocess.Popen, *, force: bool) -> None:
 
 def _supervise_command(record_path: Path, record: dict) -> int:
     """Keep ownership alive while the CLI and its local descendants execute."""
-    kwargs: dict = {}
-    if os.name == "posix":
-        kwargs["start_new_session"] = True
-    elif os.name == "nt":
-        kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP")
+    if os.name != "posix":
+        raise RuntimeError("Background job supervision requires POSIX; use foreground commands or WSL/Linux.")
     process = subprocess.Popen(
         [sys.executable, "-m", "ts_agents", *record["argv"]],
         stdin=subprocess.DEVNULL,
         env={**os.environ, "PYTHONUNBUFFERED": "1"},
-        **kwargs,
+        start_new_session=True,
     )
-    record["command_pid"] = process.pid
-    write_job_record(record_path, record)
     term_sent = False
     force_sent = False
     try:
+        record["command_pid"] = process.pid
+        write_job_record(record_path, record)
         while _command_group_alive(process):
             if _cancellation_requested(record):
                 force = _force_cancellation_requested(record)
@@ -101,6 +104,8 @@ def _supervise_command(record_path: Path, record: dict) -> int:
         return process.wait()
     except BaseException:
         _signal_command_group(process, force=True)
+        while _command_group_alive(process):
+            time.sleep(0.05)
         process.wait()
         raise
 

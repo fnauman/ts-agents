@@ -210,7 +210,8 @@ ts-agents jobs logs <job-id> --tail 50
 ts-agents jobs cancel <job-id> --json
 ```
 
-Cancellation is supervised: a timeout leaves the job active so
+Background jobs require POSIX (Linux/macOS or WSL); native Windows supports
+foreground commands. Cancellation is supervised: a timeout leaves the job active so
 `jobs cancel <job-id> --force` can terminate a resistant local command process
 group. A missing worker is reported as `stale`, with cancellation unconfirmed.
 This does not establish termination of remote Docker/Daytona/Modal work or
