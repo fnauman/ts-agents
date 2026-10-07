@@ -3353,13 +3353,17 @@ def _handle_skills_command(args: argparse.Namespace) -> Tuple[Any, str]:
             result = {"valid": True, "errors": {}}
             return result, "All skills validated successfully"
         else:
-            result = {"valid": False, "errors": errors}
             lines = ["Validation errors found:"]
             for skill_name, skill_errors in errors.items():
                 lines.append(f"\n{skill_name}:")
                 for error in skill_errors:
                     lines.append(f"  - {error}")
-            return result, "\n".join(lines)
+            # Invalid skills must fail the command so CI and wheel smoke checks notice.
+            raise ToolError(
+                code=ToolErrorCode.VALIDATION_ERROR,
+                message="\n".join(lines),
+                details={"valid": False, "errors": errors},
+            )
 
     elif args.skills_command == "list":
         skills_dir = Path(args.path) if args.path else None

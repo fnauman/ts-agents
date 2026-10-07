@@ -275,6 +275,24 @@ def test_real_optional_backend_training_persistence_and_reload(method, tmp_path)
     assert actual[method].to_numpy() == pytest.approx(
         expected[method].to_numpy(), rel=1e-6, abs=1e-6
     )
+    # Reruns/resumes save into the same directory; the newest fit replaces it.
+    (tmp_path / method / "stale.bin").write_bytes(b"old")
+    backend.save(tmp_path / method)
+    assert not (tmp_path / method / "stale.bin").exists()
+
+
+def test_save_replaces_existing_model_directory_without_leftovers(tmp_path):
+    from ts_agents.core.forecasting.panel import PanelBackend
+
+    backend = PanelBackend("seasonal_naive", "D", 7, {})
+    backend.fit(normalize_panel(panel_frame(20), "D"), 3)
+    target = tmp_path / "models" / "seasonal_naive"
+    target.mkdir(parents=True)
+    (target / "stale.ckpt").write_text("previous run")
+    backend.save(target)
+    backend.save(target)
+    assert sorted(path.name for path in (tmp_path / "models").iterdir()) == ["seasonal_naive"]
+    assert sorted(path.name for path in target.iterdir()) == ["history.csv"]
 
 
 def test_panel_subprocess_keeps_artifacts_and_json_envelope(tmp_path):

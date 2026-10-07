@@ -17,6 +17,12 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - Large inline JSON inputs no longer fail filesystem filename-length probes.
+- `forecast-panel` reruns and `--resume` replace each `models/<method>/`
+  directory atomically, so NHITS saves no longer fail on existing files and
+  stale model files are never reported as artifacts.
+- `skills validate` now exits non-zero with a `validation_error` envelope when
+  any skill is invalid; the `panel-forecasting` skill gained its missing
+  "When to use" section.
 
 ## [0.2.2] - 2026-10-05
 

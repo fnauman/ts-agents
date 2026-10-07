@@ -9,6 +9,15 @@ metadata:
 
 # Panel forecasting
 
+## When to use
+
+Use this skill to compare global models across many related series in one
+long-format panel, or to persist trained GBM/NHITS models for reuse. For a
+single series with statistical baselines, prefer the forecasting skill and
+`forecast-series`.
+
+## Workflow
+
 Use `ts-agents workflow show forecast-panel --json` to discover installed model
 availability. Install the `ml` extra for LightGBM/histogram GBM and `neural` for
 NHITS. Trainers are imported only when requested; an unavailable requested

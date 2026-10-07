@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import shutil
+import tempfile
 from typing import Any
 
 import numpy as np
@@ -172,15 +174,26 @@ class PanelBackend:
         return self.estimator.predict(horizon)
 
     def save(self, directory: Path) -> None:
-        directory.mkdir(parents=True, exist_ok=True)
-        if self.method == "seasonal_naive":
-            if self.history is None:
-                raise ValueError("Fit the seasonal baseline before saving.")
-            self.history.to_csv(directory / "history.csv", index=False)
-        elif self.method == "nhits":
-            self.estimator.save(path=str(directory), overwrite=False, save_dataset=True)
-        else:
-            self.estimator.save(str(directory))
+        """Replace ``directory`` with this fit; reruns never mix in stale model files."""
+        if self.method == "seasonal_naive" and self.history is None:
+            raise ValueError("Fit the seasonal baseline before saving.")
+        directory.parent.mkdir(parents=True, exist_ok=True)
+        staging = Path(tempfile.mkdtemp(prefix=f".{directory.name}-", dir=directory.parent))
+        try:
+            if self.method == "seasonal_naive":
+                self.history.to_csv(staging / "history.csv", index=False)
+            elif self.method == "nhits":
+                self.estimator.save(path=str(staging), overwrite=False, save_dataset=True)
+            else:
+                self.estimator.save(str(staging))
+            if directory.is_symlink() or directory.is_file():
+                directory.unlink()
+            elif directory.exists():
+                shutil.rmtree(directory)
+            staging.rename(directory)
+        except BaseException:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
 
 
 def score_predictions(
