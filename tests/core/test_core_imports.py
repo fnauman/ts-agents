@@ -45,3 +45,26 @@ def test_core_comparison_exports_are_lazy_loaded():
     assert "ts_agents.core.comparison" not in sys.modules
     _ = core.compare_methods
     assert "ts_agents.core.comparison" in sys.modules
+
+
+def test_forecasting_catalog_and_workflows_do_not_import_heavy_backends():
+    import subprocess
+    from pathlib import Path
+
+    code = (
+        "import sys\n"
+        "import ts_agents.core.forecasting\n"
+        "import ts_agents.core.forecasting.catalog as catalog\n"
+        "import ts_agents.workflows\n"
+        "catalog.methods_for('panel'); catalog.is_available('chronos2_small')\n"
+        "heavy = {'darts', 'torch', 'huggingface_hub', 'pytorch_lightning'} & set(sys.modules)\n"
+        "assert not heavy, sorted(heavy)\n"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        cwd=Path(__file__).resolve().parents[2],
+    )
+    assert completed.returncode == 0, completed.stderr

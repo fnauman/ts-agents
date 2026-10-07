@@ -13,6 +13,11 @@ _LAZY_EXPORTS = {
     "forecast_seasonal_naive": ("statistical", "forecast_seasonal_naive"),
     "forecast_ensemble": ("statistical", "forecast_ensemble"),
     "compare_forecasts": ("statistical", "compare_forecasts"),
+    "forecast_foundation": ("foundation", "forecast_foundation"),
+    "FoundationModelUnavailableError": ("foundation", "FoundationModelUnavailableError"),
+    "METHODS": ("catalog", "METHODS"),
+    "methods_for": ("catalog", "methods_for"),
+    "required_extras_for": ("catalog", "required_extras_for"),
 }
 
 
@@ -30,4 +35,9 @@ __all__ = [
     "forecast_seasonal_naive",
     "forecast_ensemble",
     "compare_forecasts",
+    "forecast_foundation",
+    "FoundationModelUnavailableError",
+    "METHODS",
+    "methods_for",
+    "required_extras_for",
 ]
