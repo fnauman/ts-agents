@@ -72,3 +72,46 @@ def test_bundled_skills_validate_and_match_packaged_mirror(capsys):
             current.left, current.left_only, current.right_only, current.diff_files,
         )
         pending.extend(current.subdirs.values())
+
+
+def test_forecasting_skills_mention_every_catalog_method():
+    from ts_agents.core.forecasting.catalog import foundation_methods, methods_for
+
+    root = Path(__file__).resolve().parents[2] / "skills"
+    panel_skill = (root / "panel-forecasting" / "SKILL.md").read_text()
+    forecasting_skill = (root / "forecasting" / "SKILL.md").read_text()
+
+    missing_panel = [name for name in methods_for("panel") if f"`{name}`" not in panel_skill]
+    missing_foundation = [
+        name for name in foundation_methods() if f"`{name}`" not in forecasting_skill
+    ]
+    assert not missing_panel, missing_panel
+    assert not missing_foundation, missing_foundation
+    assert "panel-forecasting" in forecasting_skill
+    assert "`foundation`" in panel_skill and "HF_HOME" in panel_skill
+
+
+def test_panel_skill_frontmatter_and_commands(capsys):
+    code = run(["skills", "show", "panel-forecasting", "--json"])
+
+    assert code == 0
+    result = json.loads(capsys.readouterr().out)["result"]
+    metadata = result["metadata"]
+    assert metadata["domain"] == "time-series"
+    assert "foundation-models" in metadata["tasks"]
+    assert metadata["ts_agents"]["tool_category"] == "forecasting"
+    assert metadata["ts_agents"]["preferred_workflow"] == "forecast-panel"
+    commands = result["commands"]
+    assert any(command.startswith("ts-agents data export-panel m4-monthly-mini") for command in commands)
+    assert any("forecast-panel" in command and "chronos2_small" in command for command in commands)
+
+
+def test_skills_markdown_lists_panel_and_series_workflows():
+    from ts_agents.cli.skills import build_skills_markdown
+
+    text = build_skills_markdown()
+
+    assert "- ts-agents workflow run forecast-series " in text
+    assert "- ts-agents workflow show forecast-panel --json" in text
+    assert "- ts-agents data export-panel m4-monthly-mini" in text
+    assert "--methods seasonal_naive,chronos2_small" in text

@@ -2,11 +2,13 @@
 name: time-series-forecasting
 description: >
   Forecast/predict future values of a time series, choose reasonable baselines, and
-  compare forecasting methods on arbitrary series loaded from ts-agents data.
+  compare forecasting methods (seasonal naive, ARIMA/ETS/Theta, and optional Darts
+  zero-shot foundation models such as Chronos-2) on arbitrary series loaded from
+  ts-agents data.
 compatibility: "Best with the ts-agents repo + CLI (`ts-agents`)."
 metadata:
   domain: time-series
-  tasks: [forecasting, prediction, model-selection]
+  tasks: [forecasting, prediction, model-selection, foundation-models]
   ts_agents:
     tool_category: forecasting
     prefers_with_data_tools: true
@@ -33,6 +35,11 @@ If the user wants a reproducible benchmark/report workflow on the vendored M4
 Monthly mini-panel, switch to [`SKILL-pro.md`](./SKILL-pro.md). This base skill
 is for arbitrary `run_id` + `variable` series, not the fixed workflow contract.
 
+If the user has many related series in one long-format table (`unique_id`, `ds`,
+`y`), or wants global LightGBM/NHITS models or FM scores under rolling
+validation across a panel, switch to the `panel-forecasting` skill and the
+`forecast-panel` workflow.
+
 ## Minimal info to proceed
 - A specific series (`run_id` + `variable`, or raw array in Python)
 - Forecast horizon
@@ -50,6 +57,8 @@ If the season length is unknown and seasonality matters, estimate it first.
 - **ETS**: good default for level/trend/seasonality. Requires the optional `forecasting` extra.
 - **ARIMA**: stronger but more fragile and higher cost. Requires the optional `forecasting` extra.
 - **Ensemble**: use after you have compared individual methods; advanced combinations require the optional `forecasting` extra.
+- **Chronos-2 / TimesFM 2.5 / PatchTST-FM** (`chronos2_small`, `chronos2`, `timesfm2p5`, `patchtst_fm`): Darts zero-shot foundation models. Require the optional `foundation` extra; only the requested model's pinned weights download (into `HF_HOME`). Point forecasts only; `chronos2_small` is the cheapest default.
+- **Global GBM** (`lightgbm`, `histgbm`; `ml` extra) and **NHITS** (`nhits`; `neural` extra): panel-only, through `forecast-panel` (see the `panel-forecasting` skill).
 
 ## Workflow
 ### 0) Estimate seasonality when needed
@@ -94,6 +103,24 @@ Notes:
   added to `--methods`.
 - If those methods are listed under `unavailable_methods`, stay with
   `seasonal_naive` or install `ts-agents[forecasting]`.
+
+FMs are also available in `forecast-series` once `ts-agents[foundation]` is
+installed. They run zero-shot (nothing is trained) on the last
+`--context-length` points (default 512, capped per model):
+```bash
+uv run ts-agents workflow run forecast-series \
+  --run-id <RUN_ID> --variable <VARIABLE> \
+  --horizon 24 --season-length <PERIOD> \
+  --methods seasonal_naive,chronos2_small
+```
+Request one checkpoint at a time unless the comparison needs more: each model
+downloads its own weights on first use, and network-less sandboxes need a
+pre-populated `HF_HOME`. Public benchmark series may overlap FM pretraining
+data, so treat FM wins on them cautiously. For a quick point forecast without
+the artifact bundle, use the `forecast_foundation_with_data` tool
+(VERY_HIGH cost: CLI runs need `--approve`). For FM provenance, cite
+`models/<fm>/model_spec.json` (checkpoint, pinned revision, licence, resolved
+context); it is written only for FMs that produced a forecast.
 
 ### 4) Use an ensemble only after individual comparisons
 Treat ensembles as an advanced path, not a base-profile default. Only use them

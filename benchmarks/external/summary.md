@@ -14,4 +14,4 @@ TimeCopilot ([repository](https://github.com/TimeCopilot/timecopilot)) is tracke
 
 ## Local TSFM Scope
 
-`foundation-chronos-smoke` is the scoped executable TSFM path. It exists to validate one Chronos zero-shot route through the same autoresearch artifact contract, not to become a model hub.
+`foundation-smoke` is the scoped executable TSFM path; it replaced the earlier Chronos-only `foundation-chronos-smoke` route (now a deprecated alias). It runs pinned Darts zero-shot checkpoints (default `chronos2_small`; optionally `chronos2`, `timesfm2p5`, `patchtst_fm`) through the same autoresearch artifact contract, and the same catalog backs `forecast-series` and `forecast-panel`. It validates executable routes, not accuracy claims, and is not meant to become a model hub; M4 results may be optimistic because of possible pretraining overlap.

@@ -73,9 +73,14 @@ that context in:
 TimeCopilot is treated as a comparator and interoperability target because it has a
 broad foundation-model forecasting surface. That is intentionally different from
 `ts-agents`, whose durable surface is CLI contracts, workflow manifests, artifact
-bundles, sandboxes, and reusable skills. The scoped `foundation-chronos-smoke`
-loop exists to validate one executable TSFM route through the same artifact
-contract, not to start a model hub.
+bundles, sandboxes, and reusable skills. The scoped `foundation-smoke` loop
+runs pinned Darts zero-shot checkpoints (default `chronos2_small`; `--models`
+also accepts `chronos2`, `timesfm2p5` and `patchtst_fm`, and only the selected
+checkpoints download) through the same artifact contract. It is a smoke check,
+not a model hub or an accuracy leaderboard: M4 may overlap FM pretraining data.
+A weekly CI job (`darts-fm-smoke`) runs it unmocked, so Darts API drift is
+caught in CI. The former `foundation-chronos-smoke` name remains a deprecated
+alias.
 
 ## Why this matters
 

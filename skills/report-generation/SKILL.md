@@ -19,8 +19,8 @@ metadata:
 ## When to use
 Use this skill when a workflow has already produced artifacts, or when the user
 wants a polished report as the final deliverable rather than only terminal
-output. Prefer this skill after `inspect-series`, `forecast-series`, or
-`activity-recognition` runs.
+output. Prefer this skill after `inspect-series`, `forecast-series`,
+`forecast-panel`, or `activity-recognition` runs.
 
 ## Goal
 Create a concise, reproducible report that links claims to files:
@@ -48,6 +48,7 @@ If the user has not run a workflow yet, discover the relevant workflow contract:
 ```bash
 uv run ts-agents workflow show inspect-series --json
 uv run ts-agents workflow show forecast-series --json
+uv run ts-agents workflow show forecast-panel --json
 uv run ts-agents workflow show activity-recognition --json
 ```
 
@@ -93,7 +94,20 @@ If Quarto is not available, deliver Markdown plus the artifact directory path.
 ### Forecasting
 Use `forecast_comparison.json` for metrics and model ranking,
 `forecast_comparison.png` for the visual comparison, `forecast.csv` for the
-selected forecast, and `report.md` for the baseline narrative.
+selected forecast, and `report.md` for the baseline narrative. For foundation
+models, report provenance from `models/<fm>/model_spec.json` (checkpoint id,
+pinned revision, licence, resolved context) and note that they ran zero-shot.
+
+### Panel forecasting
+Use `metrics.json` for overall, per-series and per-horizon validation scores,
+options, timings and package versions; `backtest_predictions.csv` for keyed
+rolling-validation predictions; `forecast.csv` for future forecasts from every
+requested model; and `report.md` for the narrative. Never embed or attach
+`models/` contents in a report; cite the directory path only. State that the
+scores come from rolling validation, not an independent test. For foundation
+models, report provenance from `metrics.json` `foundation_models` (checkpoint
+id, pinned revision, licence, resolved context) and note that they ran
+zero-shot.
 
 ### Activity recognition
 Use `window_selection.json` for candidate-window scores, `eval.json` for final

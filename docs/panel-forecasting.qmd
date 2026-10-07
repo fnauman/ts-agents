@@ -1,19 +1,42 @@
 ---
-title: "ML and neural panel forecasting"
+title: "Panel and foundation-model forecasting"
 ---
 
-The `forecast-panel` workflow trains global models across related series:
-MLForecast with LightGBM or scikit-learn histogram gradient boosting, and
-NeuralForecast with NHITS. A dependency-light seasonal baseline is also available.
-These capabilities are currently unreleased; from this checkout use:
+The `forecast-panel` workflow compares models across related series:
+MLForecast with LightGBM or scikit-learn histogram gradient boosting,
+NeuralForecast with NHITS, and zero-shot foundation models (FMs) through
+[Darts](https://unit8co.github.io/darts/). A dependency-light seasonal baseline
+is always available. These capabilities are currently unreleased; from this
+checkout use:
 
 ```bash
-uv sync --extra ml --extra neural --extra viz
+uv sync --extra ml --extra neural --extra foundation --extra viz
 uv run ts-agents workflow show forecast-panel --json
 ```
 
 The base and recommended profiles remain unchanged. The `all` profile includes
-both new backends. All imports of the optional training libraries are lazy.
+every optional backend. All imports of the optional libraries are lazy.
+`workflow show forecast-panel` reports status `available` on every install,
+because `seasonal_naive` always works; each optional family (`ml_backends`,
+`neural_backends`, `foundation_models`, `plots`) appears under
+`availability.optional_features` with its missing dependencies and extra.
+Requesting an unavailable method fails before any forecasting artifacts are
+written (only a failed `run_manifest.json` is recorded), with an install hint
+such as ``Install `ts-agents[foundation]`.`` (exit code 3).
+
+To try the workflow on bundled data, export the M4 Monthly mini-panel. The
+source stores integer time indexes, so the exported month-start dates are a
+synthetic alignment: every train split ends at `--train-end` (default
+`2015-06-01`) and the holdout covers the next 18 months.
+
+```bash
+uv run ts-agents data export-panel m4-monthly-mini --split train --out panel.csv --json
+uv run ts-agents workflow run forecast-panel --input panel.csv --freq MS \
+  --horizon 18 --season-length 12 --methods seasonal_naive --skip-plots --json
+```
+
+Keep the holdout (`--split holdout`) outside the workflow input and use it only
+to score the saved `forecast.csv`.
 
 ## Input and execution
 
@@ -58,13 +81,16 @@ large-scale series. Zero seasonal scales have undefined MASE and are counted
 explicitly. Overlapping origins count different forecasts of the same target.
 Use these scores for selection and keep a final test outside the input. Future
 forecasts in `forecast.csv` are not scored against invented targets.
+`metrics.json` also records `options.context_length` and, when FMs are
+requested, `options.resolved_context_length` (per model) and
+`foundation_models` (one model spec per FM).
 
 | Artifact | Contents |
 | --- | --- |
 | `metrics.json` | Metrics, settings, quality flags, package versions, per-fit runtime |
 | `backtest_predictions.csv` | Series, origin, horizon step, actual, prediction, training MASE scale |
 | `forecast.csv` | Future forecasts from every requested model |
-| `models/<method>/` | Native persisted model files; baseline stores history |
+| `models/<method>/` | Native persisted model files; baseline stores history; FMs store only `model_spec.json` |
 | `backtest.png` | Last validation origin for up to four series |
 | `report.md` | Comparison summary, validation boundaries and limitations |
 | `run_manifest.json` | Run identity, input fingerprint, options and artifact paths |
@@ -76,6 +102,64 @@ artifacts without retraining. To reuse models in Python, use
 Load only model files you trust: native model formats can deserialize Python
 objects. This workflow currently offers point forecasts, not calibrated intervals.
 
-[MLForecast documentation](https://nixtlaverse.nixtla.io/mlforecast/forecast.html)
-and [NHITS documentation](https://nixtlaverse.nixtla.io/neuralforecast/models.nhits.html)
-describe the underlying training interfaces.
+## Foundation models (Darts, zero-shot)
+
+Install `ts-agents[foundation]` (`darts[torch]` plus `torch`). Darts is used as
+the interoperability layer; `ts-agents` pins a small catalog of checkpoints
+rather than acting as a model hub. The same method names work in
+`forecast-panel`, `forecast-series`, the `forecast_foundation*` agent tools and
+the `foundation-smoke` autoresearch loop.
+
+| Method | Darts class | Checkpoint @ pinned revision | Licence | Weights |
+| --- | --- | --- | --- | --- |
+| `chronos2_small` (default) | `Chronos2Model` | `autogluon/chronos-2-small` @ `ddec013` | Apache-2.0 | ~112 MB |
+| `chronos2` | `Chronos2Model` | `amazon/chronos-2` @ `29ec376` | Apache-2.0 | ~478 MB |
+| `timesfm2p5` | `TimesFM2p5Model` | `google/timesfm-2.5-200m-pytorch` @ `1d95242` | Apache-2.0 | ~925 MB |
+| `patchtst_fm` | `PatchTSTFMModel` | `ibm-granite/granite-timeseries-patchtst-fm-r1` @ `151f9c6` | Apache-2.0 | ~1032 MB |
+
+Full revisions are in `workflow show forecast-panel --json`
+(`capabilities.foundation_model_checkpoints`) and in every run's
+`metrics.json`.
+
+```bash
+uv run ts-agents workflow run forecast-panel --input panel.csv --freq MS \
+  --horizon 18 --season-length 12 --n-windows 2 \
+  --methods seasonal_naive,chronos2_small --skip-plots --json
+```
+
+- **Zero-shot:** nothing is trained. At every validation origin each FM
+  conditions only on that origin's history, so no later target leaks into a
+  forecast. The final forecast conditions on the most recent history.
+- **Context:** `--context-length` sets how many trailing points each series
+  contributes (default 512). It is capped so context plus horizon fits the
+  model (8192 points, or 16384 for TimesFM 2.5); an explicit value that does
+  not fit fails validation (exit code 2). Horizons above 1024 are rejected.
+  Shorter series use all available history. `--input-size` stays NHITS-only.
+- **Model notes:** TimesFM 2.5 switches to its longer projection head above
+  128 steps. PatchTST-FM was trained for a 64-step horizon and is used
+  autoregressively beyond that, which can weaken accuracy.
+- **Downloads:** only the requested checkpoints are fetched, into `HF_HOME`, on
+  first use. Network-less sandboxes need a pre-populated cache and
+  `HF_HUB_OFFLINE=1`. A checkpoint that is neither cached nor downloadable
+  fails with `FoundationModelUnavailableError` ("weights for ... are not
+  cached and could not be downloaded"), not with a missing-package error. The
+  JSON envelope reports it as `backend_unavailable` (exit code 5,
+  `retryable: true`) with the remediation in `hint`. See
+  [`SANDBOX.md`](https://github.com/fnauman/ts-agents/blob/main/SANDBOX.md) for
+  sandbox-specific notes.
+- **Artifacts:** `models/<fm>/` holds only `model_spec.json` (Darts class,
+  checkpoint, revision, Darts version, resolved context, accelerator,
+  `weights_saved: false`). Weights are never copied into run directories.
+- **Resources:** each requested FM stays loaded for the whole run and is
+  released at the end; running all four together needs several GB of RAM.
+  The `forecast_foundation*` agent tools release weights after every call,
+  and direct library calls outside a run keep at most one model loaded.
+  `--accelerator gpu` is used only when requested.
+- **Interpretation:** public benchmarks such as M4 may overlap FM pretraining
+  data, so FM scores on them can be optimistic. FMs produce point forecasts
+  only, and they never add quality flags; caveats appear in `report.md`.
+
+[MLForecast documentation](https://nixtlaverse.nixtla.io/mlforecast/forecast.html),
+[NHITS documentation](https://nixtlaverse.nixtla.io/neuralforecast/models.nhits.html)
+and the [Darts foundation-model documentation](https://unit8co.github.io/darts/)
+describe the underlying interfaces.

@@ -6,12 +6,13 @@ Skills are reusable workflow definitions that tell an AI agent *how* to use
 `ts-agents` workflows and tools for a specific task.
 Each skill is a Markdown file (`SKILL.md`) with YAML frontmatter describing the workflow, required tools, and step-by-step instructions.
 
-## The 6 canonical skills
+## The 7 canonical skills
 
 | Skill | Description |
 |-------|-------------|
 | **activity-recognition** | End-to-end labeled-stream activity recognition: generate data, select window size, evaluate classifier, produce plots and report |
-| **forecasting** | Forecast future values, choose baselines, compare methods (ARIMA, ETS, Theta) |
+| **forecasting** | Forecast future values, choose baselines, compare methods (ARIMA, ETS, Theta, optional zero-shot foundation models) |
+| **panel-forecasting** | Compare a seasonal baseline, global LightGBM/histogram GBM, NHITS and Darts zero-shot foundation models on long-format panels with rolling validation |
 | **classification** | Supervised time-series classification with KNN/DTW, ROCKET, or HIVE-COTE |
 | **diagnostics** | Quick EDA: descriptive stats, autocorrelation, periodicity, and spectral density |
 | **decomposition** | Trend/seasonal/residual decomposition via STL, MSTL, or Holt-Winters |
@@ -45,6 +46,7 @@ Prefer first-class workflows when the goal is an artifact bundle:
 
 - `workflow run inspect-series` for summary/report artifacts
 - `workflow run forecast-series` for forecast plots, CSVs, and Markdown reports
+- `workflow run forecast-panel` for panel backtests, forecasts, model specs, and reports
 - `workflow run activity-recognition` for window-size and evaluation artifacts
 
 Use `tool run` when you need one targeted analysis function, a compatibility

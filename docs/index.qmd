@@ -41,6 +41,7 @@ rewriting the core toolchain.
 1. [Quickstart](quickstart.qmd) — install and run your first workflow in under a minute
 2. [CLI Examples](cli-examples.qmd) — practical workflow/tool patterns by example
 3. [Walkthroughs](walkthroughs.qmd) — step-by-step guides for the first-class workflows
+4. [Panel and foundation-model forecasting](panel-forecasting.qmd) — global GBM/NHITS models and Darts zero-shot checkpoints on long-format panels
 
 ## Learn More
 

@@ -17,13 +17,20 @@ It complements `README.md` (what exists today) with direction (what is next).
   job records, log capture, and process-group cancellation.
 - Python 3.14 base-install support; CI wheel smoke on 3.14.
 - Weekly unmocked `foundation-chronos-smoke` CI run (real chronos + torch),
-  so chronos API drift is caught in CI rather than by users.
+  so chronos API drift is caught in CI rather than by users. (Unreleased:
+  replaced by the Darts-based `foundation-smoke` loop and `darts-fm-smoke` CI
+  job; the old name is a deprecated alias.)
 
 ## Current Focus
 
 - Qualify the new MLForecast GBM and NeuralForecast NHITS panel workflow on
   the bounded electricity-demand dogfood. External covariates and calibrated
   intervals remain future additions.
+- Ship the Darts zero-shot foundation models (`chronos2_small`, `chronos2`,
+  `timesfm2p5`, `patchtst_fm`) across `forecast-series`, `forecast-panel`,
+  agent tools and `foundation-smoke` as a breaking `[foundation]` release
+  (suggested 0.3.0). Quantile outputs, Modal extras, the UI forecasting tab
+  and FMs in `forecast-daytona` are deferred.
 - Keep published artifacts, install instructions, and source claims aligned
   through installed-wheel and source-identity release gates.
 - Checkpoint recovery for interrupted autoresearch/workflow computations.

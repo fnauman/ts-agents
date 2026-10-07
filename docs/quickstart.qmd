@@ -28,7 +28,8 @@ uv sync
 
 Base install gives you workflow discovery, `workflow show`, `inspect-series`,
 and a dependency-light `seasonal_naive` forecast baseline. Use
-`ts-agents[recommended]` for the full three-workflow experience. From a source
+`ts-agents[recommended]` for the main workflow stack (ARIMA/ETS/Theta and
+`activity-recognition`). From a source
 checkout, plain `uv sync` matches the base CLI-first install; use
 `uv sync --extra recommended` for the same recommended workflow stack.
 
@@ -44,6 +45,7 @@ ts-agents capabilities --json
 
 # 2. Per-workflow execution metadata: CLI templates, options, status contract
 ts-agents workflow show forecast-series --json
+ts-agents workflow show forecast-panel --json
 ts-agents workflow show inspect-series --json
 ts-agents workflow show activity-recognition --json
 
@@ -117,6 +119,26 @@ Check `outputs/forecast-full/` and `outputs/activity/` for JSON, plots, CSVs,
 and Markdown reports. The same workflows can also auto-create run-scoped output
 directories when `--output-dir` is omitted.
 
+## Panel and foundation-model forecasting
+
+`forecast-panel` compares models across many related series. The seasonal
+baseline works on the base install; LightGBM/histogram GBM (`ml`), NHITS
+(`neural`) and Darts zero-shot foundation models (`foundation`) are optional.
+
+```bash
+ts-agents data export-panel m4-monthly-mini --split train --out panel.csv --json
+ts-agents workflow run forecast-panel --input panel.csv --freq MS \
+  --horizon 18 --season-length 12 --methods seasonal_naive --skip-plots
+
+# From a source checkout with the foundation extra
+uv sync --extra foundation
+uv run ts-agents workflow run forecast-panel --input panel.csv --freq MS \
+  --horizon 18 --season-length 12 --methods seasonal_naive,chronos2_small --skip-plots
+```
+
+Only the requested checkpoint downloads (into `HF_HOME`). See
+[Panel and foundation-model forecasting](panel-forecasting.qmd) for details.
+
 ## Try a single tool
 
 ```bash
@@ -169,5 +191,6 @@ available for one release cycle, but they now emit deprecation warnings. Prefer
 
 - [CLI Examples](cli-examples.qmd) — full command reference by task
 - [Walkthroughs](walkthroughs.qmd) — step-by-step workflow guides
+- [Panel and foundation-model forecasting](panel-forecasting.qmd) — global models, Darts zero-shot checkpoints and rolling validation
 - [Evaluation](evaluation.qmd) — internal benchmark and rerun instructions
 - [Skills Guide](skills-guide.qmd) — reusable workflows and PDF report generation
