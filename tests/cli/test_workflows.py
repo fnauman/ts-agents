@@ -1458,7 +1458,33 @@ def test_forecast_series_foundation_options_are_forwarded(monkeypatch, tmp_path)
     assert [(call["horizon"], call["context_length"]) for call in calls] == [(4, 16), (6, 16)]
     assert payload.data["best_method"] == "chronos2_small"
     assert len(payload.data["forecast"]) == 6
-    assert payload.data["foundation_models"]["chronos2_small"]["input_chunk_length"] == [1, 16]
+
+    spec = payload.data["foundation_models"]["chronos2_small"]
+    assert spec["forecast_phase"] == "future"
+    assert spec["output_chunk_length"] == 6
+    assert spec["validation_spec"]["output_chunk_length"] == 4
+    assert spec["input_chunk_length"] == [1, 16]
+
+
+def test_forecast_series_nonwinning_foundation_spec_records_validation_horizon(monkeypatch, tmp_path):
+    from ts_agents.workflows.forecast import run_forecast_series_workflow
+
+    calls, _ = _fake_series_foundation(monkeypatch)
+    series = SeriesInput(
+        series=np.tile(np.arange(4.0), 10), source_type="inline_json", label="seasonal"
+    )
+    payload = run_forecast_series_workflow(
+        series, output_dir=str(tmp_path / "run"), horizon=3, validation_size=4,
+        methods=["seasonal_naive", "chronos2_small"], season_length=4, skip_plots=True,
+    )
+    assert payload.data["best_method"] == "seasonal_naive"
+    assert [call["horizon"] for call in calls] == [4]
+    spec = payload.data["foundation_models"]["chronos2_small"]
+    assert spec["forecast_phase"] == "validation"
+    assert spec["output_chunk_length"] == 4
+    assert "validation_spec" not in spec
+    persisted = json.loads((tmp_path / "run/models/chronos2_small/model_spec.json").read_text())
+    assert persisted == spec
 
 
 @pytest.mark.parametrize(

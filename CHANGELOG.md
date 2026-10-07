@@ -86,6 +86,11 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Foundation-model inputs reject multidimensional histories and contexts outside
+  the finite Float32 range before loading weights. `forecast-series` saves the
+  actual validation configuration for nonwinning foundation models and both
+  validation/future configurations for a winning foundation model.
+
 - Large inline JSON inputs no longer fail filesystem filename-length probes.
 - `forecast-panel` reruns and `--resume` replace each `models/<method>/`
   directory atomically, so NHITS saves no longer fail on existing files and

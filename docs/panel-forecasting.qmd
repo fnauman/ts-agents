@@ -40,6 +40,12 @@ to score the saved `forecast.csv`.
 
 ## Input and execution
 
+Single-series foundation-model adapters require a one-dimensional history and
+reject context values outside the finite Float32 range before loading weights.
+In `forecast-series`, each foundation model's `model_spec.json` identifies its
+actual `forecast_phase` and horizon. Nonwinning models record validation only;
+a winning model records its future configuration plus `validation_spec`.
+
 Supply a CSV/TSV/parquet/JSON/JSONL file, tabular JSON, or stdin. The input has
 exactly three columns, `unique_id`, `ds`, and `y`; rename them with `--id-col`,
 `--time-col`, and `--value-col`. A single series is a panel with one constant ID.

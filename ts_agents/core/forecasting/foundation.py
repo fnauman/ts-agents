@@ -354,13 +354,18 @@ def forecast_arrays(
         raise ValueError("Foundation-model forecasts need at least one series.")
     contexts: list[np.ndarray] = []
     for position, values in enumerate(arrays):
-        history = np.asarray(values, dtype=np.float64).reshape(-1)
+        history = np.asarray(values, dtype=np.float64)
+        if history.ndim != 1:
+            raise ValueError(f"Series {position} must be one-dimensional.")
         if history.size == 0:
             raise ValueError(f"Series {position} is empty.")
         if not np.isfinite(history).all():
             raise ValueError(f"Series {position} contains missing or non-finite values.")
         # TimesFM/PatchTST-FM reject float64 tensors; Chronos-2 casts internally.
-        contexts.append(history[-ctx:].astype(np.float32))
+        context = history[-ctx:]
+        if np.any(np.abs(context) > np.finfo(np.float32).max):
+            raise ValueError(f"Series {position} context exceeds the finite float32 range.")
+        contexts.append(context.astype(np.float32))
 
     time_series_cls = _timeseries_cls()
     series = [

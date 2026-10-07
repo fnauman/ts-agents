@@ -199,16 +199,27 @@ def _run_forecast_series(
 
         context_length = foundation_options.get("context_length")
         accelerator = foundation_options.get("accelerator")
-        # Validation and final forecasts both run at their own horizon; record the final one.
-        foundation_specs = {
-            method: model_spec(
+        # Every successful model ran validation, but only the winner forecasts
+        # the future. Preserve actual configurations instead of inventing a
+        # final-horizon execution for nonwinning models.
+        for method in foundation_ran:
+            validation_spec = model_spec(
                 method,
-                horizon=horizon,
+                horizon=int(validation_size or horizon),
                 context_length=context_length,
                 accelerator=accelerator,
             )
-            for method in foundation_ran
-        }
+            if method == best_method:
+                spec = model_spec(
+                    method, horizon=horizon, context_length=context_length,
+                    accelerator=accelerator,
+                )
+                spec["forecast_phase"] = "future"
+                spec["validation_spec"] = validation_spec
+            else:
+                spec = validation_spec
+                spec["forecast_phase"] = "validation"
+            foundation_specs[method] = spec
         summary_data["foundation_models"] = foundation_specs
 
     artifacts = [
@@ -445,8 +456,15 @@ def _foundation_report_section(
             lines.append(
                 f"- {method}: {spec['darts_class']} from "
                 f"{spec['hub_model_name']}@{spec['hub_model_revision']}, "
-                f"context {spec['input_chunk_length'][1]}, licence {spec['license']}."
+                f"context {spec['input_chunk_length'][1]}, licence {spec['license']}; "
+                f"{spec['forecast_phase']} horizon {spec['output_chunk_length']}."
             )
+            if "validation_spec" in spec:
+                validation = spec["validation_spec"]
+                lines.append(
+                    f"  Validation used horizon {validation['output_chunk_length']} "
+                    f"and context {validation['input_chunk_length'][1]}."
+                )
         lines.append("models/<foundation model>/ holds model_spec.json only; weights are not saved.")
     if foundation_failed:
         lines.append(

@@ -360,3 +360,16 @@ def test_input_validation_rejects_empty_and_non_finite(fake_darts):
     with pytest.raises(ValueError, match="accelerator"):
         foundation.forecast_arrays([np.arange(5.0)], model="chronos2_small", horizon=2, accelerator="tpu")
     assert FakeModel.instances == []
+
+
+@pytest.mark.parametrize("values", [np.ones((2, 3)), np.array(1.0)])
+def test_input_validation_rejects_non_vectors_before_loading(fake_darts, values):
+    with pytest.raises(ValueError, match="one-dimensional"):
+        foundation.forecast_arrays([values], model="chronos2_small", horizon=2)
+    assert FakeModel.instances == []
+
+
+def test_input_validation_rejects_float32_overflow_before_loading(fake_darts):
+    with pytest.raises(ValueError, match="float32"):
+        foundation.forecast_arrays([np.array([1e100])], model="chronos2_small", horizon=2)
+    assert FakeModel.instances == []
