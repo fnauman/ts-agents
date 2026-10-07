@@ -1,19 +1,35 @@
 name: Foundation Smoke
 
-# Runs the foundation-chronos-smoke loop unmocked (real chronos-forecasting,
-# real torch, real chronos-t5-tiny download) so chronos API drift is caught
-# here instead of by the first user. Weekly because it downloads a model and
-# exercises optional heavy dependencies that the main CI matrix mocks away.
+# Runs the Darts foundation-model paths unmocked (real darts, torch and
+# huggingface_hub, real checkpoint download at the pinned revision) so Darts
+# API drift in Chronos2Model / TimesFM2p5Model / PatchTSTFMModel, Lightning
+# trainer changes, or Hugging Face hub changes are caught here instead of by
+# the first user. Weekly because it downloads model weights and exercises
+# optional heavy dependencies that the main CI matrix mocks away. A manual
+# dispatch can pick any one catalog checkpoint; only that checkpoint plus the
+# small chronos2_small checkpoint used by the panel and gated tests download.
 
 on:
   schedule:
     - cron: "17 5 * * 1"
   workflow_dispatch:
+    inputs:
+      model:
+        description: "Foundation model for the autoresearch smoke loop"
+        type: choice
+        default: chronos2_small
+        options:
+          - chronos2_small
+          - chronos2
+          - timesfm2p5
+          - patchtst_fm
 
 jobs:
-  chronos-smoke:
+  darts-fm-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    env:
+      FM_MODEL: ${{ inputs.model || 'chronos2_small' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,14 +48,20 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
-          key: hf-chronos-t5-tiny-v1
+          # Keyed per dispatched model and on the catalog that pins every checkpoint
+          # revision, so any pin bump saves a fresh cache. restore-keys reuses the
+          # previous entry, so only changed checkpoints are downloaded.
+          key: hf-darts-${{ env.FM_MODEL }}-${{ hashFiles('ts_agents/core/forecasting/catalog.py') }}-v1
+          restore-keys: |
+            hf-darts-${{ env.FM_MODEL }}-
 
       - name: Install with foundation extras
         run: uv sync --frozen --extra foundation --extra viz
 
-      - name: Run foundation-chronos-smoke unmocked
+      - name: Run foundation-smoke unmocked
         run: |
-          uv run --frozen ts-agents autoresearch run foundation-chronos-smoke \
+          uv run --frozen ts-agents autoresearch run foundation-smoke \
+            --models "$FM_MODEL" \
             --output-dir outputs/foundation-smoke-ci \
             --json > smoke_envelope.json
 
@@ -48,18 +70,70 @@ jobs:
           uv run --frozen python - <<'PY'
           import json
           import math
+          import os
           from pathlib import Path
 
+          from ts_agents.core.forecasting.catalog import get_method
+
+          model = os.environ["FM_MODEL"]
           envelope = json.loads(Path("smoke_envelope.json").read_text())
           assert envelope["ok"] is True, envelope
+          assert envelope["result"]["status"] == "ok", envelope["result"]
           summary = json.loads(
               Path("outputs/foundation-smoke-ci/summary.json").read_text()
           )
           ranking = summary["model_ranking"]
-          assert ranking, "no models ranked"
+          assert [row["model"] for row in ranking] == [model], ranking
           smape = ranking[0]["smape"]
           assert isinstance(smape, (int, float)) and math.isfinite(smape), smape
-          print(f"unmocked chronos smoke ok: smape={smape:.3f}")
+          pin = get_method(model).foundation.hub_model_revision
+          trials = [
+              json.loads(line)
+              for line in Path("outputs/foundation-smoke-ci/trials.jsonl")
+              .read_text()
+              .splitlines()
+          ]
+          assert trials and all(row["hub_model_revision"] == pin for row in trials)
+          print(f"unmocked Darts smoke ok: model={model} smape={smape:.3f}")
+          PY
+
+      - name: Run gated real adapter tests
+        env:
+          TS_AGENTS_RUN_FOUNDATION_TESTS: "1"
+        run: uv run --frozen python -m pytest -q tests/core/test_foundation_real.py
+
+      - name: Run forecast-panel with chronos2_small
+        run: |
+          uv run --frozen ts-agents data export-panel m4-monthly-mini \
+            --split train \
+            --out outputs/m4_panel.csv \
+            --json > export_envelope.json
+          uv run --frozen ts-agents workflow run forecast-panel \
+            --input outputs/m4_panel.csv \
+            --freq MS \
+            --horizon 18 \
+            --season-length 12 \
+            --n-windows 2 \
+            --methods seasonal_naive,chronos2_small \
+            --skip-plots \
+            --output-dir outputs/foundation-panel-ci \
+            --json > panel_envelope.json
+
+      - name: Verify forecast-panel results
+        run: |
+          uv run --frozen python - <<'PY'
+          import json
+          from pathlib import Path
+
+          envelope = json.loads(Path("panel_envelope.json").read_text())
+          assert envelope["ok"] is True, envelope
+          model_dir = Path("outputs/foundation-panel-ci/models/chronos2_small")
+          spec_path = model_dir / "model_spec.json"
+          assert spec_path.is_file(), sorted(str(p) for p in model_dir.parent.rglob("*"))
+          assert sorted(p.name for p in model_dir.iterdir()) == ["model_spec.json"]
+          spec = json.loads(spec_path.read_text())
+          assert spec["weights_saved"] is False, spec
+          print(f"forecast-panel FM ok: {spec['hub_model_name']}@{spec['hub_model_revision']}")
           PY
 
       - name: Upload artifacts
@@ -67,4 +141,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: foundation-smoke-outputs
-          path: outputs/foundation-smoke-ci/
+          path: |
+            outputs/foundation-smoke-ci/
+            outputs/foundation-panel-ci/

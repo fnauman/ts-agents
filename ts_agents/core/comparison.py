@@ -237,35 +237,29 @@ def compare_forecasting_methods(
     horizon : int
         Forecast horizon
     methods : List[str], optional
-        Methods to compare. Default: ["arima", "ets", "theta"]
+        Methods to compare. Default: ["seasonal_naive", "arima", "theta"].
+        Any ``methods_for("series")`` name from the forecasting catalog is
+        accepted, including zero-shot foundation models such as ``chronos2_small``.
     validation_size : int, optional
         Size of validation set (default: horizon)
+    **kwargs
+        Options forwarded to every method (e.g. ``season_length``,
+        ``context_length``); each method drops options it does not accept.
 
     Returns
     -------
     ComparisonResult
-        Comparison with metrics, rankings, and recommendation
+        Comparison with metrics, rankings, and recommendation. Unknown or
+        panel-only methods get an ``"Unsupported forecasting method"`` error entry.
     """
     import time
-    from .forecasting import (
-        forecast_arima,
-        forecast_ets,
-        forecast_seasonal_naive,
-        forecast_theta,
-    )
+    from .forecasting.catalog import get_series_forecaster
 
     if methods is None:
         methods = ["seasonal_naive", "arima", "theta"]
 
     if validation_size is None:
         validation_size = horizon
-
-    method_funcs = {
-        "seasonal_naive": forecast_seasonal_naive,
-        "arima": forecast_arima,
-        "ets": forecast_ets,
-        "theta": forecast_theta,
-    }
 
     # Split data for validation
     train = series[:-validation_size]
@@ -276,14 +270,20 @@ def compare_forecasting_methods(
     computation_times = {}
 
     for method in methods:
-        if method not in method_funcs:
+        try:
+            forecaster = get_series_forecaster(method)
+        except ValueError as exc:
+            metrics[method] = {
+                "error": f"Unsupported forecasting method: {exc}",
+                "error_type": "ValueError",
+            }
             continue
 
         try:
             start_time = time.time()
 
             # Forecast on training data
-            result = method_funcs[method](train, horizon=validation_size, **kwargs)
+            result = forecaster(train, horizon=validation_size, **kwargs)
             computation_times[method] = time.time() - start_time
             results[method] = result
 
@@ -505,8 +505,13 @@ def _generate_forecasting_recommendation(
         "ets": "- **ETS**: Best for seasonal data with clear patterns",
         "theta": "- **Theta**: Simple but effective, won M3 competition",
     }
+    from .forecasting.catalog import foundation_methods
+
+    zero_shot = set(foundation_methods("series"))
     for method in results.keys():
         note = method_notes.get(method.lower())
+        if note is None and method in zero_shot:
+            note = f"- **{method}**: Zero-shot foundation model (Darts); nothing was trained on this series"
         if note:
             parts.append(note)
 

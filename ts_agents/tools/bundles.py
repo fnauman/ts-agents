@@ -116,6 +116,9 @@ FULL_BUNDLE = [
     "forecast_theta_with_data",
     "forecast_ensemble_with_data",
     "compare_forecasts_with_data",
+    # Optional extras: Darts zero-shot FMs [foundation]; panel GBM/NHITS/FM families
+    "forecast_foundation_with_data",
+    "forecast_panel_from_csv",
 
     # Classification
     "knn_classify",
@@ -164,6 +167,8 @@ CATEGORY_BUNDLES: Dict[str, List[str]] = {
         "forecast_theta_with_data",
         "forecast_ensemble_with_data",
         "compare_forecasts_with_data",
+        "forecast_foundation_with_data",
+        "forecast_panel_from_csv",
     ],
     "patterns": [
         "detect_peaks_with_data",
@@ -491,6 +496,8 @@ def get_subagent_bundle(subagent_name: str) -> List[ToolMetadata]:
             "forecast_theta_with_data",
             "forecast_ensemble_with_data",
             "compare_forecasts_with_data",
+            "forecast_foundation_with_data",
+            "forecast_panel_from_csv",
             "detect_periodicity_with_data",
         ],
         "patterns": [

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import binascii
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import os
 from pathlib import Path
 import shutil
@@ -38,6 +38,7 @@ _SANDBOX_ARTIFACT_DIR_ENV = _staging.SANDBOX_ARTIFACT_DIR_ENV
 _STAGED_WORKFLOW_ARTIFACTS_KEY = "_ts_agents_staged_workflow_artifacts"
 _WORKFLOW_ARTIFACT_MAX_FILE_BYTES_ENV = _staging.WORKFLOW_ARTIFACT_MAX_FILE_BYTES_ENV
 _WORKFLOW_ARTIFACT_MAX_TOTAL_BYTES_ENV = _staging.WORKFLOW_ARTIFACT_MAX_TOTAL_BYTES_ENV
+_DAYTONA_INSTALL_EXTRAS_ENV = "TS_AGENTS_DAYTONA_INSTALL_EXTRAS"
 
 _enforce_host_availability_for_backend = _staging.enforce_host_availability_for_backend
 _append_payload_warning = _staging.append_payload_warning
@@ -328,6 +329,7 @@ class WorkflowExecutor:
                 },
             )
 
+        context = _context_with_workflow_extras(context, workflow, runner_kwargs, actual_backend)
         request_payload = {
             "workflow_name": workflow_name,
             "workflow_input": _serialize_workflow_input(workflow_input),
@@ -361,6 +363,29 @@ class WorkflowExecutor:
             _materialize_remote_workflow_output_paths(result, requested_output_dir)
 
         return result
+
+
+def _context_with_workflow_extras(
+    context: ExecutionContext,
+    workflow: Any,
+    runner_kwargs: Optional[Dict[str, Any]],
+    actual_backend: SandboxMode,
+) -> ExecutionContext:
+    """Tell a fresh Daytona sandbox which extras this run needs (e.g. ml, foundation)."""
+    if actual_backend != SandboxMode.DAYTONA:
+        return context
+    if (context.environment or {}).get(_DAYTONA_INSTALL_EXTRAS_ENV) or os.environ.get(
+        _DAYTONA_INSTALL_EXTRAS_ENV
+    ):
+        # An explicit user choice wins over the computed extras.
+        return context
+    extras_for_run = getattr(workflow, "extras_for_run", None)
+    extras = extras_for_run(dict(runner_kwargs or {})) if callable(extras_for_run) else []
+    if not extras:
+        return context
+    env = dict(context.environment or {})
+    env[_DAYTONA_INSTALL_EXTRAS_ENV] = ",".join(extras)
+    return replace(context, environment=env)
 
 
 def _rewrite_docker_workflow_output_paths(

@@ -529,3 +529,35 @@ def test_tool_executor_rejects_unavailable_fallback_backend(monkeypatch):
     assert result.error.code == ToolErrorCode.BACKEND_UNAVAILABLE
     assert result.metadata["backend_actual"] is None
     assert result.metadata["fallback_used"] is False
+
+
+def test_staged_artifact_bundle_keeps_manifest_and_report_when_models_exceed_total_cap(tmp_path):
+    from ts_agents.tools.artifact_staging import collect_staged_artifact_files
+
+    output_dir = tmp_path / "panel"
+    (output_dir / "models" / "lightgbm").mkdir(parents=True)
+    (output_dir / "models" / "lightgbm" / "model.pkl").write_bytes(b"x" * 900)
+    (output_dir / "models" / "nhits").mkdir(parents=True)
+    (output_dir / "models" / "nhits" / "weights.ckpt").write_bytes(b"y" * 900)
+    (output_dir / "metrics.json").write_text('{"smape": 1.0}', encoding="utf-8")
+    (output_dir / "report.md").write_text("# Report\n", encoding="utf-8")
+    (output_dir / "run_manifest.json").write_text("{}", encoding="utf-8")
+
+    payload = {}
+    staged = collect_staged_artifact_files(
+        output_dir,
+        payload,
+        max_file_bytes=None,
+        max_total_bytes=1000,
+        file_limit_env="TEST_FILE_LIMIT",
+        total_limit_env="TEST_TOTAL_LIMIT",
+    )
+
+    staged_paths = [item["relative_path"] for item in staged]
+    # models/ sorts first alphabetically, but it is bundled last so the
+    # manifest, report and metrics always make it back to the host.
+    assert staged_paths[:3] == ["metrics.json", "report.md", "run_manifest.json"]
+    assert staged_paths[3:] == ["models/lightgbm/model.pkl"]
+    assert len(payload["warnings"]) == 1
+    assert "models/nhits/weights.ckpt" in payload["warnings"][0]
+    assert "Set TEST_TOTAL_LIMIT to override." in payload["warnings"][0]

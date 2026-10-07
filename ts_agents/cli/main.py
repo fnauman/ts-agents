@@ -16,7 +16,8 @@ from typing import Any, Dict, List, NoReturn, Optional, Tuple
 
 from ts_agents.cli_contracts import normalize_cli_template
 from ts_agents.contracts import CLIEnvelope, CLIError, CLIExecution
-from ts_agents.tools.executor import ToolError, ToolErrorCode
+from ts_agents.core.forecasting.catalog import FOUNDATION_MODULES, methods_for
+from ts_agents.tools.executor import FOUNDATION_WEIGHTS_UNAVAILABLE, ToolError, ToolErrorCode
 
 from .output import (
     dump_json,
@@ -76,8 +77,12 @@ _INSTALL_EXTRA_METADATA: Dict[str, Dict[str, Any]] = {
     },
     "foundation": {
         "install_spec": "ts-agents[foundation]",
-        "dependencies": ["chronos", "torch"],
-        "description": "Scoped Chronos foundation-model smoke checks.",
+        "dependencies": list(FOUNDATION_MODULES),
+        "description": (
+            "Darts zero-shot foundation models (Chronos-2, TimesFM 2.5, PatchTST-FM) for "
+            "forecast-series, forecast-panel and the foundation-smoke loop; weights "
+            "download per requested model."
+        ),
     },
 }
 
@@ -172,8 +177,8 @@ def _detect_install_profile() -> Dict[str, Any]:
             "base": {
                 "install_spec": "ts-agents",
                 "description": (
-                    "CLI-first base install with discovery, inspect-series, and the "
-                    "seasonal_naive forecasting baseline."
+                    "CLI-first base install with discovery, inspect-series, and "
+                    "seasonal_naive baselines for forecast-series and forecast-panel."
                 ),
             },
             "recommended": {
@@ -183,7 +188,10 @@ def _detect_install_profile() -> Dict[str, Any]:
             },
             "all": {
                 "install_spec": "ts-agents[all]",
-                "description": "Full optional feature set, including patterns tooling.",
+                "description": (
+                    "Full optional feature set, including patterns tooling, ML/neural "
+                    "panel models and Darts foundation models."
+                ),
                 "extras": list(_INSTALL_PROFILE_GROUPS["all"]),
             },
         },
@@ -554,6 +562,9 @@ def _command_target_name(args: argparse.Namespace, exc: Optional[Exception] = No
     if args.command == "jobs":
         if args.jobs_command in {"status", "logs", "cancel"}:
             return getattr(args, "job_id", None)
+    if args.command == "data":
+        if getattr(args, "data_command", None) == "export-panel":
+            return getattr(args, "dataset", None)
     if args.command == "run":
         return getattr(args, "tool", None)
     if isinstance(exc, ToolError):
@@ -833,6 +844,9 @@ def _exception_to_cli_error(exc: Exception) -> CLIError:
             details=exc.details,
         )
 
+    if type(exc).__name__ == FOUNDATION_WEIGHTS_UNAVAILABLE:
+        return _exception_to_cli_error(ToolError.from_exception(exc))
+
     if isinstance(exc, ValueError):
         return CLIError(code="validation_error", message=str(exc), retryable=False)
 
@@ -881,6 +895,8 @@ def _exit_code_for_exception(exc: Exception) -> int:
         }
         return mapping.get(exc.code, 6)
 
+    if type(exc).__name__ == FOUNDATION_WEIGHTS_UNAVAILABLE:
+        return 5
     if isinstance(exc, ValueError):
         return 2
     if isinstance(exc, (ImportError, ModuleNotFoundError)):
@@ -1108,6 +1124,49 @@ def _add_data_subcommands(subparsers: argparse._SubParsersAction) -> None:
         help="Force use of full dataset",
     )
     _add_output_args(vars_parser)
+
+    export_parser = data_sub.add_parser(
+        "export-panel",
+        help="Export a bundled dataset as a unique_id/ds/y panel CSV",
+        description=(
+            "Write a bundled panel as a CSV with exactly unique_id, ds, y columns, ready for "
+            "`workflow run forecast-panel`. The bundled M4 mini-panel stores integer time "
+            "indexes, so the exported month-start dates are a synthetic alignment: every "
+            "series' train split ends at --train-end and the holdout covers the next 18 months."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  ts-agents data export-panel m4-monthly-mini --split train --out panel.csv --json\n"
+            "  ts-agents workflow run forecast-panel --input panel.csv --freq MS --horizon 18 "
+            "--season-length 12 --methods seasonal_naive --skip-plots --json\n"
+            "  ts-agents data export-panel m4-monthly-mini --split holdout --out holdout.csv"
+        ),
+    )
+    export_parser.add_argument(
+        "dataset",
+        choices=["m4-monthly-mini"],
+        help="Bundled panel dataset to export",
+    )
+    export_parser.add_argument(
+        "--split",
+        choices=["train", "holdout", "all"],
+        default="train",
+        help="Rows to export (default: train; keep the holdout out of forecast-panel inputs)",
+    )
+    export_parser.add_argument(
+        "--out",
+        type=str,
+        required=True,
+        help="Destination CSV path; parent directories are created and an existing file is replaced",
+    )
+    export_parser.add_argument(
+        "--train-end",
+        type=str,
+        default="2015-06-01",
+        help="Month-start date assigned to the last train observation of every series (default: 2015-06-01)",
+    )
+    _add_output_args(export_parser)
 
 
 def _add_capabilities_subcommand(subparsers: argparse._SubParsersAction) -> None:
@@ -1604,6 +1663,16 @@ def _add_tabular_workflow_source_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+_FOUNDATION_CONTEXT_HELP = "Foundation-model context (default 512, capped per model)"
+
+
+def _forecast_methods_help(surface: str, default: str) -> str:
+    return (
+        f"Comma-separated methods to compare (default: {default}). "
+        f"Choices: {', '.join(methods_for(surface))}"
+    )
+
+
 def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
     workflow_parser = subparsers.add_parser(
         "workflow",
@@ -1628,6 +1697,7 @@ def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
             "  ts-agents workflow show forecast-series --json\n"
             "  ts-agents workflow run inspect-series --input data.csv --time-col ds --value-col y\n"
             "  ts-agents workflow run forecast-series --input data.csv --time-col ds --value-col y --horizon 48 --sandbox subprocess\n"
+            "  ts-agents workflow run forecast-panel --input panel.csv --freq MS --horizon 18 --season-length 12 --methods seasonal_naive,lightgbm,chronos2_small\n"
             "  ts-agents workflow run activity-recognition --input stream.csv --label-col label --value-cols x,y,z\n"
             "  echo '{\"series\": [1,2,3,4]}' | ts-agents workflow run inspect-series --stdin"
         ),
@@ -1687,13 +1757,25 @@ def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
         "--methods",
         type=str,
         default="seasonal_naive,arima,theta",
-        help="Comma-separated methods to compare (default: seasonal_naive,arima,theta)",
+        help=_forecast_methods_help("series", "seasonal_naive,arima,theta"),
     )
     forecast_parser.add_argument(
         "--validation-size",
         type=int,
         default=None,
         help="Holdout size for comparison (default: horizon)",
+    )
+    forecast_parser.add_argument(
+        "--context-length",
+        type=int,
+        default=None,
+        help=_FOUNDATION_CONTEXT_HELP,
+    )
+    forecast_parser.add_argument(
+        "--accelerator",
+        choices=["cpu", "gpu"],
+        default=None,
+        help="Foundation-model device (default: cpu)",
     )
     forecast_parser.add_argument(
         "--skip-plots",
@@ -1705,28 +1787,38 @@ def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
     _add_output_args(forecast_parser)
 
     panel_parser = workflow_run_sub.add_parser(
-        "forecast-panel", help="Train global GBM/NHITS models and write rolling-validation artifacts",
+        "forecast-panel",
+        help="Compare seasonal/GBM/NHITS/foundation-model panel forecasts with rolling validation",
     )
     _add_tabular_workflow_source_args(panel_parser)
     panel_parser.set_defaults(time_col="ds")
-    panel_parser.add_argument("--id-col", default="unique_id")
-    panel_parser.add_argument("--value-col", default="y")
+    panel_parser.add_argument("--id-col", default="unique_id",
+                              help="Series identifier column (default: unique_id)")
+    panel_parser.add_argument("--value-col", default="y", help="Target value column (default: y)")
     panel_parser.add_argument("--freq", required=True, help="Explicit pandas frequency, e.g. h, D or MS")
-    panel_parser.add_argument("--output-dir", default="outputs/panel")
-    panel_parser.add_argument("--horizon", type=int, default=24)
+    panel_parser.add_argument(
+        "--output-dir",
+        default="outputs/panel",
+        help="Explicit output directory for workflow artifacts. If omitted, a run-scoped subdirectory is created under outputs/panel.",
+    )
+    panel_parser.add_argument("--horizon", type=int, default=24, help="Forecast horizon per origin (default: 24)")
     panel_parser.add_argument("--methods", default="seasonal_naive,lightgbm",
-                              help="Comma-separated seasonal_naive, lightgbm, histgbm, nhits")
-    panel_parser.add_argument("--season-length", type=int, default=24)
-    panel_parser.add_argument("--n-windows", type=int, default=3)
+                              help=_forecast_methods_help("panel", "seasonal_naive,lightgbm"))
+    panel_parser.add_argument("--season-length", type=int, default=24,
+                              help="Seasonal period for the baseline, lag defaults and MASE (default: 24)")
+    panel_parser.add_argument("--n-windows", type=int, default=3,
+                              help="Rolling-validation origins; each refits models (default: 3)")
     panel_parser.add_argument("--step-size", type=int, default=None, help="Origin spacing; defaults to horizon")
     panel_parser.add_argument("--lags", default=None, help="Positive comma-separated lags; defaults to 1, season, 7*season")
     panel_parser.add_argument("--n-estimators", type=int, default=200, help="Tree/iteration cap for GBMs")
     panel_parser.add_argument("--max-steps", type=int, default=1000, help="Training-step cap for each NHITS fit")
     panel_parser.add_argument("--input-size", type=int, default=None, help="NHITS context; defaults to 2*horizon")
+    panel_parser.add_argument("--context-length", type=int, default=None, help=_FOUNDATION_CONTEXT_HELP)
     panel_parser.add_argument("--num-threads", type=int, default=2, help="MLForecast/LightGBM CPU threads")
-    panel_parser.add_argument("--accelerator", choices=["cpu", "gpu"], default="cpu")
-    panel_parser.add_argument("--seed", type=int, default=1337)
-    panel_parser.add_argument("--skip-plots", action="store_true")
+    panel_parser.add_argument("--accelerator", choices=["cpu", "gpu"], default="cpu",
+                              help="NHITS/foundation-model device (default: cpu)")
+    panel_parser.add_argument("--seed", type=int, default=1337, help="Estimator random seed (default: 1337)")
+    panel_parser.add_argument("--skip-plots", action="store_true", help="Skip comparison plot generation")
     _add_workflow_run_lifecycle_args(panel_parser)
     _add_sandbox_execution_args(panel_parser)
     _add_output_args(panel_parser)
@@ -1879,7 +1971,8 @@ def _add_autoresearch_subcommands(subparsers: argparse._SubParsersAction) -> Non
             "  ts-agents autoresearch show forecast-daytona --json\n"
             "  ts-agents autoresearch run forecast-daytona --models seasonal_naive --profile smoke --json\n"
             "  ts-agents autoresearch run classify-daytona --dataset synthetic --profile smoke --json\n"
-            "  ts-agents autoresearch run foundation-chronos-smoke --dry-run --json\n"
+            "  ts-agents autoresearch run foundation-smoke --dry-run --json\n"
+            "  ts-agents autoresearch run foundation-smoke --models timesfm2p5 --json\n"
             "  ts-agents autoresearch run foundation-gpu-plan --json"
         ),
     )
@@ -2279,6 +2372,7 @@ def _synchronize_autoresearch_manifest(result: Any, execution: Any) -> None:
 def _handle_autoresearch_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]:
     from ts_agents.autoresearch import get_loop, list_loops, loop_to_dict
     from ts_agents.autoresearch.executor import execute_autoresearch
+    from ts_agents.autoresearch.registry import canonical_loop_name
     from ts_agents.tools.executor import ExecutionContext
 
     if args.autoresearch_command == "list":
@@ -2312,6 +2406,8 @@ def _handle_autoresearch_command(args: argparse.Namespace) -> Tuple[Any, Optiona
         loop = get_loop(args.loop_name)
     except KeyError as exc:
         raise ValueError(str(exc)) from exc
+    # Deprecated aliases run the canonical loop; keep the default output path canonical too.
+    canonical_name = canonical_loop_name(args.loop_name)
 
     allow_fallback = getattr(args, "allow_fallback", False)
     fallback_backend = getattr(args, "fallback_backend", None) or "local"
@@ -2321,7 +2417,7 @@ def _handle_autoresearch_command(args: argparse.Namespace) -> Tuple[Any, Optiona
             "Pass --allow-fallback to opt in to backend fallback."
         )
 
-    output_dir = args.output_dir or _default_autoresearch_output_dir(args.loop_name)
+    output_dir = args.output_dir or _default_autoresearch_output_dir(canonical_name)
     options = {
         "output_dir": output_dir,
         "profile": args.profile,
@@ -2368,7 +2464,57 @@ def _handle_autoresearch_command(args: argparse.Namespace) -> Tuple[Any, Optiona
         _synchronize_autoresearch_manifest(execution.result, execution)
     return execution.result, execution.formatted_output or None
 
+def _handle_data_export_panel(args: argparse.Namespace) -> Tuple[Any, str]:
+    from ts_agents import data_access
+
+    frame = data_access.export_m4_monthly_panel(split=args.split, train_end=args.train_end)
+    out_path = Path(args.out).expanduser().resolve()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(out_path, index=False, date_format="%Y-%m-%d")
+
+    freq = data_access.M4_MONTHLY_MINI_FREQ
+    horizon = data_access.M4_MONTHLY_MINI_HORIZON
+    season_length = data_access.M4_MONTHLY_MINI_SEASON_LENGTH
+    result = {
+        "dataset": args.dataset,
+        "split": args.split,
+        "path": str(out_path),
+        "columns": list(frame.columns),
+        "n_series": int(frame["unique_id"].nunique()),
+        "n_rows": int(len(frame)),
+        "series_ids": sorted(frame["unique_id"].unique().tolist()),
+        "start": frame["ds"].min().strftime("%Y-%m-%d"),
+        "end": frame["ds"].max().strftime("%Y-%m-%d"),
+        "train_end": data_access.month_start(args.train_end).strftime("%Y-%m-%d"),
+        "freq": freq,
+        "holdout_horizon": horizon,
+        "season_length": season_length,
+        "date_alignment": "synthetic",
+        "note": (
+            "Source rows carry integer time indexes; dates are a synthetic month-start "
+            "alignment so every train split ends at train_end and the holdout covers the "
+            f"next {horizon} months."
+        ),
+        "suggested_command": (
+            f"ts-agents workflow run forecast-panel --input {shlex.quote(str(out_path))} "
+            f"--freq {freq} --horizon {horizon} --season-length {season_length} "
+            "--methods seasonal_naive --skip-plots --json"
+        ),
+    }
+    text_lines = [
+        f"Exported {args.dataset} ({args.split}) to {out_path}",
+        f"- Series: {result['n_series']}, rows: {result['n_rows']}",
+        f"- Dates: {result['start']} to {result['end']} ({freq}, synthetic alignment)",
+    ]
+    if args.split == "train":
+        text_lines.append(f"- Next: {result['suggested_command']}")
+    return result, "\n".join(text_lines)
+
+
 def _handle_data_command(args: argparse.Namespace) -> Tuple[Any, str]:
+    if args.data_command == "export-panel":
+        return _handle_data_export_panel(args)
+
     from ts_agents import data_access
 
     data_type = args.data_type
@@ -2483,19 +2629,13 @@ def _tool_summary_dict(tool: Any) -> Dict[str, Any]:
 
 def _tool_detail_dict(tool: Any) -> Dict[str, Any]:
     from ts_agents.tools.registry import (
-        dependency_required_extras,
         tool_availability,
         tool_dependency_details,
+        tool_required_extras,
     )
 
     required = [param.name for param in tool.parameters if not param.optional]
-    required_extras = sorted(
-        {
-            extra
-            for dependency in tool.dependencies
-            for extra in dependency_required_extras(dependency)
-        }
-    )
+    required_extras = tool_required_extras(tool)
     availability = tool_availability(tool)
     return {
         "name": tool.name,
@@ -2610,6 +2750,9 @@ def _handle_capabilities_command(args: argparse.Namespace) -> Tuple[Any, str]:
             "skills": [
                 "ts-agents skills list --json",
                 "ts-agents skills show <skill> --json",
+            ],
+            "data": [
+                "ts-agents data export-panel m4-monthly-mini --split train --out panel.csv --json",
             ],
             "sandboxes": [
                 "ts-agents sandbox list --json",

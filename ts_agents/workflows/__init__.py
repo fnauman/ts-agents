@@ -8,6 +8,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from ts_agents.cli_contracts import normalize_cli_template
 from ts_agents.cli.input_parsing import load_labeled_stream_input, load_series_input
+from ts_agents.core.forecasting import catalog as _catalog
 
 from .activity import run_activity_recognition_workflow
 from .forecast import run_forecast_series_workflow
@@ -296,6 +297,17 @@ class WorkflowDefinition:
     examples: List[str] = field(default_factory=list)
     capabilities: Dict[str, Any] = field(default_factory=dict)
     availability_fn: Optional[Callable[[], Dict[str, Any]]] = None
+    # Extras implied by one run's options (e.g. the requested methods).
+    run_extras_fn: Optional[Callable[[Dict[str, Any]], List[str]]] = None
+
+    def extras_for_run(self, runner_kwargs: Dict[str, Any]) -> List[str]:
+        """Sorted extras a fresh remote sandbox must install for this run."""
+        extras = set(self.required_extras)
+        if self.run_extras_fn is not None:
+            extras.update(self.run_extras_fn(runner_kwargs or {}))
+        if not (runner_kwargs or {}).get("skip_plots"):
+            extras.add("viz")
+        return sorted(extras)
 
     def availability(self) -> Dict[str, Any]:
         if self.availability_fn is None:
@@ -353,7 +365,7 @@ def _build_forecast_runner_kwargs(args: Any) -> Dict[str, Any]:
         for method in getattr(args, "methods", "").split(",")
         if method.strip()
     ]
-    return {
+    kwargs = {
         "output_dir": args.output_dir,
         "horizon": args.horizon,
         "methods": methods,
@@ -361,6 +373,21 @@ def _build_forecast_runner_kwargs(args: Any) -> Dict[str, Any]:
         "validation_size": args.validation_size,
         "skip_plots": args.skip_plots,
     }
+    # Added only when set, so resume identities of earlier runs stay unchanged.
+    for name in ("context_length", "accelerator"):
+        value = getattr(args, name, None)
+        if value is not None:
+            kwargs[name] = value
+    return kwargs
+
+
+def _methods_run_extras(runner_kwargs: Dict[str, Any]) -> List[str]:
+    return _catalog.required_extras_for(runner_kwargs.get("methods") or [])
+
+
+def _panel_run_extras(runner_kwargs: Dict[str, Any]) -> List[str]:
+    # Mirrors the runner default when no methods are given.
+    return _catalog.required_extras_for(runner_kwargs.get("methods") or ["seasonal_naive", "lightgbm"])
 
 
 def _build_activity_runner_kwargs(args: Any) -> Dict[str, Any]:
@@ -401,6 +428,41 @@ def _inspect_workflow_availability() -> Dict[str, Any]:
     }
 
 
+_DISTRIBUTION_NAMES = {"sklearn": "scikit-learn", **_catalog.FOUNDATION_DISTRIBUTIONS}
+_FOUNDATION_FEATURE_NOTE = (
+    "Darts zero-shot foundation models ({methods}); weights download per requested model "
+    "into HF_HOME; sandboxes need network or a pre-populated cache."
+)
+
+
+def _missing_distributions(methods: List[str]) -> List[str]:
+    return sorted(
+        {
+            _DISTRIBUTION_NAMES.get(module, module)
+            for method in methods
+            for module in _catalog.missing_modules(method)
+        }
+    )
+
+
+def _method_family_feature(
+    *, name: str, surface: str, family: str, note: str
+) -> Dict[str, Any]:
+    methods = [
+        method
+        for method in _catalog.methods_for(surface)
+        if _catalog.get_method(method).family == family
+    ]
+    missing = _missing_distributions(methods)
+    return _optional_feature(
+        name=name,
+        available=not missing,
+        required_extras=_catalog.required_extras_for(methods),
+        missing_dependencies=missing,
+        note=note.format(methods=", ".join(methods)),
+    )
+
+
 def _forecast_workflow_availability() -> Dict[str, Any]:
     has_statsforecast = _module_available("statsforecast")
     has_matplotlib = _module_available("matplotlib")
@@ -417,14 +479,27 @@ def _forecast_workflow_availability() -> Dict[str, Any]:
         status = "degraded"
         install_hint = 'Install `ts-agents[forecasting]` or `ts-agents[recommended]` to enable ARIMA/ETS/Theta.'
 
+    # Foundation models are opt-in methods: missing ones never change the status.
+    for method in _catalog.foundation_methods("series"):
+        if _catalog.is_available(method):
+            available_methods.append(method)
+        else:
+            unavailable_methods.append(method)
+
     optional_features = [
+        _method_family_feature(
+            name="foundation_models",
+            surface="series",
+            family="foundation",
+            note=_FOUNDATION_FEATURE_NOTE,
+        ),
         _optional_feature(
             name="plots",
             available=has_matplotlib,
             required_extras=["viz"],
             missing_dependencies=[] if has_matplotlib else ["matplotlib"],
             note="Forecast comparison plots require matplotlib.",
-        )
+        ),
     ]
 
     return {
@@ -486,20 +561,34 @@ def _build_panel_runner_kwargs(args):
     options = {name: getattr(args, name) for name in names}
     options["methods"] = [method.strip() for method in args.methods.split(",") if method.strip()]
     options["lags"] = [int(lag.strip()) for lag in args.lags.split(",")] if args.lags is not None else None
+    # Added only when set, so resume identities of earlier runs stay unchanged.
+    if getattr(args, "context_length", None) is not None:
+        options["context_length"] = args.context_length
     return options
 
 
 def _panel_workflow_availability():
-    from ts_agents.core.forecasting.panel import METHOD_DEPENDENCIES
-    available = [method for method, modules in METHOD_DEPENDENCIES.items()
-                 if all(_module_available(module) for module in modules)]
-    return {"status": "available" if len(available) == len(METHOD_DEPENDENCIES) else "degraded",
-            "available": True, "available_methods": available,
-            "unavailable_methods": sorted(set(METHOD_DEPENDENCIES) - set(available)),
-            "missing_dependencies": sorted({module for modules in METHOD_DEPENDENCIES.values()
-                                             for module in modules if not _module_available(module)}),
-            "required_extras": [], "optional_features": [],
-            "install_hint": "Install ts-agents[ml] for GBMs and ts-agents[neural] for NHITS."}
+    # The seasonal baseline always works; ML, neural and foundation families are optional.
+    methods = _catalog.methods_for("panel")
+    available = [method for method in methods if _catalog.is_available(method)]
+    unavailable = [method for method in methods if method not in available]
+    has_matplotlib = _module_available("matplotlib")
+    optional_features = [
+        _method_family_feature(name="ml_backends", surface="panel", family="ml",
+                               note="MLForecast global GBMs ({methods})."),
+        _method_family_feature(name="neural_backends", surface="panel", family="neural",
+                               note="NeuralForecast global neural models ({methods})."),
+        _method_family_feature(name="foundation_models", surface="panel", family="foundation",
+                               note=_FOUNDATION_FEATURE_NOTE),
+        _optional_feature(name="plots", available=has_matplotlib, required_extras=["viz"],
+                          missing_dependencies=[] if has_matplotlib else ["matplotlib"],
+                          note="Validation forecast plots require matplotlib."),
+    ]
+    return {"status": "available", "available": True, "available_methods": available,
+            "unavailable_methods": unavailable,
+            "missing_dependencies": _missing_distributions(unavailable),
+            "required_extras": [], "optional_features": optional_features,
+            "install_hint": _catalog.install_hint_for(unavailable)}
 
 
 _PANEL_OPTIONS = [
@@ -507,7 +596,7 @@ _PANEL_OPTIONS = [
     WorkflowOption("freq", "string", "Explicit pandas frequency.", required=True),
     WorkflowOption("horizon", "integer", "Forecast horizon.", default=24),
     WorkflowOption("methods", "array", "Requested model backends; unavailable requests fail.", default=["seasonal_naive", "lightgbm"],
-                   choices=["seasonal_naive", "lightgbm", "histgbm", "nhits"]),
+                   choices=_catalog.methods_for("panel")),
     WorkflowOption("season_length", "integer", "Baseline/MASE seasonal period.", default=24),
     WorkflowOption("n_windows", "integer", "Rolling-validation origins; each refits models.", default=3),
     WorkflowOption("step_size", "integer", "Origin spacing; defaults to horizon."),
@@ -515,8 +604,9 @@ _PANEL_OPTIONS = [
     WorkflowOption("n_estimators", "integer", "GBM tree/iteration cap per fit.", default=200),
     WorkflowOption("max_steps", "integer", "NHITS training-step cap per fit.", default=1000),
     WorkflowOption("input_size", "integer", "NHITS context; defaults to 2*horizon."),
+    WorkflowOption("context_length", "integer", "Foundation-model context (default 512, capped per model)."),
     WorkflowOption("num_threads", "integer", "MLForecast/LightGBM threads.", default=2),
-    WorkflowOption("accelerator", "string", "NHITS CPU/GPU selection.", default="cpu", choices=["cpu", "gpu"]),
+    WorkflowOption("accelerator", "string", "NHITS/foundation-model CPU/GPU selection.", default="cpu", choices=["cpu", "gpu"]),
     WorkflowOption("seed", "integer", "Estimator random seed.", default=1337),
     WorkflowOption("skip_plots", "boolean", "Skip comparison plots.", default=False),
 ]
@@ -524,7 +614,9 @@ _PANEL_OPTIONS = [
 
 _WORKFLOWS = {
     "forecast-panel": WorkflowDefinition(
-        name="forecast-panel", description="Train MLForecast GBMs and NeuralForecast NHITS on regular panels.",
+        name="forecast-panel",
+        description=("Compare a seasonal baseline, MLForecast GBMs, NeuralForecast NHITS and Darts "
+                     "zero-shot foundation models on regular panels."),
         runner=run_forecast_panel_workflow, load_input=_load_panel_workflow_input,
         build_runner_kwargs=_build_panel_runner_kwargs,
         source_requirement="Exactly one of --input, --input-json, or --stdin; exactly ID/time/target columns.",
@@ -534,16 +626,22 @@ _WORKFLOWS = {
         artifacts=[WorkflowArtifact("metrics.json", "json", "Validation scores, settings and timings."),
                    WorkflowArtifact("backtest_predictions.csv", "csv", "Keyed predictions at each validation origin."),
                    WorkflowArtifact("forecast.csv", "csv", "Future forecasts for every requested model."),
-                   WorkflowArtifact("models/*", "model", "Native trained model files and baseline history."),
+                   WorkflowArtifact("models/*", "model", "Native trained model files and baseline history; "
+                                    "foundation models save model_spec.json only (no weights)."),
                    WorkflowArtifact("report.md", "markdown", "Comparison report."),
                    WorkflowArtifact("backtest.png", "image", "Validation forecast plot.", required=False,
                                     condition="Written with matplotlib unless --skip-plots.")],
-        examples=["ts-agents workflow run forecast-panel --input panel.csv --freq h --horizon 24 --methods seasonal_naive,lightgbm,nhits"],
-        capabilities={"supported_methods": ["seasonal_naive", "lightgbm", "histgbm", "nhits"],
+        examples=["ts-agents workflow run forecast-panel --input panel.csv --freq h --horizon 24 --methods seasonal_naive,lightgbm,nhits",
+                  "ts-agents workflow run forecast-panel --input panel.csv --freq MS --horizon 18 --season-length 12 --methods seasonal_naive,chronos2_small"],
+        capabilities={"supported_methods": _catalog.methods_for("panel"),
                       "supported_metrics": ["mae", "rmse", "mase"], "panel": True,
-                      "external_covariates": False, "foundation_models": False,
+                      "external_covariates": False, "foundation_models": True,
+                      "zero_shot_methods": _catalog.foundation_methods("panel"),
+                      "method_extras": _catalog.method_extras("panel"),
+                      "foundation_model_checkpoints": _catalog.foundation_checkpoints("panel"),
                       "validation": "rolling chronological; final test must be supplied separately outside input"},
         availability_fn=_panel_workflow_availability,
+        run_extras_fn=_panel_run_extras,
     ),
     "inspect-series": WorkflowDefinition(
         name="inspect-series",
@@ -624,8 +722,22 @@ _WORKFLOWS = {
                 "string",
                 "Comma-separated methods to compare.",
                 default="seasonal_naive,arima,theta",
+                choices=_catalog.methods_for("series"),
             ),
             WorkflowOption("validation_size", "integer", "Holdout size for comparison.", default=None),
+            WorkflowOption(
+                "context_length",
+                "integer",
+                "Foundation-model context (default 512, capped per model).",
+                default=None,
+            ),
+            WorkflowOption(
+                "accelerator",
+                "string",
+                "Foundation-model CPU/GPU selection (default cpu).",
+                default=None,
+                choices=["cpu", "gpu"],
+            ),
             WorkflowOption("skip_plots", "boolean", "Skip plot generation.", default=False),
         ],
         artifacts=[
@@ -633,6 +745,13 @@ _WORKFLOWS = {
             WorkflowArtifact("forecast.json", "json", "Best-model forecast in JSON form."),
             WorkflowArtifact("forecast.csv", "csv", "Best-model forecast as CSV."),
             WorkflowArtifact("report.md", "markdown", "Forecast workflow markdown report."),
+            WorkflowArtifact(
+                "models/*/model_spec.json",
+                "json",
+                "Foundation-model checkpoint provenance (revision, licence, resolved context); no weights.",
+                required=False,
+                condition="Written for each foundation model that produced a forecast.",
+            ),
             WorkflowArtifact(
                 "forecast_comparison.png",
                 "image",
@@ -668,12 +787,18 @@ _WORKFLOWS = {
             "ts-agents workflow show forecast-series --json",
             "ts-agents workflow run forecast-series --input-json '{\"series\":[1,2,3,4,5,6,7,8,9,10,11,12]}' --horizon 3 --methods seasonal_naive",
             "ts-agents workflow run forecast-series --input data.csv --time-col ds --value-col y --horizon 24 --methods seasonal_naive,arima,theta",
+            "ts-agents workflow run forecast-series --input data.csv --time-col ds --value-col y --horizon 24 --methods seasonal_naive,chronos2_small",
         ],
         capabilities={
-            "supported_methods": ["seasonal_naive", "arima", "ets", "theta"],
+            "supported_methods": _catalog.methods_for("series"),
             "baseline_first": True,
+            "foundation_models": True,
+            "zero_shot_methods": _catalog.foundation_methods("series"),
+            "method_extras": _catalog.method_extras("series"),
+            "foundation_model_checkpoints": _catalog.foundation_checkpoints("series"),
         },
         availability_fn=_forecast_workflow_availability,
+        run_extras_fn=_methods_run_extras,
     ),
     "activity-recognition": WorkflowDefinition(
         name="activity-recognition",

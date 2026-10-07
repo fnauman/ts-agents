@@ -492,6 +492,45 @@ class TestSystemPrompts:
         assert "ETS" in prompt
         assert "Theta" in prompt
 
+    def test_forecasting_prompt_matches_catalog_and_bundle(self):
+        """Every catalog foundation model and panel family is named in the prompt."""
+        from ts_agents.agents.deep.subagents.forecasting import FORECASTING_SYSTEM_PROMPT
+        from ts_agents.core.forecasting.catalog import (
+            DEFAULT_FOUNDATION_MODEL,
+            foundation_methods,
+            methods_for,
+        )
+        from ts_agents.tools.bundles import get_subagent_bundle
+
+        prompt = FORECASTING_SYSTEM_PROMPT
+        bundle_names = {tool.name for tool in get_subagent_bundle("forecasting")}
+
+        assert "Seasonal Naive" in prompt
+        for name in foundation_methods():
+            assert f"`{name}`" in prompt
+        for name in methods_for("panel"):
+            if name != "seasonal_naive":
+                assert name in prompt
+        assert f"Default model: `{DEFAULT_FOUNDATION_MODEL}`" in prompt
+        for tool_name in ("forecast_foundation_with_data", "forecast_panel_from_csv"):
+            assert tool_name in prompt
+            assert tool_name in bundle_names
+        for extra in ("ts-agents[ml]", "ts-agents[neural]", "ts-agents[foundation]"):
+            assert extra in prompt
+        assert "context_length" in prompt
+        assert "freq" in prompt
+
+    def test_orchestrator_and_simple_prompts_mention_optional_forecasters(self):
+        """Top-level prompts advertise panel and foundation-model forecasting as optional."""
+        from ts_agents.agents.deep.orchestrator import ORCHESTRATOR_SYSTEM_PROMPT
+        from ts_agents.agents.simple.prompts import CAPABILITIES_PROMPT, FULL_BUNDLE_ADDITIONS
+
+        for raw in (ORCHESTRATOR_SYSTEM_PROMPT, CAPABILITIES_PROMPT, FULL_BUNDLE_ADDITIONS):
+            prompt = " ".join(raw.split())
+            assert "GBM/NHITS" in prompt
+            assert "zero-shot foundation models" in prompt
+            assert "seasonal naive" in prompt.lower()
+
     def test_patterns_system_prompt(self):
         """Test patterns agent system prompt."""
         from ts_agents.agents.deep.subagents.patterns import PATTERNS_SYSTEM_PROMPT

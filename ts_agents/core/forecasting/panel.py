@@ -1,8 +1,9 @@
-"""Optional Nixtla panel backends; importing this module never imports trainers."""
+"""Optional Nixtla and Darts panel backends; importing this module never imports trainers."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import shutil
 import tempfile
@@ -11,12 +12,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-METHOD_DEPENDENCIES = {
-    "seasonal_naive": (),
-    "lightgbm": ("mlforecast", "lightgbm"),
-    "histgbm": ("mlforecast", "sklearn"),
-    "nhits": ("neuralforecast", "torch"),
-}
+from .catalog import foundation_methods, get_method, methods_for
+
+METHOD_DEPENDENCIES = {name: get_method(name).modules for name in methods_for("panel")}
+FOUNDATION_METHODS = frozenset(foundation_methods("panel"))
 
 
 def normalize_panel(frame: pd.DataFrame, freq: str) -> pd.DataFrame:
@@ -78,10 +77,13 @@ class PanelBackend:
     config: dict[str, Any]
     estimator: Any = None
     history: pd.DataFrame | None = None
+    horizon: int | None = None
 
     def fit(self, frame: pd.DataFrame, horizon: int) -> None:
-        if self.method == "seasonal_naive":
+        if self.method == "seasonal_naive" or self.method in FOUNDATION_METHODS:
+            # Zero-shot foundation models train nothing; they condition on this history.
             self.history = frame.copy()
+            self.horizon = horizon
             return
         if self.method in {"lightgbm", "histgbm"}:
             try:
@@ -169,19 +171,53 @@ class PanelBackend:
                     for i, ds in enumerate(times)
                 )
             return pd.DataFrame(rows)
+        if self.method in FOUNDATION_METHODS:
+            if self.history is None:
+                raise ValueError("Fit the foundation model before predicting.")
+            from .foundation import forecast_panel_frame
+
+            return forecast_panel_frame(
+                self.history,
+                model=self.method,
+                freq=self.freq,
+                horizon=horizon,
+                context_length=self.config.get("context_length"),
+                accelerator=self.config.get("accelerator", "cpu"),
+                seed=self.config.get("seed", 0),
+            )
         if self.method == "nhits":
             return self.estimator.predict().reset_index(drop=True)
         return self.estimator.predict(horizon)
 
     def save(self, directory: Path) -> None:
-        """Replace ``directory`` with this fit; reruns never mix in stale model files."""
-        if self.method == "seasonal_naive" and self.history is None:
+        """Replace ``directory`` with this fit; reruns never mix in stale model files.
+
+        Foundation models save only ``model_spec.json`` (checkpoint id, pinned
+        revision, Darts version); weights reload from the Hugging Face cache.
+        """
+        history, horizon = self.history, self.horizon
+        if self.method == "seasonal_naive" and history is None:
             raise ValueError("Fit the seasonal baseline before saving.")
+        if self.method in FOUNDATION_METHODS and horizon is None:
+            raise ValueError("Fit the foundation model before saving.")
         directory.parent.mkdir(parents=True, exist_ok=True)
         staging = Path(tempfile.mkdtemp(prefix=f".{directory.name}-", dir=directory.parent))
         try:
-            if self.method == "seasonal_naive":
-                self.history.to_csv(staging / "history.csv", index=False)
+            if self.method == "seasonal_naive" and history is not None:
+                history.to_csv(staging / "history.csv", index=False)
+            elif self.method in FOUNDATION_METHODS and horizon is not None:
+                from .foundation import model_spec
+
+                spec = model_spec(
+                    self.method,
+                    horizon=horizon,
+                    context_length=self.config.get("context_length"),
+                    accelerator=self.config.get("accelerator", "cpu"),
+                    seed=self.config.get("seed", 0),
+                )
+                (staging / "model_spec.json").write_text(
+                    json.dumps(spec, indent=2, sort_keys=True) + "\n"
+                )
             elif self.method == "nhits":
                 self.estimator.save(path=str(staging), overwrite=False, save_dataset=True)
             else:

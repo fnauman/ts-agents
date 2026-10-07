@@ -52,7 +52,13 @@ _COST_ORDER = [
 
 _DEPENDENCY_IMPORT_NAME_MAP = {
     "scikit-learn": "sklearn",
+    "huggingface-hub": "huggingface_hub",
 }
+
+_FOUNDATION_INSTALL_HINT = (
+    'Install `ts-agents[foundation]` to enable Darts zero-shot foundation models '
+    '(Chronos-2, TimesFM 2.5, PatchTST-FM).'
+)
 
 _DEPENDENCY_INSTALL_HINTS = {
     "statsforecast": 'Install `ts-agents[forecasting]` or `ts-agents[recommended]` to enable statistical forecasting backends.',
@@ -60,18 +66,36 @@ _DEPENDENCY_INSTALL_HINTS = {
     "stumpy": 'Install `ts-agents[patterns]` or `ts-agents[recommended]` to enable matrix-profile tooling.',
     "ruptures": 'Install `ts-agents[patterns]` or `ts-agents[recommended]` to enable changepoint tooling.',
     "aeon": 'Install `ts-agents[classification]` or `ts-agents[recommended]` to enable aeon-based classification backends.',
-    "scikit-learn": 'Install `ts-agents[classification]` or `ts-agents[recommended]` to enable classification workflows.',
+    "scikit-learn": 'Install `ts-agents[classification]` or `ts-agents[recommended]` to enable classification workflows; `ts-agents[ml]` also provides it for panel GBMs.',
     "matplotlib": 'Install `ts-agents[viz]` or `ts-agents[recommended]` to enable plot artifacts.',
+    "mlforecast": 'Install `ts-agents[ml]` to enable MLForecast GBM panel models.',
+    "lightgbm": 'Install `ts-agents[ml]` to enable MLForecast GBM panel models.',
+    "neuralforecast": 'Install `ts-agents[neural]` to enable NeuralForecast NHITS panel models.',
+    "darts": _FOUNDATION_INSTALL_HINT,
+    "huggingface-hub": _FOUNDATION_INSTALL_HINT,
+    "torch": (
+        'Install `ts-agents[neural]` for NeuralForecast NHITS or `ts-agents[foundation]` '
+        'for Darts zero-shot foundation models.'
+    ),
 }
 
+# Lists are in preference order: a tool whose other dependencies already need one of
+# the listed extras reuses it, otherwise the first extra is reported (see
+# tool_required_extras).
 _DEPENDENCY_REQUIRED_EXTRAS = {
     "statsforecast": ["forecasting"],
     "statsmodels": ["decomposition"],
     "stumpy": ["patterns"],
     "ruptures": ["patterns"],
     "aeon": ["classification"],
-    "scikit-learn": ["classification"],
+    "scikit-learn": ["classification", "ml"],
     "matplotlib": ["viz"],
+    "mlforecast": ["ml"],
+    "lightgbm": ["ml"],
+    "neuralforecast": ["neural"],
+    "darts": ["foundation"],
+    "huggingface-hub": ["foundation"],
+    "torch": ["neural", "foundation"],
 }
 
 
@@ -193,6 +217,21 @@ def dependency_required_extras(name: str) -> List[str]:
     return list(_DEPENDENCY_REQUIRED_EXTRAS.get(name, []))
 
 
+def tool_required_extras(tool: ToolMetadata) -> List[str]:
+    """Smallest sorted extras set covering the tool's required dependencies.
+
+    A dependency shipped by several extras (torch is in both ``neural`` and
+    ``foundation``) reuses an extra another dependency already needs, so the
+    foundation tool reports ``["foundation"]`` rather than also ``neural``.
+    """
+    per_dependency = [dependency_required_extras(dep) for dep in tool.dependencies]
+    chosen = {extras[0] for extras in per_dependency if len(extras) == 1}
+    for extras in per_dependency:
+        if len(extras) > 1 and not chosen.intersection(extras):
+            chosen.add(extras[0])
+    return sorted(chosen)
+
+
 def tool_dependency_details(tool: ToolMetadata) -> List[Dict[str, Any]]:
     details: List[Dict[str, Any]] = []
     for dependency in tool.dependencies:
@@ -232,13 +271,7 @@ def tool_availability(tool: ToolMetadata) -> Dict[str, Any]:
     missing_required = [
         dependency for dependency in tool.dependencies if not _module_available(dependency)
     ]
-    required_extras = sorted(
-        {
-            extra
-            for dependency in tool.dependencies
-            for extra in dependency_required_extras(dependency)
-        }
-    )
+    required_extras = tool_required_extras(tool)
 
     optional_features = []
     for dependency in tool.optional_dependencies:
@@ -565,6 +598,13 @@ def _register_default_tools() -> None:
         compare_classifiers,
     )
 
+    # Stdlib-only catalog: method names and extras without importing any backend.
+    from ..core.forecasting.catalog import (
+        DEFAULT_FOUNDATION_MODEL,
+        foundation_methods,
+        method_extras,
+    )
+
     from ..core.windowing import (
         select_window_size,
         select_window_size_from_csv,
@@ -581,6 +621,9 @@ def _register_default_tools() -> None:
         forecast_ets_with_data,
         forecast_theta_with_data,
         forecast_seasonal_naive_with_data,
+        forecast_foundation,
+        forecast_foundation_with_data,
+        forecast_panel_from_csv,
         forecast_ensemble_with_data,
         compare_forecasts_with_data,
         detect_peaks_with_data,
@@ -614,7 +657,20 @@ def _register_default_tools() -> None:
         optional_dependency_note: Optional[str] = None,
         artifact_kinds: Optional[List[str]] = None,
         prior_diagnostics: Optional[List[ToolPreconditionHint]] = None,
+        timeout_seconds: Optional[int] = None,
+        memory_mb: Optional[int] = None,
+        disk_mb: Optional[int] = None,
     ) -> None:
+        # None keeps the ToolMetadata defaults; heavy tools raise their sandbox limits.
+        limits = {
+            key: value
+            for key, value in (
+                ("timeout_seconds", timeout_seconds),
+                ("memory_mb", memory_mb),
+                ("disk_mb", disk_mb),
+            )
+            if value is not None
+        }
         ToolRegistry.register(ToolMetadata(
             name=name,
             description=description,
@@ -630,6 +686,7 @@ def _register_default_tools() -> None:
             optional_dependency_note=optional_dependency_note,
             artifact_kinds=list(artifact_kinds or []),
             prior_diagnostics=list(prior_diagnostics or []),
+            **limits,
         ))
 
     def _register_with_data(
@@ -647,6 +704,9 @@ def _register_default_tools() -> None:
         optional_dependency_note: Optional[str] = None,
         artifact_kinds: Optional[List[str]] = None,
         prior_diagnostics: Optional[List[ToolPreconditionHint]] = None,
+        timeout_seconds: Optional[int] = None,
+        memory_mb: Optional[int] = None,
+        disk_mb: Optional[int] = None,
     ) -> None:
         resolved_artifact_kinds = artifact_kinds
         if resolved_artifact_kinds is None and dependencies and "matplotlib" in dependencies:
@@ -666,6 +726,9 @@ def _register_default_tools() -> None:
             optional_dependency_note=optional_dependency_note,
             artifact_kinds=resolved_artifact_kinds,
             prior_diagnostics=prior_diagnostics,
+            timeout_seconds=timeout_seconds,
+            memory_mb=memory_mb,
+            disk_mb=disk_mb,
         )
 
     def _hint(kind: str, name: str, reason: str) -> ToolPreconditionHint:
@@ -979,6 +1042,154 @@ def _register_default_tools() -> None:
         ],
         examples=["Forecast by repeating the last seasonal cycle"],
         returns="ForecastResult with structured forecast data",
+    )
+
+    foundation_names = foundation_methods("series")
+    foundation_model_help = (
+        f"Foundation model: {', '.join(foundation_names)}. Only the chosen model's "
+        "pinned weights are downloaded into HF_HOME (first use needs network or a "
+        "pre-populated cache)."
+    )
+    foundation_description = (
+        "Zero-shot point forecast with a pretrained Darts foundation model "
+        "(Chronos-2, TimesFM 2.5, PatchTST-FM); nothing is trained on the series."
+    )
+    foundation_prior = [
+        _hint(
+            "tool",
+            "forecast_seasonal_naive",
+            "Score a seasonal-naive baseline first; zero-shot accuracy varies by series.",
+        ),
+    ]
+    _register_tool(
+        name="forecast_foundation",
+        description=foundation_description,
+        category=ToolCategory.FORECASTING,
+        cost=ComputationalCost.VERY_HIGH,
+        core_function=forecast_foundation,
+        dependencies=["darts", "torch", "huggingface-hub"],
+        parameters=[
+            ToolParameter("series", "np.ndarray", "Time series data"),
+            ToolParameter("horizon", "int", "Forecast horizon", optional=True, default=10),
+            ToolParameter(
+                "model", "str", foundation_model_help, optional=True, default=DEFAULT_FOUNDATION_MODEL
+            ),
+            ToolParameter(
+                "context_length",
+                "int",
+                "Most recent points the model conditions on (default 512, capped per model)",
+                optional=True,
+            ),
+            ToolParameter("accelerator", "str", "cpu or gpu", optional=True, default="cpu"),
+        ],
+        examples=["Zero-shot Chronos-2 forecast of the next 24 steps"],
+        returns="ForecastResult with point predictions (no intervals)",
+        prior_diagnostics=foundation_prior,
+        timeout_seconds=900,
+        memory_mb=4096,
+        disk_mb=2048,
+    )
+    _register_with_data(
+        base_name="forecast_foundation",
+        description=foundation_description,
+        category=ToolCategory.FORECASTING,
+        cost=ComputationalCost.VERY_HIGH,
+        core_function=forecast_foundation_with_data,
+        dependencies=["darts", "torch", "huggingface-hub"],
+        parameters=[
+            ToolParameter("variable_name", "str", "Variable name to forecast"),
+            ToolParameter("unique_id", "str", "Run ID"),
+            ToolParameter("horizon", "int", "Forecast horizon", optional=True, default=10),
+            ToolParameter(
+                "model", "str", foundation_model_help, optional=True, default=DEFAULT_FOUNDATION_MODEL
+            ),
+            ToolParameter(
+                "context_length",
+                "int",
+                "Most recent points the model conditions on (default 512, capped per model)",
+                optional=True,
+            ),
+        ],
+        examples=["Zero-shot Chronos-2 forecast of bx001_real for the next 24 steps"],
+        returns="ForecastResult with checkpoint provenance",
+        prior_diagnostics=[
+            _hint(
+                "tool",
+                "forecast_seasonal_naive_with_data",
+                "Score a seasonal-naive baseline first; zero-shot accuracy varies by series.",
+            ),
+        ],
+        timeout_seconds=900,
+        memory_mb=4096,
+        disk_mb=2048,
+    )
+
+    panel_extras = method_extras("panel")
+    panel_families: Dict[str, List[str]] = {}
+    for method_name, extra in panel_extras.items():
+        panel_families.setdefault(extra or "base", []).append(method_name)
+    panel_note = "; ".join(
+        f"{', '.join(names)} [{extra}]" if extra != "base" else f"{', '.join(names)} (base install)"
+        for extra, names in panel_families.items()
+    )
+    _register_tool(
+        name="forecast_panel_from_csv",
+        description=(
+            "Compare panel forecasters on a long-format file (unique_id, ds, y) with rolling "
+            "validation: seasonal naive, MLForecast GBMs, NeuralForecast NHITS and Darts "
+            "zero-shot foundation models. Writes metrics, keyed predictions, forecasts and a report."
+        ),
+        category=ToolCategory.FORECASTING,
+        cost=ComputationalCost.VERY_HIGH,
+        core_function=forecast_panel_from_csv,
+        dependencies=[],
+        optional_dependencies=["mlforecast", "neuralforecast", "darts"],
+        optional_dependency_note=(
+            f"Method families and extras: {panel_note}. Check availability before requesting "
+            "an optional family."
+        ),
+        parameters=[
+            ToolParameter("input_path", "str", "Path to a long-format panel file (CSV/Parquet/JSON)"),
+            ToolParameter("freq", "str", "Pandas frequency of the panel (e.g. h, D, MS)"),
+            ToolParameter("horizon", "int", "Forecast horizon", optional=True, default=24),
+            ToolParameter(
+                "methods",
+                "str",
+                f"Comma-separated methods from: {', '.join(panel_extras)}",
+                optional=True,
+                default="seasonal_naive",
+            ),
+            ToolParameter("season_length", "int", "Seasonal period", optional=True, default=24),
+            ToolParameter("n_windows", "int", "Rolling validation origins", optional=True, default=3),
+            ToolParameter("input_size", "int", "NHITS context; defaults to 2*horizon", optional=True),
+            ToolParameter(
+                "context_length",
+                "int",
+                "Foundation-model context (default 512, capped per model)",
+                optional=True,
+            ),
+            ToolParameter("id_col", "str", "Series ID column", optional=True, default="unique_id"),
+            ToolParameter("time_col", "str", "Timestamp column", optional=True, default="ds"),
+            ToolParameter("value_col", "str", "Target column", optional=True, default="y"),
+            ToolParameter(
+                "output_dir",
+                "str",
+                "Output directory (defaults to a new folder under the tool artifact directory)",
+                optional=True,
+            ),
+        ],
+        examples=["Compare seasonal naive, LightGBM and Chronos-2 on a monthly panel"],
+        returns="ToolPayload from the forecast-panel workflow with file artifacts",
+        artifact_kinds=["csv", "json", "markdown", "model", "image"],
+        prior_diagnostics=[
+            _hint(
+                "workflow",
+                "forecast-panel",
+                "Check `workflow show forecast-panel` availability before requesting optional families.",
+            ),
+        ],
+        timeout_seconds=1800,
+        memory_mb=8192,
     )
 
     _register_tool(

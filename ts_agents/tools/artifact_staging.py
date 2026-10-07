@@ -187,15 +187,23 @@ def collect_staged_artifact_files(
     file_limit_env: str,
     total_limit_env: str,
 ) -> List[Dict[str, str]]:
-    """Base64-bundle files under ``output_dir`` for transport back to the host."""
+    """Base64-bundle files under ``output_dir`` for transport back to the host.
+
+    Files under ``models/`` are bundled last so large model artifacts cannot use
+    up the total budget before the manifest, report and metrics are staged.
+    """
     total_bytes = 0
     staged_files: List[Dict[str, str]] = []
     if not output_dir.exists():
         return staged_files
-    for file_path in sorted(output_dir.rglob("*")):
+    candidates = [
+        (file_path.relative_to(output_dir).as_posix(), file_path)
+        for file_path in output_dir.rglob("*")
+    ]
+    candidates.sort(key=lambda item: (item[0].startswith("models/"), item[0]))
+    for relative_path, file_path in candidates:
         if not file_path.is_file():
             continue
-        relative_path = file_path.relative_to(output_dir).as_posix()
         if file_path.is_symlink() or path_contains_symlink(file_path):
             append_payload_warning(
                 payload,

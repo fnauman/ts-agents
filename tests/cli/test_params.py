@@ -154,6 +154,92 @@ def test_workflow_help_includes_examples(capsys):
     assert "workflow run inspect-series" in output
     assert "workflow run forecast-series" in output
     assert "workflow run activity-recognition" in output
+    assert "workflow run forecast-panel" in output
+    assert "seasonal_naive,lightgbm,chronos2_small" in output
+
+
+def test_forecast_panel_help_documents_every_flag(capsys):
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["workflow", "run", "forecast-panel", "--help"])
+    output = " ".join(capsys.readouterr().out.split())  # undo argparse line wrapping
+    for expected in (
+        "Series identifier column",
+        "Target value column",
+        "outputs/panel",
+        "Forecast horizon per origin",
+        "Rolling-validation origins",
+        "Estimator random seed",
+        "Skip comparison plot generation",
+        "NHITS context; defaults to 2*horizon",
+        "Foundation-model context (default 512, capped per model)",
+        "NHITS/foundation-model device",
+        "chronos2_small",
+        "patchtst_fm",
+    ):
+        assert expected in output, expected
+
+
+def test_forecast_series_help_lists_foundation_methods_and_flags(capsys):
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["workflow", "run", "forecast-series", "--help"])
+    output = " ".join(capsys.readouterr().out.split())
+    assert "--context-length" in output
+    assert "--accelerator" in output
+    assert "chronos2_small" in output
+    assert "timesfm2p5" in output
+
+
+def test_forecast_series_builder_forwards_foundation_options_only_when_set():
+    from ts_agents.workflows import get_workflow
+
+    parser = build_parser()
+    workflow = get_workflow("forecast-series")
+    base_argv = ["workflow", "run", "forecast-series", "--input-json", '{"series":[1,2,3]}']
+
+    args = parser.parse_args([*base_argv, "--methods", " seasonal_naive , chronos2_small ,"])
+    assert args.context_length is None and args.accelerator is None
+    kwargs = workflow.build_runner_kwargs(args)
+    assert kwargs["methods"] == ["seasonal_naive", "chronos2_small"]
+    # Unset options stay out so resume identities of older runs are unchanged.
+    assert "context_length" not in kwargs
+    assert "accelerator" not in kwargs
+
+    args = parser.parse_args(
+        [*base_argv, "--methods", "chronos2_small", "--context-length", "256", "--accelerator", "gpu"]
+    )
+    kwargs = workflow.build_runner_kwargs(args)
+    assert kwargs["context_length"] == 256
+    assert kwargs["accelerator"] == "gpu"
+
+
+def test_forecast_panel_builder_forwards_context_length_only_when_set():
+    from ts_agents.workflows import get_workflow
+
+    parser = build_parser()
+    workflow = get_workflow("forecast-panel")
+    base_argv = ["workflow", "run", "forecast-panel", "--input", "panel.csv", "--freq", "MS"]
+
+    args = parser.parse_args([*base_argv, "--methods", "seasonal_naive, chronos2_small"])
+    kwargs = workflow.build_runner_kwargs(args)
+    assert kwargs["methods"] == ["seasonal_naive", "chronos2_small"]
+    assert "context_length" not in kwargs
+    assert kwargs["accelerator"] == "cpu"
+
+    args = parser.parse_args([*base_argv, "--methods", "chronos2_small", "--context-length", "128"])
+    kwargs = workflow.build_runner_kwargs(args)
+    assert kwargs["context_length"] == 128
+
+
+def test_autoresearch_help_uses_foundation_smoke_loop(capsys):
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["autoresearch", "run", "--help"])
+    output = capsys.readouterr().out
+    assert "autoresearch run foundation-smoke --dry-run --json" in output
+    assert "foundation-smoke --models timesfm2p5" in output
+    assert "foundation-chronos-smoke" not in output
 
 
 def test_workflow_run_parser_accepts_explicit_fallback_flags():
@@ -440,6 +526,16 @@ def test_tool_show_json_reports_optional_backend_for_seasonal_naive(capsys):
     assert result["required_extras"] == []
     assert result["availability"]["available"] is True
     assert result["availability"]["optional_features"][0]["name"] == "statsforecast_backend"
+
+
+def test_tool_show_json_foundation_extras_match_availability(capsys):
+    # torch belongs to both neural and foundation; the FM tool needs only foundation.
+    code = run(["tool", "show", "forecast_foundation_with_data", "--json"])
+
+    assert code == 0
+    result = json.loads(capsys.readouterr().out)["result"]
+    assert result["required_extras"] == ["foundation"]
+    assert result["availability"]["required_extras"] == ["foundation"]
 
 
 def test_tool_show_json_includes_prior_diagnostics(capsys):

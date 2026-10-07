@@ -10,6 +10,7 @@ import uuid
 import numpy as np
 
 from ts_agents.contracts import ArtifactRef, ToolPayload
+from ts_agents.core.forecasting.catalog import DEFAULT_FOUNDATION_MODEL
 from ts_agents.data_access import get_series as _get_series
 
 
@@ -395,6 +396,134 @@ def forecast_seasonal_naive_with_data(
         variable_name=variable_name,
         unique_id=unique_id,
     )
+
+
+def _foundation_model_name(model: str) -> str:
+    from ts_agents.core.forecasting.catalog import foundation_methods
+
+    names = foundation_methods("series")
+    if model not in names:
+        raise ValueError(
+            f"Unknown foundation model {model!r}; choose from {', '.join(names)}."
+        )
+    return model
+
+
+def forecast_foundation(
+    series: np.ndarray,
+    horizon: int = 10,
+    model: str = DEFAULT_FOUNDATION_MODEL,
+    context_length: Optional[int] = None,
+    accelerator: str = "cpu",
+):
+    """Zero-shot Darts foundation-model forecast; only ``model``'s weights are fetched.
+
+    The loaded model is released when the call returns, so repeated tool calls in a
+    long-running agent or UI process do not accumulate weights.
+    """
+    from ts_agents.core.forecasting.catalog import get_series_forecaster
+    from ts_agents.core.forecasting.foundation import model_cache_scope
+
+    forecaster = get_series_forecaster(_foundation_model_name(model))
+    with model_cache_scope():
+        return forecaster(
+            np.asarray(series, dtype=float),
+            horizon=horizon,
+            context_length=context_length,
+            accelerator=accelerator,
+        )
+
+
+def forecast_foundation_with_data(
+    variable_name: str,
+    unique_id: str,
+    horizon: int = 10,
+    model: str = DEFAULT_FOUNDATION_MODEL,
+    context_length: Optional[int] = None,
+) -> ToolPayload:
+    from ts_agents.core.forecasting.catalog import get_method, get_series_forecaster
+    from ts_agents.core.forecasting.foundation import model_cache_scope, model_spec
+
+    model = _foundation_model_name(model)
+    series = _get_series_data(variable_name, unique_id)
+    # Weights are released when the call returns (see forecast_foundation).
+    with model_cache_scope():
+        result = get_series_forecaster(model)(
+            series,
+            horizon=horizon,
+            context_length=context_length,
+        )
+    data = _result_data(result)
+    if isinstance(data, dict):
+        # Checkpoint provenance (hub id, pinned revision, resolved context); no weights.
+        data["foundation_model"] = model_spec(
+            model, horizon=horizon, context_length=context_length
+        )
+    return _tool_payload(
+        kind="forecast",
+        summary=(
+            f"{get_method(model).label} forecast completed for "
+            f"{variable_name} (run {unique_id}) with horizon {horizon}; "
+            f"nothing was trained on this series."
+        ),
+        data=data,
+        variable_name=variable_name,
+        unique_id=unique_id,
+    )
+
+
+def forecast_panel_from_csv(
+    input_path: str,
+    freq: str,
+    horizon: int = 24,
+    methods: Any = "seasonal_naive",
+    season_length: int = 24,
+    n_windows: int = 3,
+    input_size: Optional[int] = None,
+    context_length: Optional[int] = None,
+    id_col: str = "unique_id",
+    time_col: str = "ds",
+    value_col: str = "y",
+    output_dir: Optional[str] = None,
+) -> ToolPayload:
+    """Run the forecast-panel workflow on a long-format panel file.
+
+    ``methods`` is a comma-separated string or a list. Without ``output_dir`` the
+    workflow writes into a fresh directory under the tool artifact directory. The
+    workflow payload (metrics, keyed predictions, forecasts, report) is returned
+    unchanged.
+    """
+    from ts_agents.cli.input_parsing import load_panel_input
+    from ts_agents.workflows.panel import run_forecast_panel_workflow
+
+    if isinstance(methods, str):
+        method_list = [method.strip() for method in methods.split(",")]
+    else:
+        method_list = [str(method).strip() for method in methods or []]
+    method_list = [method for method in method_list if method]
+    if not method_list:
+        raise ValueError("Choose at least one panel forecasting method.")
+    panel_input = load_panel_input(
+        input_path=input_path,
+        id_col=id_col,
+        time_col=time_col,
+        value_col=value_col,
+        freq=freq,
+    )
+    if output_dir is None:
+        output_dir = str(_get_artifact_dir() / f"forecast_panel_{uuid.uuid4().hex[:8]}")
+    options: Dict[str, Any] = dict(
+        output_dir=output_dir,
+        freq=freq,
+        horizon=horizon,
+        methods=method_list,
+        season_length=season_length,
+        n_windows=n_windows,
+        input_size=input_size,
+    )
+    if context_length is not None:
+        options["context_length"] = context_length
+    return run_forecast_panel_workflow(panel_input, **options)
 
 # Pattern Wrappers
 

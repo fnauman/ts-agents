@@ -558,6 +558,11 @@ class ExecutionResult:
         )
 
 
+# Exception class name raised by ts_agents.core.forecasting.foundation when pinned
+# weights are neither cached nor downloadable (matched by name: no heavy import).
+FOUNDATION_WEIGHTS_UNAVAILABLE = "FoundationModelUnavailableError"
+
+
 class ToolErrorCode(Enum):
     """Standard error codes for tool execution."""
     UNKNOWN = "unknown"
@@ -645,6 +650,9 @@ class ToolError(Exception):
             "MemoryError": ToolErrorCode.RESOURCE_EXHAUSTED,
             "ImportError": ToolErrorCode.DEPENDENCY_ERROR,
             "ModuleNotFoundError": ToolErrorCode.DEPENDENCY_ERROR,
+            # Pinned foundation-model weights neither cached nor downloadable:
+            # recoverable by allowing network or pre-populating HF_HOME.
+            FOUNDATION_WEIGHTS_UNAVAILABLE: ToolErrorCode.BACKEND_UNAVAILABLE,
         }
 
         code = code_mapping.get(exc_type, ToolErrorCode.UNKNOWN)
@@ -654,13 +662,18 @@ class ToolError(Exception):
             ToolErrorCode.VALIDATION_ERROR,
             ToolErrorCode.TIMEOUT,
             ToolErrorCode.DATA_ERROR,
-        }
+        } or exc_type == FOUNDATION_WEIGHTS_UNAVAILABLE
 
         return cls(
             code=code,
             message=str(exc),
             recoverable=recoverable,
-            hint=str(exc) if code == ToolErrorCode.DEPENDENCY_ERROR else None,
+            hint=(
+                str(exc)
+                if code == ToolErrorCode.DEPENDENCY_ERROR
+                or exc_type == FOUNDATION_WEIGHTS_UNAVAILABLE
+                else None
+            ),
             details={"exception_type": exc_type},
             tool_name=tool_name,
         )

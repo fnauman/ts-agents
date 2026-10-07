@@ -5,6 +5,16 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from ts_agents.core.forecasting.catalog import (
+    DEFAULT_FOUNDATION_MODEL,
+    FOUNDATION_DISTRIBUTIONS,
+    FOUNDATION_EXTRA,
+    FOUNDATION_MODULES,
+    foundation_checkpoints,
+    get_method,
+    methods_for,
+)
+
 
 @dataclass(frozen=True)
 class AutoresearchBudget:
@@ -50,18 +60,35 @@ class AutoresearchLoopDefinition:
     output_root: str = "outputs/autoresearch"
     capabilities: dict[str, Any] = field(default_factory=dict)
     dependency_rules: tuple[AutoresearchDependencyRule, ...] = ()
+    # Models run when --models is omitted; empty means every entry in ``models``.
+    default_models: list[str] = field(default_factory=list)
 
 
-FOUNDATION_CHRONOS_LOOP_NAME = "foundation-chronos-smoke"
-FOUNDATION_CHRONOS_MODEL = "amazon/chronos-t5-tiny"
-FOUNDATION_CHRONOS_TASK = "foundation-model-smoke"
-FOUNDATION_CHRONOS_HORIZON = 18
-FOUNDATION_CHRONOS_SEASON_LENGTH = 12
-FOUNDATION_CHRONOS_DEFAULT_SERIES = ["M4"]
-FOUNDATION_CHRONOS_MODEL_SCOPE = "single_chronos_zero_shot_smoke"
-FOUNDATION_CHRONOS_MODEL_SCOPE_LABEL = "single Chronos-family zero-shot smoke path"
-FOUNDATION_CHRONOS_INSTALL_HINT = "pip install 'ts-agents[foundation]'"
+FOUNDATION_SMOKE_LOOP_NAME = "foundation-smoke"
+FOUNDATION_SMOKE_TASK = "foundation-model-smoke"
+FOUNDATION_SMOKE_HORIZON = 18
+FOUNDATION_SMOKE_SEASON_LENGTH = 12
+FOUNDATION_SMOKE_CONTEXT_LENGTH = 512
+FOUNDATION_SMOKE_DEFAULT_SERIES = ["M4"]
+FOUNDATION_SMOKE_DEFAULT_MODELS = [DEFAULT_FOUNDATION_MODEL]
+FOUNDATION_SMOKE_MODEL_SCOPE = "darts_foundation_zero_shot_smoke"
+FOUNDATION_SMOKE_MODEL_SCOPE_LABEL = (
+    "Darts zero-shot foundation-model smoke path (selected checkpoints only)"
+)
+FOUNDATION_SMOKE_INSTALL_HINT = f"pip install 'ts-agents[{FOUNDATION_EXTRA}]'"
 
+FOUNDATION_GPU_PLAN_FORECAST_MODEL = "chronos2"
+FOUNDATION_GPU_PLAN_COMPARATORS = ["timesfm2p5", "patchtst_fm"]
+_GPU_PLAN_FORECAST_SPEC = get_method(FOUNDATION_GPU_PLAN_FORECAST_MODEL).foundation
+MOMENT_MODEL = "AutonLab/MOMENT-1-large"
+MOMENT_REVISION = "3582f9d7f033eea9d43e6a802ba0e36d5f26b57c"
+MOMENT_SUPPORT = "external_plan_only"
+MOMENT_SUPPORT_NOTE = "requires momentfm, not installed by any ts-agents extra"
+
+# Deprecated loop names kept resolvable for one release; never listed.
+_LOOP_ALIASES: dict[str, str] = {
+    "foundation-chronos-smoke": FOUNDATION_SMOKE_LOOP_NAME,
+}
 
 _DAYTONA_BUDGET = AutoresearchBudget(
     timeout_seconds=20 * 60,
@@ -146,15 +173,16 @@ _LOOPS: dict[str, AutoresearchLoopDefinition] = {
             "ranking_rule": "highest balanced accuracy from window-selection CV; smaller selected window and more retained windows are tie-breakers",
         },
     ),
-    FOUNDATION_CHRONOS_LOOP_NAME: AutoresearchLoopDefinition(
-        name=FOUNDATION_CHRONOS_LOOP_NAME,
-        task=FOUNDATION_CHRONOS_TASK,
+    FOUNDATION_SMOKE_LOOP_NAME: AutoresearchLoopDefinition(
+        name=FOUNDATION_SMOKE_LOOP_NAME,
+        task=FOUNDATION_SMOKE_TASK,
         description=(
-            "Run a scoped Chronos zero-shot forecasting smoke check on the vendored "
-            "M4 Monthly mini panel."
+            "Run a scoped Darts zero-shot foundation-model forecasting smoke check "
+            "(Chronos-2, TimesFM 2.5, PatchTST-FM) on the vendored M4 Monthly mini panel."
         ),
         dataset="data/m4_monthly_mini.csv",
-        models=[FOUNDATION_CHRONOS_MODEL],
+        models=methods_for("autoresearch"),
+        default_models=list(FOUNDATION_SMOKE_DEFAULT_MODELS),
         primary_metric="smape",
         secondary_metrics=["mae", "rmse", "elapsed_seconds"],
         budget=AutoresearchBudget(
@@ -162,18 +190,22 @@ _LOOPS: dict[str, AutoresearchLoopDefinition] = {
             vcpu=4,
             memory_mb=16 * 1024,
             disk_mb=20 * 1024,
-            max_trials=1,
+            max_trials=4,
             notes=[
-                "Executes only a single Chronos-family zero-shot path by default.",
+                f"Runs only {DEFAULT_FOUNDATION_MODEL} unless --models selects other checkpoints.",
+                "Only the selected checkpoints download into HF_HOME; nothing is trained.",
                 "Dry runs do not require heavy foundation-model dependencies.",
-                "Executable runs lazy-import chronos-forecasting and torch.",
+                "Executable runs lazy-import darts, torch and huggingface_hub.",
             ],
         ),
-        required_extras=["foundation"],
+        required_extras=[FOUNDATION_EXTRA],
         dependency_rules=(
             AutoresearchDependencyRule(
-                modules=(("chronos", "chronos-forecasting"), ("torch", "torch")),
-                install_extra="foundation",
+                modules=tuple(
+                    (module, FOUNDATION_DISTRIBUTIONS[module])
+                    for module in FOUNDATION_MODULES
+                ),
+                install_extra=FOUNDATION_EXTRA,
                 skip_on_dry_run=True,
                 label="foundation-model dependencies",
             ),
@@ -181,13 +213,19 @@ _LOOPS: dict[str, AutoresearchLoopDefinition] = {
         capabilities={
             "status": "executable_optional_dependency",
             "generates_metrics": True,
-            "model_scope": FOUNDATION_CHRONOS_MODEL_SCOPE,
-            "model_scope_label": FOUNDATION_CHRONOS_MODEL_SCOPE_LABEL,
-            "install_hint": FOUNDATION_CHRONOS_INSTALL_HINT,
-            "horizon": FOUNDATION_CHRONOS_HORIZON,
-            "season_length": FOUNDATION_CHRONOS_SEASON_LENGTH,
-            "default_series": FOUNDATION_CHRONOS_DEFAULT_SERIES,
-            "max_trials_semantics": "number of Chronos zero-shot forecast rows",
+            "model_scope": FOUNDATION_SMOKE_MODEL_SCOPE,
+            "model_scope_label": FOUNDATION_SMOKE_MODEL_SCOPE_LABEL,
+            "install_hint": FOUNDATION_SMOKE_INSTALL_HINT,
+            "backend": "darts",
+            "execution_mode": "zero_shot",
+            "horizon": FOUNDATION_SMOKE_HORIZON,
+            "season_length": FOUNDATION_SMOKE_SEASON_LENGTH,
+            "context_length": FOUNDATION_SMOKE_CONTEXT_LENGTH,
+            "default_series": FOUNDATION_SMOKE_DEFAULT_SERIES,
+            "default_models": list(FOUNDATION_SMOKE_DEFAULT_MODELS),
+            "checkpoints": foundation_checkpoints("autoresearch"),
+            "deprecated_aliases": sorted(_LOOP_ALIASES),
+            "max_trials_semantics": "number of zero-shot foundation-model forecast rows",
             "search_style": "smoke check",
             "ranking_rule": "lowest sMAPE on the M4 mini holdout; MAE and RMSE are tie-breakers",
         },
@@ -197,10 +235,15 @@ _LOOPS: dict[str, AutoresearchLoopDefinition] = {
         task="foundation-model-plan",
         description=(
             "Materialize an RTX PRO 6000 Blackwell-oriented, plan-only foundation-model "
-            "research recipe covering Chronos-family forecasting and MOMENT classification."
+            "research recipe covering Darts Chronos-2 fine-tuning, TimesFM 2.5 and "
+            "PatchTST-FM zero-shot comparators, and external MOMENT classification."
         ),
         dataset="vendored M4 mini and generated/vendored labeled streams for smoke runs",
-        models=["amazon/chronos-2", "amazon/chronos-t5-small", "AutonLab/MOMENT-1-large"],
+        models=[
+            FOUNDATION_GPU_PLAN_FORECAST_MODEL,
+            *FOUNDATION_GPU_PLAN_COMPARATORS,
+            MOMENT_MODEL,
+        ],
         primary_metric="not_applicable_plan_only",
         secondary_metrics=["planned_wall_time", "planned_gpu_memory_gb", "checkpoint_cap_gb"],
         budget=AutoresearchBudget(
@@ -212,18 +255,23 @@ _LOOPS: dict[str, AutoresearchLoopDefinition] = {
             notes=[
                 "Assumes one RTX PRO 6000 Blackwell GPU.",
                 "Heavy foundation-model packages are intentionally optional and lazy-loaded.",
+                f"{MOMENT_MODEL} is {MOMENT_SUPPORT}: {MOMENT_SUPPORT_NOTE}.",
             ],
         ),
         required_extras=[],
         capabilities={
             "status": "plan-only",
             "generates_metrics": False,
-            "forecasting_model": "amazon/chronos-2",
-            "forecasting_model_revision": "254b5357164a84326913b0695216f690752ac55d",
-            "forecasting_finetune_fallback": "amazon/chronos-t5-small",
-            "forecasting_finetune_revision": "4753ebecb99f65f84cd2823c56f7ab22b02ac303",
-            "classification_model": "AutonLab/MOMENT-1-large",
-            "classification_model_revision": "3582f9d7f033eea9d43e6a802ba0e36d5f26b57c",
+            "forecasting_backend": "darts",
+            "forecasting_method": FOUNDATION_GPU_PLAN_FORECAST_MODEL,
+            "forecasting_darts_class": _GPU_PLAN_FORECAST_SPEC.darts_class,
+            "forecasting_model": _GPU_PLAN_FORECAST_SPEC.hub_model_name,
+            "forecasting_model_revision": _GPU_PLAN_FORECAST_SPEC.hub_model_revision,
+            "forecasting_finetune": "Chronos2Model(enable_finetuning=True)",
+            "zero_shot_comparators": list(FOUNDATION_GPU_PLAN_COMPARATORS),
+            "classification_model": MOMENT_MODEL,
+            "classification_model_revision": MOMENT_REVISION,
+            "classification_support": f"{MOMENT_SUPPORT}: {MOMENT_SUPPORT_NOTE}",
             "smoke_budget": "30 minutes, 1 seed, 1 epoch or 1000 max steps",
             "full_budget": "4 hours, 3 seeds, early stopping, bf16, checkpoint cap 5 GiB",
         },
@@ -232,14 +280,30 @@ _LOOPS: dict[str, AutoresearchLoopDefinition] = {
 
 
 def list_loops() -> list[AutoresearchLoopDefinition]:
-    """Return built-in autoresearch loop definitions."""
+    """Return built-in autoresearch loop definitions (deprecated aliases excluded)."""
     return list(_LOOPS.values())
 
 
+def canonical_loop_name(name: str) -> str:
+    """Resolve a deprecated loop alias to its current name; other names pass through."""
+    return _LOOP_ALIASES.get(name, name)
+
+
+def deprecated_alias_warning(name: str) -> str | None:
+    """Return a deprecation warning when ``name`` is an alias, else None."""
+    canonical = _LOOP_ALIASES.get(name)
+    if canonical is None:
+        return None
+    return (
+        f"Autoresearch loop '{name}' is deprecated and will be removed in a future "
+        f"release; use '{canonical}' instead."
+    )
+
+
 def get_loop(name: str) -> AutoresearchLoopDefinition:
-    """Return a built-in autoresearch loop definition by name."""
+    """Return a built-in autoresearch loop definition by name or deprecated alias."""
     try:
-        return _LOOPS[name]
+        return _LOOPS[canonical_loop_name(name)]
     except KeyError as exc:
         available = ", ".join(sorted(_LOOPS))
         raise KeyError(f"Unknown autoresearch loop '{name}'. Available: {available}.") from exc

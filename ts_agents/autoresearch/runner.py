@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
 from importlib.util import find_spec
 import json
@@ -11,7 +11,6 @@ import signal
 import stat
 import threading
 import time
-from functools import lru_cache
 from typing import Any, Callable, Iterable, Optional
 
 import numpy as np
@@ -20,6 +19,10 @@ import pandas as pd
 from ts_agents.cli.input_parsing import load_labeled_stream_input
 from ts_agents.cli.output import render_output, to_jsonable, write_output
 from ts_agents.contracts import ArtifactRef, CLI_SCHEMA_VERSION
+from ts_agents.core.forecasting.catalog import (
+    foundation_checkpoints,
+    get_series_forecaster,
+)
 from ts_agents.runtime_paths import resolve_existing_path
 from ts_agents.workflows.common import (
     WORKFLOW_MANIFEST_FILENAME,
@@ -31,10 +34,19 @@ from ts_agents.workflows.common import (
 )
 
 from .registry import (
-    FOUNDATION_CHRONOS_HORIZON,
-    FOUNDATION_CHRONOS_INSTALL_HINT,
-    FOUNDATION_CHRONOS_LOOP_NAME,
-    FOUNDATION_CHRONOS_TASK,
+    FOUNDATION_GPU_PLAN_COMPARATORS,
+    FOUNDATION_GPU_PLAN_FORECAST_MODEL,
+    FOUNDATION_SMOKE_CONTEXT_LENGTH,
+    FOUNDATION_SMOKE_HORIZON,
+    FOUNDATION_SMOKE_INSTALL_HINT,
+    FOUNDATION_SMOKE_LOOP_NAME,
+    FOUNDATION_SMOKE_TASK,
+    MOMENT_MODEL,
+    MOMENT_REVISION,
+    MOMENT_SUPPORT,
+    MOMENT_SUPPORT_NOTE,
+    canonical_loop_name,
+    deprecated_alias_warning,
     get_loop,
     loop_to_dict,
 )
@@ -60,6 +72,8 @@ def run_autoresearch_loop(
     dataset: str = "auto",
 ) -> dict[str, Any]:
     """Run a built-in autoresearch loop and write reproducible artifacts."""
+    alias_warning = deprecated_alias_warning(loop_name)
+    loop_name = canonical_loop_name(loop_name)
     definition = get_loop(loop_name)
     output_path = Path(output_dir).expanduser().resolve()
     if output_dir_has_files(output_path):
@@ -107,7 +121,25 @@ def run_autoresearch_loop(
         raise ValueError(
             f"Autoresearch loop '{loop_name}' is registered but has no runner."
         )
-    return runner(**common)
+    result = runner(**common)
+    if alias_warning:
+        _add_notice_warning(result, alias_warning)
+    return result
+
+
+def _add_notice_warning(result: dict[str, Any], warning: str) -> None:
+    """Record a non-degrading warning in the payload and the written manifest."""
+    result["warnings"] = [warning, *(result.get("warnings") or [])]
+    manifest_path = Path(str(result.get("data", {}).get("manifest_path", "")))
+    if not manifest_path.is_file():
+        return
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if isinstance(manifest, dict):
+        manifest["warnings"] = [warning, *(manifest.get("warnings") or [])]
+        write_output(render_output(to_jsonable(manifest), json_output=True), str(manifest_path))
 
 
 def _run_forecast_daytona(**kwargs: Any) -> dict[str, Any]:
@@ -404,7 +436,7 @@ def _run_foundation_gpu_plan(**kwargs: Any) -> dict[str, Any]:
         max_trials=max_trials,
         timeout_seconds=timeout_seconds,
     )
-    chronos_config = _chronos_config_yaml(plan)
+    darts_config = _darts_finetune_config_yaml(plan)
     moment_config = _moment_config_yaml(plan)
     commands = _foundation_commands(plan)
     report = _foundation_report(plan)
@@ -412,9 +444,9 @@ def _run_foundation_gpu_plan(**kwargs: Any) -> dict[str, Any]:
     artifacts = [
         _write_json(output_path / "foundation_gpu_plan.json", plan, "Foundation-model plan."),
         _write_text(
-            output_path / "chronos_finetune_config.yaml",
-            chronos_config,
-            "Chronos fine-tuning config template.",
+            output_path / "darts_finetune_config.yaml",
+            darts_config,
+            "Darts Chronos-2 fine-tuning config template.",
             mime_type="text/yaml",
         ),
         _write_text(
@@ -477,7 +509,7 @@ def _run_foundation_gpu_plan(**kwargs: Any) -> dict[str, Any]:
     )
 
 
-def _run_foundation_chronos_smoke(**kwargs: Any) -> dict[str, Any]:
+def _run_foundation_smoke(**kwargs: Any) -> dict[str, Any]:
     output_path: Path = kwargs["output_path"]
     run_id: str = kwargs["run_id"]
     definition = kwargs["definition"]
@@ -497,7 +529,15 @@ def _run_foundation_chronos_smoke(**kwargs: Any) -> dict[str, Any]:
         for series_id in capabilities.get("default_series", [])
         if str(series_id) in panel
     ]
-    horizon = int(capabilities.get("horizon", FOUNDATION_CHRONOS_HORIZON))
+    horizon = int(capabilities.get("horizon", FOUNDATION_SMOKE_HORIZON))
+    context_length = int(
+        capabilities.get("context_length", FOUNDATION_SMOKE_CONTEXT_LENGTH)
+    )
+    checkpoints = {
+        model: checkpoint
+        for model, checkpoint in foundation_checkpoints("autoresearch").items()
+        if model in models
+    }
     trial_specs = _forecast_trial_specs(
         panel=panel,
         series_ids=series_ids,
@@ -509,42 +549,56 @@ def _run_foundation_chronos_smoke(**kwargs: Any) -> dict[str, Any]:
     warnings: list[str] = []
     trials: list[dict[str, Any]] = []
     start = time.monotonic()
-    for trial_index, (spec, model) in enumerate(trial_pairs, start=1):
-        if _budget_exhausted(start, timeout_seconds):
-            warnings.append(
-                f"Stopped before Chronos trial {trial_index}; timeout budget exhausted."
-            )
-            break
-        if dry_run:
-            trials.append(
-                _planned_trial_row(
-                    run_id, trial_index, FOUNDATION_CHRONOS_TASK, spec, model
+    model_scope = ExitStack()
+    if not dry_run:
+        from ts_agents.core.forecasting.foundation import model_cache_scope
+
+        # Keep each model loaded across trials; released when the loop ends.
+        model_scope.enter_context(model_cache_scope())
+    try:
+        for trial_index, (spec, model) in enumerate(trial_pairs, start=1):
+            if _budget_exhausted(start, timeout_seconds):
+                warnings.append(
+                    f"Stopped before foundation-model trial {trial_index}; timeout budget exhausted."
                 )
-            )
-            continue
-        trial_timeout = _trial_timeout_for_next(
-            start,
-            timeout_seconds,
-            max_trials=max_trials,
-            completed_trials=len(trials),
-        )
-        with _trial_timeout(trial_timeout):
-            trials.append(
-                _evaluate_forecast_trial_with_runner(
-                    run_id=run_id,
-                    trial_index=trial_index,
-                    spec=spec,
-                    model=model,
-                    task=FOUNDATION_CHRONOS_TASK,
-                    trial_id_prefix="foundation-chronos",
-                    forecast_runner=_forecast_with_chronos,
-                    horizon=horizon,
-                    extra_fields={
-                        "foundation_family": "Chronos",
-                        "execution_mode": "zero_shot",
-                    },
+                break
+            if dry_run:
+                trials.append(
+                    _planned_trial_row(
+                        run_id, trial_index, FOUNDATION_SMOKE_TASK, spec, model
+                    )
                 )
+                continue
+            trial_timeout = _trial_timeout_for_next(
+                start,
+                timeout_seconds,
+                max_trials=max_trials,
+                completed_trials=len(trials),
             )
+            checkpoint = checkpoints[model]
+            with _trial_timeout(trial_timeout):
+                trials.append(
+                    _evaluate_forecast_trial_with_runner(
+                        run_id=run_id,
+                        trial_index=trial_index,
+                        spec=spec,
+                        model=model,
+                        task=FOUNDATION_SMOKE_TASK,
+                        trial_id_prefix="foundation",
+                        forecast_runner=_forecast_with_foundation,
+                        horizon=horizon,
+                        extra_fields={
+                            "foundation_family": checkpoint["family"],
+                            "darts_class": checkpoint["darts_class"],
+                            "hub_model_name": checkpoint["hub_model_name"],
+                            "hub_model_revision": checkpoint["hub_model_revision"],
+                            "execution_mode": "zero_shot",
+                        },
+                    )
+                )
+    finally:
+        # Release model weights held by the adapter cache.
+        model_scope.close()
 
     ranking = _rank_forecast_trials(trials)
     warnings.extend(_forecast_ranking_warnings(trials))
@@ -568,10 +622,12 @@ def _run_foundation_chronos_smoke(**kwargs: Any) -> dict[str, Any]:
         "timeout_seconds": timeout_seconds,
         "dry_run": dry_run,
         "horizon": horizon,
+        "context_length": context_length,
         "dataset": str(dataset_path),
         "model_scope": capabilities.get("model_scope"),
         "model_scope_label": capabilities.get("model_scope_label"),
         "install_hint": capabilities.get("install_hint"),
+        "checkpoints": checkpoints,
     }
     artifacts = _write_autoresearch_artifacts(
         output_path=output_path,
@@ -582,16 +638,19 @@ def _run_foundation_chronos_smoke(**kwargs: Any) -> dict[str, Any]:
         options=options,
         trials=trials,
         best_config=best_config,
-        report=_foundation_chronos_report(
+        report=_foundation_smoke_report(
             dataset_path=dataset_path,
             models=models,
             trials=trials,
             ranking=ranking,
             dry_run=dry_run,
             capabilities=capabilities,
+            checkpoints=checkpoints,
+            context_length=context_length,
         ),
         extra_json={
             "model_ranking": ranking,
+            "checkpoints": checkpoints,
         },
         status=status,
         warnings=warnings,
@@ -603,7 +662,7 @@ def _run_foundation_chronos_smoke(**kwargs: Any) -> dict[str, Any]:
         run_id=run_id,
         status=status,
         summary=(
-            "Foundation Chronos smoke loop completed with "
+            "Foundation-model smoke loop completed with "
             f"{len(trials)} zero-shot forecast rows."
         ),
         output_path=output_path,
@@ -617,13 +676,16 @@ def _run_foundation_chronos_smoke(**kwargs: Any) -> dict[str, Any]:
             "dataset": str(dataset_path),
             "model_scope": capabilities.get("model_scope"),
             "model_scope_label": capabilities.get("model_scope_label"),
+            "checkpoints": checkpoints,
         },
     )
 
 def _normalize_models(loop_name: str, models: Optional[Iterable[str]]) -> list[str]:
     definition = get_loop(loop_name)
+    loop_name = definition.name
+    default_models = list(definition.default_models or definition.models)
     if models is None:
-        return list(definition.models)
+        return default_models
     normalized = []
     for model in models:
         if model is None:
@@ -632,11 +694,12 @@ def _normalize_models(loop_name: str, models: Optional[Iterable[str]]) -> list[s
         if value:
             normalized.append(value)
     if not normalized:
-        return list(definition.models)
+        return default_models
     invalid = sorted(set(normalized).difference(definition.models))
     if invalid:
         raise ValueError(
-            f"Unsupported model(s) for {loop_name}: {', '.join(invalid)}."
+            f"Unsupported model(s) for {loop_name}: {', '.join(invalid)}. "
+            f"Choose from: {', '.join(definition.models)}."
         )
     return normalized
 
@@ -815,66 +878,24 @@ def _evaluate_forecast_trial_with_runner(
 
 
 def _forecast_with_method(method: str, series: np.ndarray, *, horizon: int, season_length: int) -> np.ndarray:
-    from ts_agents.core.forecasting import (
-        forecast_arima,
-        forecast_ets,
-        forecast_seasonal_naive,
-        forecast_theta,
-    )
-
-    func_map = {
-        "seasonal_naive": forecast_seasonal_naive,
-        "theta": forecast_theta,
-        "ets": forecast_ets,
-        "arima": forecast_arima,
-    }
     return np.asarray(
-        func_map[method](series, horizon=horizon, season_length=season_length).forecast,
+        get_series_forecaster(method)(
+            series, horizon=horizon, season_length=season_length
+        ).forecast,
         dtype=float,
     )
 
 
-def _forecast_with_chronos(model_id: str, series: np.ndarray, *, horizon: int) -> np.ndarray:
-    try:
-        import torch
-    except ModuleNotFoundError as exc:
-        raise ImportError(
-            "foundation-chronos-smoke requires chronos-forecasting and torch. "
-            f"Install with: {FOUNDATION_CHRONOS_INSTALL_HINT}"
-        ) from exc
-
-    pipeline = _chronos_pipeline(model_id)
-    context = torch.tensor(series, dtype=torch.float32)
-    with torch.no_grad():
-        prediction = pipeline.predict(context, prediction_length=horizon)
-    values = prediction.detach().cpu().numpy() if hasattr(prediction, "detach") else np.asarray(prediction)
-    if values.ndim == 3:
-        values = values[0]
-    if values.ndim == 2:
-        values = np.median(values, axis=0)
-    values = np.asarray(values, dtype=float).reshape(-1)
-    if values.size < horizon:
-        raise ValueError(
-            f"Chronos prediction returned {values.size} values for horizon {horizon}."
-        )
-    return values[:horizon]
-
-
-@lru_cache(maxsize=4)
-def _chronos_pipeline(model_id: str) -> Any:
-    try:
-        import torch
-        from chronos import ChronosPipeline
-    except ModuleNotFoundError as exc:
-        raise ImportError(
-            "foundation-chronos-smoke requires chronos-forecasting and torch. "
-            f"Install with: {FOUNDATION_CHRONOS_INSTALL_HINT}"
-        ) from exc
-
-    return ChronosPipeline.from_pretrained(
-        model_id,
-        device_map="cpu",
-        torch_dtype=torch.float32,
+def _forecast_with_foundation(model: str, series: np.ndarray, *, horizon: int) -> np.ndarray:
+    # The catalog forecaster lazy-imports the Darts adapter, which resolves and
+    # downloads only the selected checkpoint.
+    return np.asarray(
+        get_series_forecaster(model)(
+            series,
+            horizon=horizon,
+            context_length=FOUNDATION_SMOKE_CONTEXT_LENGTH,
+        ).forecast,
+        dtype=float,
     )
 
 
@@ -1420,7 +1441,7 @@ def _forecast_report(
     return "\n".join(lines)
 
 
-def _foundation_chronos_report(
+def _foundation_smoke_report(
     *,
     dataset_path: Path,
     models: list[str],
@@ -1428,23 +1449,44 @@ def _foundation_chronos_report(
     ranking: list[dict[str, Any]],
     dry_run: bool,
     capabilities: dict[str, Any],
+    checkpoints: dict[str, dict[str, Any]],
+    context_length: int,
 ) -> str:
     lines = [
-        "# Foundation Chronos Smoke",
+        "# Foundation Model Smoke (Darts)",
         "",
         f"- dataset: `{dataset_path}`",
         f"- models: `{', '.join(models)}`",
         f"- mode: `{'dry-run' if dry_run else 'executed'}`",
         f"- scope: {capabilities.get('model_scope_label', 'scoped zero-shot smoke path')}",
+        f"- context length: `{context_length}` points (capped per model)",
         "- primary metric: `sMAPE` (lower is better)",
         "",
-        "## Ranking",
+        "Models run zero-shot: nothing is trained on this data, and only the selected",
+        "checkpoints are downloaded. Pretraining corpora may overlap public benchmarks",
+        "such as M4, so treat these scores as a smoke signal rather than a benchmark.",
+        "",
+        "## Checkpoints",
         "",
     ]
+    for model in models:
+        checkpoint = checkpoints.get(model)
+        if checkpoint is None:
+            continue
+        lines.append(
+            f"- `{model}`: `{checkpoint['darts_class']}` from "
+            f"`{checkpoint['hub_model_name']}` @ `{checkpoint['hub_model_revision']}` "
+            f"({checkpoint['license']})"
+        )
+        if checkpoint.get("trained_horizon"):
+            lines.append(
+                f"  - trained for a {checkpoint['trained_horizon']}-step horizon"
+            )
+    lines.extend(["", "## Ranking", ""])
     if ranking:
         lines.extend(_markdown_table(ranking, ["model", "smape", "mae", "rmse", "n_trials"]))
     else:
-        lines.append("No completed Chronos trials were available for ranking.")
+        lines.append("No completed foundation-model trials were available for ranking.")
     lines.extend(["", "## Trial Count", "", f"- rows: `{len(trials)}`", ""])
     return "\n".join(lines)
 
@@ -1531,6 +1573,10 @@ def _write_classification_plot(output_path: Path, trials: list[dict[str, Any]]) 
     return [artifact_ref(kind="image", path=path, mime_type="image/png", description="Classification ranking plot.", created_by="autoresearch")]
 
 
+_DARTS_PACKAGE = "darts[torch]>=0.47,<0.48"
+_DARTS_SOURCE = "https://github.com/unit8co/darts"
+
+
 def _foundation_gpu_plan(
     *,
     run_id: str,
@@ -1539,40 +1585,55 @@ def _foundation_gpu_plan(
     max_trials: int,
     timeout_seconds: int,
 ) -> dict[str, Any]:
+    forecast_methods = [FOUNDATION_GPU_PLAN_FORECAST_MODEL, *FOUNDATION_GPU_PLAN_COMPARATORS]
+    all_checkpoints = foundation_checkpoints()
+    checkpoints = {method: all_checkpoints[method] for method in forecast_methods}
     model_revisions = {
-        "amazon/chronos-2": "254b5357164a84326913b0695216f690752ac55d",
-        "amazon/chronos-t5-small": "4753ebecb99f65f84cd2823c56f7ab22b02ac303",
-        "AutonLab/MOMENT-1-large": "3582f9d7f033eea9d43e6a802ba0e36d5f26b57c",
+        checkpoint["hub_model_name"]: checkpoint["hub_model_revision"]
+        for checkpoint in checkpoints.values()
     }
+    model_revisions[MOMENT_MODEL] = MOMENT_REVISION
+    primary = checkpoints[FOUNDATION_GPU_PLAN_FORECAST_MODEL]
+
+    def forecast_run(method: str, mode: str, **extra: Any) -> dict[str, Any]:
+        checkpoint = checkpoints[method]
+        return {
+            "task": "forecasting",
+            "method": method,
+            "model": checkpoint["hub_model_name"],
+            "revision": checkpoint["hub_model_revision"],
+            "darts_class": checkpoint["darts_class"],
+            "mode": mode,
+            "primary_metric": "sMAPE",
+            **extra,
+        }
+
     recommended_runs = []
-    if "amazon/chronos-2" in models:
+    if FOUNDATION_GPU_PLAN_FORECAST_MODEL in models:
         recommended_runs.append(
-            {
-                "task": "forecasting",
-                "model": "amazon/chronos-2",
-                "revision": model_revisions["amazon/chronos-2"],
-                "mode": "zero_shot_evaluation",
-                "primary_metric": "sMAPE",
-            }
+            forecast_run(FOUNDATION_GPU_PLAN_FORECAST_MODEL, "zero_shot_evaluation")
         )
-    if "amazon/chronos-t5-small" in models:
         recommended_runs.append(
-            {
-                "task": "forecasting",
-                "model": "amazon/chronos-t5-small",
-                "revision": model_revisions["amazon/chronos-t5-small"],
-                "mode": "fine_tune_fallback_after_adapter",
-                "primary_metric": "sMAPE",
-            }
+            forecast_run(
+                FOUNDATION_GPU_PLAN_FORECAST_MODEL,
+                "fine_tune",
+                darts_kwargs={"enable_finetuning": True},
+                config="darts_finetune_config.yaml",
+            )
         )
-    if "AutonLab/MOMENT-1-large" in models:
+    for method in FOUNDATION_GPU_PLAN_COMPARATORS:
+        if method in models:
+            recommended_runs.append(forecast_run(method, "zero_shot_comparator"))
+    if MOMENT_MODEL in models:
         recommended_runs.append(
             {
                 "task": "classification",
-                "model": "AutonLab/MOMENT-1-large",
-                "revision": model_revisions["AutonLab/MOMENT-1-large"],
+                "model": MOMENT_MODEL,
+                "revision": MOMENT_REVISION,
                 "mode": "linear_probe_then_peft_after_adapter",
                 "primary_metric": "balanced_accuracy",
+                "support": MOMENT_SUPPORT,
+                "support_note": MOMENT_SUPPORT_NOTE,
             }
         )
 
@@ -1591,53 +1652,73 @@ def _foundation_gpu_plan(
             "full": {"hours": 4, "seeds": [1337, 2027, 9001], "checkpoint_cap_gb": 5},
         },
         "forecasting": {
-            "primary_model": "amazon/chronos-2",
-            "primary_model_revision": model_revisions["amazon/chronos-2"],
-            "finetune_model": "amazon/chronos-t5-small",
-            "finetune_model_revision": model_revisions["amazon/chronos-t5-small"],
-            "package": "chronos-forecasting>=2.0,<3",
-            "dataset": "data/m4_monthly_mini.csv; adapter must create GluonTS Arrow before fine-tuning",
+            "backend": "darts",
+            "primary_method": FOUNDATION_GPU_PLAN_FORECAST_MODEL,
+            "primary_model": primary["hub_model_name"],
+            "primary_model_revision": primary["hub_model_revision"],
+            "primary_darts_class": primary["darts_class"],
+            "finetune": "Chronos2Model(enable_finetuning=True)",
+            "zero_shot_comparators": {
+                method: checkpoints[method] for method in FOUNDATION_GPU_PLAN_COMPARATORS
+            },
+            "package": _DARTS_PACKAGE,
+            "install": FOUNDATION_SMOKE_INSTALL_HINT,
+            "dataset": (
+                "data/m4_monthly_mini.csv split=train; Darts TimeSeries are built "
+                "in-process, so no dataset adapter is required"
+            ),
             "metrics": ["sMAPE", "MASE", "MAE", "RMSE"],
-            "source": "https://github.com/amazon-science/chronos-forecasting",
+            "source": _DARTS_SOURCE,
         },
         "classification": {
-            "primary_model": "AutonLab/MOMENT-1-large",
-            "primary_model_revision": model_revisions["AutonLab/MOMENT-1-large"],
+            "primary_model": MOMENT_MODEL,
+            "primary_model_revision": MOMENT_REVISION,
+            "support": MOMENT_SUPPORT,
+            "support_note": MOMENT_SUPPORT_NOTE,
             "package": "momentfm",
             "dataset": "generated/vendored labeled stream; adapter must create windowed_activity_dataset.npz",
             "metrics": ["balanced_accuracy", "macro_f1", "accuracy"],
             "source": "https://github.com/moment-timeseries-foundation-model/moment",
         },
         "adapter_requirements": [
-            "Create m4_monthly_mini.arrow before Chronos fine-tuning.",
-            "Create windowed_activity_dataset.npz before MOMENT classification fine-tuning.",
+            "Create windowed_activity_dataset.npz before MOMENT classification fine-tuning "
+            f"({MOMENT_SUPPORT_NOTE}).",
             "Pin package versions in the training environment lockfile before running fine-tuning.",
         ],
         "recommended_runs": recommended_runs,
     }
 
 
-def _chronos_config_yaml(plan: dict[str, Any]) -> str:
+def _darts_finetune_config_yaml(plan: dict[str, Any]) -> str:
+    forecasting = plan["forecasting"]
     return "\n".join(
         [
-            "# Chronos fine-tuning template for ts-agents foundation-gpu-plan",
-            "# Plan-only artifact: adapter outputs must be materialized before use.",
-            "model_id: amazon/chronos-t5-small",
-            f"model_revision: {plan['model_revisions']['amazon/chronos-t5-small']}",
-            "random_init: false",
-            "tokenizer_type: mean_scale_uniform_bins",
-            "context_length: 512",
-            "prediction_length: 18",
-            "max_steps: 1000",
-            "learning_rate: 0.001",
-            "per_device_train_batch_size: 32",
-            "torch_compile: false",
-            "output_dir: outputs/autoresearch/foundation-gpu-plan/chronos",
-            "training_data_paths: []",
-            "validation_data_paths: []",
-            "probability: []",
-            "adapter_required: true",
-            f"source: {plan['forecasting']['source']}",
+            "# Darts Chronos-2 fine-tuning template for ts-agents foundation-gpu-plan",
+            "# Plan-only artifact: ts-agents does not launch this training run.",
+            f"darts_class: {forecasting['primary_darts_class']}",
+            f"hub_model_name: {forecasting['primary_model']}",
+            f"hub_model_revision: {forecasting['primary_model_revision']}",
+            "enable_finetuning: true",
+            "input_chunk_length: 512",
+            "output_chunk_length: 18",
+            "n_epochs: 1",
+            "batch_size: 32",
+            "optimizer_kwargs:",
+            "  lr: 0.0001",
+            "random_state: 1337",
+            "pl_trainer_kwargs:",
+            "  accelerator: gpu",
+            "  devices: 1",
+            "  precision: bf16-mixed",
+            "data:",
+            "  path: data/m4_monthly_mini.csv",
+            "  split: train",
+            "  id_col: unique_id",
+            "  time_col: ds",
+            "  value_col: y",
+            "output_dir: outputs/autoresearch/foundation-gpu-plan/darts",
+            "adapter_required: false",
+            "source: unit8co/darts",
             "",
         ]
     )
@@ -1676,13 +1757,14 @@ def _foundation_commands(plan: dict[str, Any]) -> str:
             "echo 'Materialize adapters and lock package versions before using the upstream training recipes.'",
             "",
             "# Suggested GPU setup once the plan is promoted to an executable training run:",
-            "# python -m pip install --index-url https://download.pytorch.org/whl/cu128 torch torchvision",
-            "# python -m pip install 'chronos-forecasting>=2.0,<3' momentfm",
+            "# python -m pip install --index-url https://download.pytorch.org/whl/cu128 torch",
+            f"# python -m pip install '{plan['forecasting']['package']}' 'ts-agents[foundation]'",
+            f"# MOMENT classification is {MOMENT_SUPPORT} ({MOMENT_SUPPORT_NOTE}):",
+            "# python -m pip install momentfm",
             "",
             "python - <<'PY'",
             "from pathlib import Path",
             "required = [",
-            "    Path('outputs/autoresearch/foundation-gpu-plan/m4_monthly_mini.arrow'),",
             "    Path('outputs/autoresearch/foundation-gpu-plan/windowed_activity_dataset.npz'),",
             "]",
             "missing = [str(path) for path in required if not path.exists()]",
@@ -1699,6 +1781,7 @@ def _foundation_commands(plan: dict[str, Any]) -> str:
 
 
 def _foundation_report(plan: dict[str, Any]) -> str:
+    forecasting = plan["forecasting"]
     revision_lines = [
         f"- `{model}` revision `{revision}`"
         for model, revision in plan["model_revisions"].items()
@@ -1710,9 +1793,17 @@ def _foundation_report(plan: dict[str, Any]) -> str:
         "and adapter requirements, but it does not train, fine-tune, or evaluate models.",
         "",
         f"- target hardware: `{plan['target_hardware']}`",
-        "- forecasting foundation model: `amazon/chronos-2`",
-        "- forecasting fine-tune fallback: `amazon/chronos-t5-small`",
-        "- classification foundation model: `AutonLab/MOMENT-1-large`",
+        "- forecasting backend: Darts (`" + plan["forecasting"]["package"] + "`)",
+        f"- forecasting foundation model: `{forecasting['primary_darts_class']}` "
+        f"from `{forecasting['primary_model']}` (zero-shot, then "
+        f"`{forecasting['finetune']}`)",
+        "- zero-shot comparators: "
+        + ", ".join(
+            f"`{checkpoint['darts_class']}` from `{checkpoint['hub_model_name']}`"
+            for checkpoint in forecasting["zero_shot_comparators"].values()
+        ),
+        f"- classification foundation model: `{MOMENT_MODEL}` "
+        f"({MOMENT_SUPPORT}: {MOMENT_SUPPORT_NOTE})",
         "",
         "## Revisions",
         "",
@@ -1739,7 +1830,7 @@ def _foundation_report(plan: dict[str, Any]) -> str:
             "## Artifacts",
             "",
             "- `foundation_gpu_plan.json`",
-            "- `chronos_finetune_config.yaml`",
+            "- `darts_finetune_config.yaml`",
             "- `moment_classification_config.yaml`",
             "- `commands.sh`",
             "",
@@ -1754,5 +1845,5 @@ _RUNNERS: dict[str, Callable[..., dict[str, Any]]] = {
     "forecast-daytona": _run_forecast_daytona,
     "classify-daytona": _run_classify_daytona,
     "foundation-gpu-plan": _run_foundation_gpu_plan,
-    FOUNDATION_CHRONOS_LOOP_NAME: _run_foundation_chronos_smoke,
+    FOUNDATION_SMOKE_LOOP_NAME: _run_foundation_smoke,
 }
