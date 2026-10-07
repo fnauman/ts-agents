@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
-from ts_agents.cli.input_parsing import LabeledStreamInput, SeriesInput
+from ts_agents.cli.input_parsing import LabeledStreamInput, PanelInput, SeriesInput
 from ts_agents.tools import artifact_staging as _staging
 from ts_agents.tools.executor import (
     DockerBackend,
@@ -53,6 +53,8 @@ def is_workflow_target(tool_name: str) -> bool:
 
 
 def _serialize_workflow_input(workflow_input: Any) -> Dict[str, Any]:
+    if isinstance(workflow_input, PanelInput):
+        return {**asdict(workflow_input), "kind": "panel_input"}
     if isinstance(workflow_input, SeriesInput):
         payload = asdict(workflow_input)
         payload["kind"] = "series_input"
@@ -71,6 +73,8 @@ def _serialize_workflow_input(workflow_input: Any) -> Dict[str, Any]:
 
 def _deserialize_workflow_input(payload: Dict[str, Any]) -> Any:
     kind = payload.get("kind")
+    if kind == "panel_input":
+        return PanelInput(**{key: value for key, value in payload.items() if key != "kind"})
     if kind == "series_input":
         data = dict(payload)
         data.pop("kind", None)

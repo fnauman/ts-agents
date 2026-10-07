@@ -1,0 +1,81 @@
+---
+title: "ML and neural panel forecasting"
+---
+
+The `forecast-panel` workflow trains global models across related series:
+MLForecast with LightGBM or scikit-learn histogram gradient boosting, and
+NeuralForecast with NHITS. A dependency-light seasonal baseline is also available.
+These capabilities are currently unreleased; from this checkout use:
+
+```bash
+uv sync --extra ml --extra neural --extra viz
+uv run ts-agents workflow show forecast-panel --json
+```
+
+The base and recommended profiles remain unchanged. The `all` profile includes
+both new backends. All imports of the optional training libraries are lazy.
+
+## Input and execution
+
+Supply a CSV/TSV/parquet/JSON/JSONL file, tabular JSON, or stdin. The input has
+exactly three columns, `unique_id`, `ds`, and `y`; rename them with `--id-col`,
+`--time-col`, and `--value-col`. A single series is a panel with one constant ID.
+Each series must be regular at the explicit frequency and share an end date;
+earlier start dates may differ. Gaps, missing values, duplicate keys, nonfinite
+targets, timezone-aware timestamps and extra covariates are rejected. Normalize
+timestamps to a documented timezone convention before passing the data.
+
+```bash
+uv run ts-agents workflow run forecast-panel \
+  --input panel.csv --freq h --horizon 24 \
+  --season-length 168 --lags 1,24,168 \
+  --methods seasonal_naive,lightgbm,nhits \
+  --n-windows 3 --n-estimators 200 --max-steps 1000 \
+  --accelerator cpu --output-dir outputs/electricity-validation --json
+```
+
+Use `--methods lightgbm,histgbm` for the ML profile or `--methods nhits` for
+neural-only runs. LightGBM and histogram GBM receive lag, shifted rolling-mean
+and known calendar features. NHITS trains across the whole panel with a
+training-only internal validation tail for early stopping. `--input-size`
+controls its context. `--accelerator gpu` requests one GPU explicitly; current
+local qualification covers CPU only. Native models retain their backend's
+dependency requirements when reloaded.
+
+Every backtest origin fits a fresh model on the preceding history; no model is
+fit on later panel targets. Origins are spaced by `--step-size` (default:
+horizon). There is also a final fit for future forecasts. `--n-estimators` and
+`--max-steps` cap each fit, not total runtime. Choose origin counts with this
+cost in mind. Resume reruns the compatible computation; it does not load a
+training checkpoint. The existing jobs surface provides background execution,
+logs, and supervised local cancellation.
+
+## Evaluation and artifacts
+
+Validation MAE/RMSE and training-only seasonal MASE are recorded overall, per
+series and per horizon. The ranking uses pooled validation RMSE, which can favor
+large-scale series. Zero seasonal scales have undefined MASE and are counted
+explicitly. Overlapping origins count different forecasts of the same target.
+Use these scores for selection and keep a final test outside the input. Future
+forecasts in `forecast.csv` are not scored against invented targets.
+
+| Artifact | Contents |
+| --- | --- |
+| `metrics.json` | Metrics, settings, quality flags, package versions, per-fit runtime |
+| `backtest_predictions.csv` | Series, origin, horizon step, actual, prediction, training MASE scale |
+| `forecast.csv` | Future forecasts from every requested model |
+| `models/<method>/` | Native persisted model files; baseline stores history |
+| `backtest.png` | Last validation origin for up to four series |
+| `report.md` | Comparison summary, validation boundaries and limitations |
+| `run_manifest.json` | Run identity, input fingerprint, options and artifact paths |
+
+The report-generation skill can assemble a comprehensive report from these
+artifacts without retraining. To reuse models in Python, use
+`MLForecast.load(".../models/lightgbm")` or
+`NeuralForecast.load(".../models/nhits")`, then the backend's `predict` method.
+Load only model files you trust: native model formats can deserialize Python
+objects. This workflow currently offers point forecasts, not calibrated intervals.
+
+[MLForecast documentation](https://nixtlaverse.nixtla.io/mlforecast/forecast.html)
+and [NHITS documentation](https://nixtlaverse.nixtla.io/neuralforecast/models.nhits.html)
+describe the underlying training interfaces.

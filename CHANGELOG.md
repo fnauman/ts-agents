@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Optional `ml` (MLForecast/LightGBM and histogram GBM) and `neural`
+  (NeuralForecast/NHITS) profiles, also included in `all`. Base and recommended
+  installs retain their existing dependency profiles.
+- `forecast-panel` accepts regular long-format panels, refits at rolling
+  validation origins, records train-only seasonal MASE plus MAE/RMSE, produces
+  future forecasts, and persists native trained models with report/plot artifacts.
+  It supports CLI discovery, input-content resume checks and sandbox serialization.
+
+### Fixed
+
+- Large inline JSON inputs no longer fail filesystem filename-length probes.
+
 ## [0.2.2] - 2026-10-05
 
 ### Fixed

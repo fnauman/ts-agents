@@ -22,9 +22,10 @@ It is built around:
 - optional sandboxes for safer, reproducible execution (`local`, `subprocess`, `docker`, `daytona`, `modal`) with readiness probes and explicit fallback flags
 - optional adapters on top, including Gradio and built-in agent entrypoints
 
-It ships with three first-class workflows:
+It ships with four first-class workflows:
 - `inspect-series` (quick diagnostics + summary/report artifacts)
 - `forecast-series` (baseline comparison + forecast/report artifacts)
+- `forecast-panel` (unreleased: MLForecast GBMs and NeuralForecast NHITS with rolling validation and saved models)
 - `activity-recognition` (labeled-stream window-size selection + evaluation)
 
 It also includes autoresearch loops for repeatable dataset/model/metric
@@ -378,6 +379,8 @@ Feature extras:
 Install profiles:
 - `ts-agents`: workflow discovery, `workflow show`, `inspect-series`, and a dependency-light `seasonal_naive` forecast baseline
 - `ts-agents[forecasting]`: unlocks ARIMA, ETS, and Theta for `forecast-series`
+- `ts-agents[ml]`: MLForecast panel models (`lightgbm`, `histgbm`; unreleased, use `uv sync --extra ml`)
+- `ts-agents[neural]`: NeuralForecast panel models (`nhits`; unreleased, use `uv sync --extra neural`)
 - `ts-agents[classification]`: unlocks `activity-recognition`
 - `ts-agents[recommended]`: the documented three-workflow experience used in walkthroughs and demos
 - `source checkout + uv sync`: same base CLI-first profile as `ts-agents`

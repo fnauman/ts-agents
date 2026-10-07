@@ -20,6 +20,9 @@ TARGETS=(
   ts_agents/tools/artifact_staging.py
   scripts/verify_release_artifacts.py
   ts_agents/workflows/lifecycle.py
+  ts_agents/core/forecasting/panel.py
+  ts_agents/workflows/panel.py
+  tests/core/test_panel_forecasting.py
   tests/cli/test_runs.py
   tests/cli/test_jobs.py
   tests/test_package_metadata.py

@@ -54,6 +54,16 @@ _INSTALL_EXTRA_METADATA: Dict[str, Dict[str, Any]] = {
         "dependencies": ["statsforecast"],
         "description": "StatsForecast-backed ARIMA/ETS/Theta forecasting methods.",
     },
+    "ml": {
+        "install_spec": "ts-agents[ml]",
+        "dependencies": ["mlforecast", "lightgbm", "sklearn"],
+        "description": "MLForecast panel forecasting with LightGBM and histogram GBM.",
+    },
+    "neural": {
+        "install_spec": "ts-agents[neural]",
+        "dependencies": ["neuralforecast", "torch"],
+        "description": "NeuralForecast panel forecasting with NHITS.",
+    },
     "patterns": {
         "install_spec": "ts-agents[patterns]",
         "dependencies": ["ruptures", "stumpy"],
@@ -81,6 +91,8 @@ _INSTALL_PROFILE_GROUPS: Dict[str, List[str]] = {
         "decomposition",
     ],
     "all": [
+        "ml",
+        "neural",
         "classification",
         "ui",
         "agents",
@@ -1691,6 +1703,33 @@ def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
     _add_workflow_run_lifecycle_args(forecast_parser)
     _add_sandbox_execution_args(forecast_parser)
     _add_output_args(forecast_parser)
+
+    panel_parser = workflow_run_sub.add_parser(
+        "forecast-panel", help="Train global GBM/NHITS models and write rolling-validation artifacts",
+    )
+    _add_tabular_workflow_source_args(panel_parser)
+    panel_parser.set_defaults(time_col="ds")
+    panel_parser.add_argument("--id-col", default="unique_id")
+    panel_parser.add_argument("--value-col", default="y")
+    panel_parser.add_argument("--freq", required=True, help="Explicit pandas frequency, e.g. h, D or MS")
+    panel_parser.add_argument("--output-dir", default="outputs/panel")
+    panel_parser.add_argument("--horizon", type=int, default=24)
+    panel_parser.add_argument("--methods", default="seasonal_naive,lightgbm",
+                              help="Comma-separated seasonal_naive, lightgbm, histgbm, nhits")
+    panel_parser.add_argument("--season-length", type=int, default=24)
+    panel_parser.add_argument("--n-windows", type=int, default=3)
+    panel_parser.add_argument("--step-size", type=int, default=None, help="Origin spacing; defaults to horizon")
+    panel_parser.add_argument("--lags", default=None, help="Positive comma-separated lags; defaults to 1, season, 7*season")
+    panel_parser.add_argument("--n-estimators", type=int, default=200, help="Tree/iteration cap for GBMs")
+    panel_parser.add_argument("--max-steps", type=int, default=1000, help="Training-step cap for each NHITS fit")
+    panel_parser.add_argument("--input-size", type=int, default=None, help="NHITS context; defaults to 2*horizon")
+    panel_parser.add_argument("--num-threads", type=int, default=2, help="MLForecast/LightGBM CPU threads")
+    panel_parser.add_argument("--accelerator", choices=["cpu", "gpu"], default="cpu")
+    panel_parser.add_argument("--seed", type=int, default=1337)
+    panel_parser.add_argument("--skip-plots", action="store_true")
+    _add_workflow_run_lifecycle_args(panel_parser)
+    _add_sandbox_execution_args(panel_parser)
+    _add_output_args(panel_parser)
 
     activity_parser = workflow_run_sub.add_parser(
         "activity-recognition",

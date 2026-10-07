@@ -50,6 +50,14 @@ decomposition = [
 forecasting = [
     "statsforecast>=2.0.3",
 ]
+ml = [
+    "mlforecast>=1.0,<2",
+    "lightgbm>=4.6,<5",
+    "scikit-learn>=1.7.2",
+]
+neural = [
+    "neuralforecast>=3.0,<4",
+]
 patterns = [
     "ruptures>=1.1.9",
     "stumpy>=1.13.0",
@@ -74,6 +82,9 @@ recommended = [
     "statsmodels>=0.14.2",
 ]
 all = [
+    "mlforecast>=1.0,<2",
+    "lightgbm>=4.6,<5",
+    "neuralforecast>=3.0,<4",
     "aeon>=1.3.0",
     "chronos-forecasting>=2.0,<3",
     "gradio>=6.0",

@@ -2,7 +2,7 @@
 title: "Workflow Walkthroughs"
 ---
 
-Step-by-step guides for the three first-class workflows.
+Step-by-step guides for the first-class workflows.
 The legacy `demo` aliases still exist for one release cycle, but this page uses
 the workflow/tool grammar that new automation should prefer.
 
