@@ -1,5 +1,6 @@
 """Input, chronological split and prediction coverage contracts for panel models."""
 
+import importlib.util
 import json
 from pathlib import Path
 import subprocess
@@ -166,14 +167,20 @@ def test_zero_scale_is_reported_without_nan_json(tmp_path):
     assert "NaN" not in (tmp_path / "metrics.json").read_text()
 
 
-def test_missing_dependencies_fail_before_training(monkeypatch, tmp_path):
-    from ts_agents.workflows import panel
+def _all_optional_modules_missing(monkeypatch):
+    from ts_agents.core.forecasting import catalog
 
-    monkeypatch.setattr(panel, "find_spec", lambda name: None)
+    monkeypatch.setattr(
+        catalog, "missing_modules", lambda name: list(catalog.get_method(name).modules)
+    )
+
+
+def test_missing_dependencies_fail_before_training(monkeypatch, tmp_path):
+    _all_optional_modules_missing(monkeypatch)
     with pytest.raises(ImportError, match=r"ts-agents\[ml\]"):
         run_forecast_panel_workflow(
             panel_input(),
-            output_dir=str(tmp_path),
+            output_dir=str(tmp_path / "out"),
             freq="D",
             horizon=3,
             methods=["lightgbm"],
@@ -181,6 +188,194 @@ def test_missing_dependencies_fail_before_training(monkeypatch, tmp_path):
             lags=[1, 7],
             n_windows=1,
         )
+    assert not (tmp_path / "out").exists()
+
+
+def test_missing_foundation_dependencies_fail_before_output(monkeypatch, tmp_path):
+    _all_optional_modules_missing(monkeypatch)
+    with pytest.raises(ImportError, match=r"darts.*ts-agents\[foundation\]"):
+        run_forecast_panel_workflow(
+            panel_input(),
+            output_dir=str(tmp_path / "out"),
+            freq="D",
+            horizon=3,
+            methods=["seasonal_naive", "chronos2_small"],
+            season_length=7,
+            n_windows=1,
+        )
+    assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("darts") is not None, reason="base-install error path"
+)
+def test_base_install_foundation_request_names_extra(tmp_path):
+    with pytest.raises(ImportError, match=r"ts-agents\[foundation\]"):
+        run_forecast_panel_workflow(
+            panel_input(),
+            output_dir=str(tmp_path / "out"),
+            freq="D",
+            horizon=3,
+            methods=["seasonal_naive", "chronos2_small"],
+            season_length=7,
+            n_windows=1,
+        )
+    assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize(
+    ("horizon", "context_length"), [(2000, None), (3, 9000), (3, 0)]
+)
+def test_foundation_request_caps_fail_before_output(horizon, context_length, tmp_path):
+    with pytest.raises(ValueError):
+        run_forecast_panel_workflow(
+            panel_input(),
+            output_dir=str(tmp_path / "out"),
+            freq="D",
+            horizon=horizon,
+            methods=["seasonal_naive", "chronos2_small"],
+            season_length=7,
+            n_windows=1,
+            context_length=context_length,
+        )
+    assert not (tmp_path / "out").exists()
+
+
+def _fake_foundation(monkeypatch):
+    """Mock the Darts call; everything else (panel frame, save, report) runs for real."""
+    from ts_agents.core.forecasting import catalog, foundation
+
+    calls = []
+    cleared = []
+
+    def fake_forecast_arrays(arrays, *, model, horizon, context_length=None, accelerator="cpu", seed=0):
+        calls.append(
+            dict(
+                model=model,
+                lengths=[len(values) for values in arrays],
+                context_length=context_length,
+                accelerator=accelerator,
+                seed=seed,
+            )
+        )
+        return [np.full(horizon, float(np.asarray(values)[-1])) for values in arrays]
+
+    monkeypatch.setattr(catalog, "missing_modules", lambda name: [])
+    monkeypatch.setattr(foundation, "forecast_arrays", fake_forecast_arrays)
+    monkeypatch.setattr(foundation, "clear_model_cache", lambda: cleared.append(True))
+    return calls, cleared
+
+
+def test_mocked_foundation_panel_run_is_zero_shot_and_saves_config_only(monkeypatch, tmp_path):
+    calls, cleared = _fake_foundation(monkeypatch)
+    output = run_forecast_panel_workflow(
+        panel_input(),
+        output_dir=str(tmp_path),
+        freq="D",
+        horizon=3,
+        methods=["seasonal_naive", "chronos2_small"],
+        season_length=7,
+        n_windows=2,
+        context_length=32,
+        skip_plots=True,
+    )
+    predictions = pd.read_csv(tmp_path / "backtest_predictions.csv", parse_dates=["ds", "cutoff"])
+    assert (predictions.ds > predictions.cutoff).all()
+    assert predictions.groupby(["model", "window", "unique_id"]).size().eq(3).all()
+    assert set(predictions.model) == {"seasonal_naive", "chronos2_small"}
+    # Two origins plus the final fit; each conditions only on history up to its cutoff.
+    assert [call["lengths"] for call in calls] == [[54, 54], [57, 57], [60, 60]]
+    assert {call["context_length"] for call in calls} == {32}
+    assert {call["accelerator"] for call in calls} == {"cpu"}
+    assert cleared == [True]
+    model_dir = tmp_path / "models" / "chronos2_small"
+    assert sorted(path.name for path in model_dir.iterdir()) == ["model_spec.json"]
+    spec = json.loads((model_dir / "model_spec.json").read_text())
+    assert spec["hub_model_name"] == "autogluon/chronos-2-small"
+    assert len(spec["hub_model_revision"]) == 40
+    assert spec["input_chunk_length"] == [1, 32] and spec["weights_saved"] is False
+    assert (model_dir / "model_spec.json").stat().st_size < 4096
+    assert output.status == "ok"
+    assert output.data["foundation_models"]["chronos2_small"]["output_chunk_length"] == 3
+    assert output.data["options"]["context_length"] == 32
+    assert output.data["options"]["resolved_context_length"] == {"chronos2_small": 32}
+    model_artifacts = [artifact for artifact in output.artifacts if "chronos2_small" in artifact.path]
+    assert [artifact.mime_type for artifact in model_artifacts] == ["application/json"]
+    report = (tmp_path / "report.md").read_text()
+    assert "zero-shot" in report
+    assert "NHITS" not in report
+    forecast = pd.read_csv(tmp_path / "forecast.csv")
+    assert forecast.groupby("model").size().to_dict() == {"chronos2_small": 6, "seasonal_naive": 6}
+
+
+def test_foundation_backend_save_replaces_stale_files(monkeypatch, tmp_path):
+    from ts_agents.core.forecasting.panel import PanelBackend
+
+    _fake_foundation(monkeypatch)
+    backend = PanelBackend("timesfm2p5", "D", 7, {"seed": 1, "accelerator": "cpu"})
+    with pytest.raises(ValueError):
+        backend.save(tmp_path / "unfitted")
+    backend.fit(normalize_panel(panel_frame(20), "D"), 200)
+    predicted = backend.predict(200)
+    assert list(predicted.columns) == ["unique_id", "ds", "timesfm2p5"] and len(predicted) == 400
+    target = tmp_path / "models" / "timesfm2p5"
+    target.mkdir(parents=True)
+    (target / "stale.ckpt").write_text("previous run")
+    backend.save(target)
+    assert sorted(path.name for path in target.iterdir()) == ["model_spec.json"]
+    spec = json.loads((target / "model_spec.json").read_text())
+    assert spec["model_kwargs"] == {"use_longer_projection_head": True}
+    assert spec["random_state"] == 1
+
+
+def test_base_availability_keeps_panel_available_with_optional_families(monkeypatch):
+    from ts_agents.workflows import get_workflow
+
+    _all_optional_modules_missing(monkeypatch)
+    availability = get_workflow("forecast-panel").availability()
+    assert availability["status"] == "available"
+    assert availability["available_methods"] == ["seasonal_naive"]
+    assert "chronos2_small" in availability["unavailable_methods"]
+    assert "darts" in availability["missing_dependencies"]
+    assert availability["install_hint"] == "Install `ts-agents[foundation,ml,neural]`."
+    features = {feature["name"]: feature for feature in availability["optional_features"]}
+    assert set(features) == {"ml_backends", "neural_backends", "foundation_models", "plots"}
+    assert features["foundation_models"]["required_extras"] == ["foundation"]
+    assert features["foundation_models"]["available"] is False
+    assert "HF_HOME" in features["foundation_models"]["note"]
+    assert features["ml_backends"]["required_extras"] == ["ml"]
+    assert features["neural_backends"]["required_extras"] == ["neural"]
+
+    from ts_agents.core.forecasting import catalog
+
+    monkeypatch.setattr(catalog, "missing_modules", lambda name: [])
+    availability = get_workflow("forecast-panel").availability()
+    assert availability["install_hint"] is None
+    assert availability["unavailable_methods"] == []
+
+
+def test_panel_runner_kwargs_omit_unset_context_length_for_resume_identity():
+    import argparse
+
+    from ts_agents.workflows import _build_panel_runner_kwargs
+
+    base = dict(
+        output_dir="out", freq="D", horizon=3, season_length=7, n_windows=1, step_size=None,
+        n_estimators=200, max_steps=1000, input_size=None, num_threads=2, accelerator="cpu",
+        seed=1337, skip_plots=True, methods="seasonal_naive", lags=None,
+    )
+    legacy = _build_panel_runner_kwargs(argparse.Namespace(**base))
+    unset = _build_panel_runner_kwargs(argparse.Namespace(**base, context_length=None))
+    assert "context_length" not in unset
+    data = panel_input()
+    assert resume_identity("forecast-panel", data, unset) == resume_identity(
+        "forecast-panel", data, legacy
+    )
+    explicit = _build_panel_runner_kwargs(
+        argparse.Namespace(**{**base, "methods": " seasonal_naive , chronos2_small "}, context_length=64)
+    )
+    assert explicit["context_length"] == 64
+    assert explicit["methods"] == ["seasonal_naive", "chronos2_small"]
 
 
 def test_cli_import_and_discovery_do_not_import_trainers():
@@ -188,7 +383,10 @@ def test_cli_import_and_discovery_do_not_import_trainers():
 import sys
 from ts_agents.workflows import get_workflow
 assert get_workflow("forecast-panel").name == "forecast-panel"
-assert not {"torch", "lightgbm", "mlforecast", "neuralforecast"}.intersection(sys.modules)
+assert get_workflow("forecast-panel").availability()["status"] == "available"
+assert not {
+    "torch", "lightgbm", "mlforecast", "neuralforecast", "darts", "huggingface_hub", "pytorch_lightning"
+}.intersection(sys.modules)
 """
     subprocess.run([sys.executable, "-c", script], check=True, timeout=30)
 
@@ -198,12 +396,18 @@ def test_panel_cli_discovery_and_run(capsys, tmp_path):
 
     assert run(["workflow", "show", "forecast-panel", "--json"]) == 0
     metadata = json.loads(capsys.readouterr().out)["result"]
-    assert metadata["capabilities"]["supported_methods"] == [
+    from ts_agents.core.forecasting.catalog import foundation_methods, methods_for
+
+    assert metadata["capabilities"]["supported_methods"] == methods_for("panel")
+    assert metadata["capabilities"]["supported_methods"][:4] == [
         "seasonal_naive",
         "lightgbm",
         "histgbm",
         "nhits",
     ]
+    assert metadata["capabilities"]["foundation_models"] is True
+    assert metadata["capabilities"]["zero_shot_methods"] == foundation_methods("panel")
+    assert metadata["availability"]["status"] == "available"
     data = panel_input()
     args = [
         "workflow",
@@ -265,11 +469,21 @@ def test_real_optional_backend_training_persistence_and_reload(method, tmp_path)
     expected = backend.predict(3).sort_values(["unique_id", "ds"])
     assert len(expected) == 6 and np.isfinite(expected[method]).all()
     backend.save(tmp_path / method)
+    # Exercise both Docker relocation stages with real native model files.
+    from ts_agents.tools.executor import ExecutionResult, ExecutionStatus, _persist_docker_artifacts
+    from ts_agents.workflows.executor import _rewrite_docker_workflow_output_paths
+    result = ExecutionResult(status=ExecutionStatus.SUCCESS, result={
+        "data": {"output_dir": "/io/artifacts"}, "artifacts": [
+            {"kind": "model", "path": "/io/artifacts/" + str(path.relative_to(tmp_path))}
+            for path in (tmp_path / method).rglob("*") if path.is_file()]})
+    _persist_docker_artifacts(result, container_artifact_dir="/io/artifacts", host_artifact_dir=tmp_path)
+    relocated = tmp_path / "restored"
+    _rewrite_docker_workflow_output_paths(result, str(relocated))
     if method == "nhits":
-        restored = NeuralForecast.load(str(tmp_path / method))
+        restored = NeuralForecast.load(str(relocated / method))
         actual = restored.predict()
     else:
-        restored = MLForecast.load(str(tmp_path / method))
+        restored = MLForecast.load(str(relocated / method))
         actual = restored.predict(3)
     actual = actual.sort_values(["unique_id", "ds"])
     assert actual[method].to_numpy() == pytest.approx(
@@ -366,3 +580,18 @@ def test_default_lags_work_for_period_one(tmp_path):
         freq="D", methods=["seasonal_naive"], season_length=1, horizon=2,
         n_windows=1, skip_plots=True)
     assert result.data["options"]["lags"] == [1, 7]
+
+
+@pytest.mark.parametrize("method,module", [("lightgbm", "mlforecast"), ("nhits", "neuralforecast")])
+def test_real_optional_panel_cli_outputs_clean_json(method, module, tmp_path):
+    pytest.importorskip(module)
+    path = tmp_path / "panel.csv"
+    panel_frame(35).to_csv(path, index=False)
+    completed = subprocess.run([sys.executable, "-m", "ts_agents", "workflow", "run",
+        "forecast-panel", "--input", str(path), "--freq", "D", "--horizon", "3",
+        "--methods", method, "--season-length", "7", "--n-windows", "1", "--lags", "1,7",
+        "--n-estimators", "5", "--max-steps", "3", "--input-size", "6", "--num-threads", "1",
+        "--output-dir", str(tmp_path / "run"), "--skip-plots", "--json"],
+        capture_output=True, text=True, timeout=120)
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout)["ok"]

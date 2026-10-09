@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack
+import numbers
 from typing import Any, Iterable, List, Optional
 import warnings
 
 from ts_agents.cli.input_parsing import SeriesInput
 from ts_agents.cli.output import dump_json, to_jsonable
 from ts_agents.contracts import ToolPayload
+from ts_agents.core.forecasting.catalog import foundation_methods, methods_for
 
 from .common import (
     attach_workflow_run_metadata,
@@ -18,7 +21,8 @@ from .common import (
     write_text_artifact,
 )
 
-_SUPPORTED_METHODS = {"seasonal_naive", "arima", "ets", "theta"}
+_SUPPORTED_METHODS = set(methods_for("series"))
+_FOUNDATION_METHODS = frozenset(foundation_methods("series"))
 
 
 def run_forecast_series_workflow(
@@ -36,15 +40,90 @@ def run_forecast_series_workflow(
     resumed: bool = False,
     output_dir_mode: str = "explicit",
     defer_finalization: bool = False,
+    context_length: Optional[int] = None,
+    accelerator: Optional[str] = None,
 ) -> ToolPayload:
-    """Run the baseline forecasting workflow."""
+    """Run the baseline forecasting workflow.
+
+    Foundation-model methods (for example ``chronos2_small``) run zero-shot and use
+    ``context_length`` and ``accelerator``; statistical methods ignore both.
+    """
+    workflow_name = "forecast-series"
+    selected_methods = _normalize_methods(methods)
+    foundation_requested = [method for method in selected_methods if method in _FOUNDATION_METHODS]
+    # Validated whatever the methods (as forecast-panel does): it enters the resume identity.
+    if context_length is not None and (
+        isinstance(context_length, bool)
+        or not isinstance(context_length, numbers.Integral)
+        or context_length < 1
+    ):
+        raise ValueError("context_length must be a positive integer.")
+    if foundation_requested:
+        _validate_foundation_requests(
+            foundation_requested,
+            horizons={int(validation_size or horizon), int(horizon)},
+            context_length=context_length,
+            accelerator=accelerator,
+        )
+    # Only user-set options are forwarded, so statistical-only calls stay unchanged.
+    foundation_options = {
+        key: value
+        for key, value in (("context_length", context_length), ("accelerator", accelerator))
+        if value is not None
+    }
+    output_path = ensure_output_dir(output_dir)
+
+    model_scope = ExitStack()
+    if foundation_requested:
+        from ts_agents.core.forecasting.foundation import model_cache_scope
+
+        # Models stay loaded for the validation and final forecasts, then are released.
+        model_scope.enter_context(model_cache_scope(horizon=max(int(validation_size or horizon), int(horizon))))
+    try:
+        return _run_forecast_series(
+            series_input,
+            workflow_name=workflow_name,
+            output_path=output_path,
+            horizon=horizon,
+            selected_methods=selected_methods,
+            foundation_requested=foundation_requested,
+            foundation_options=foundation_options,
+            season_length=season_length,
+            validation_size=validation_size,
+            skip_plots=skip_plots,
+            report_mode=report_mode,
+            model_name=model_name,
+            run_id=run_id,
+            resumed=resumed,
+            output_dir_mode=output_dir_mode,
+            defer_finalization=defer_finalization,
+        )
+    finally:
+        model_scope.close()
+
+
+def _run_forecast_series(
+    series_input: SeriesInput,
+    *,
+    workflow_name: str,
+    output_path,
+    horizon: int,
+    selected_methods: List[str],
+    foundation_requested: List[str],
+    foundation_options: dict[str, Any],
+    season_length: Optional[int],
+    validation_size: Optional[int],
+    skip_plots: bool,
+    report_mode: str,
+    model_name: Optional[str],
+    run_id: Optional[str],
+    resumed: bool,
+    output_dir_mode: str,
+    defer_finalization: bool,
+) -> ToolPayload:
     import pandas as pd
 
     from ts_agents.core.comparison import compare_forecasting_methods, plot_forecast_comparison
-
-    workflow_name = "forecast-series"
-    output_path = ensure_output_dir(output_dir)
-    selected_methods = _normalize_methods(methods)
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
@@ -54,6 +133,7 @@ def run_forecast_series_workflow(
             methods=selected_methods,
             season_length=season_length,
             validation_size=validation_size,
+            **foundation_options,
         )
 
     comparison_payload = to_jsonable(comparison)
@@ -73,6 +153,7 @@ def run_forecast_series_workflow(
         method=best_method,
         horizon=horizon,
         season_length=season_length,
+        **foundation_options,
     )
     warnings_list: List[str] = []
     quality_flags = _forecast_quality_flags(
@@ -109,6 +190,37 @@ def run_forecast_series_workflow(
         "forecast": forecast_rows,
         "output_dir": str(output_path),
     }
+    # Provenance and the zero-shot note cover only foundation models that produced metrics.
+    foundation_ran = [method for method in foundation_requested if method in valid_methods]
+    foundation_failed = [method for method in foundation_requested if method in failed_methods]
+    foundation_specs: dict[str, dict[str, Any]] = {}
+    if foundation_ran:
+        from ts_agents.core.forecasting.foundation import model_spec
+
+        context_length = foundation_options.get("context_length")
+        accelerator = foundation_options.get("accelerator")
+        # Every successful model ran validation, but only the winner forecasts
+        # the future. Preserve actual configurations instead of inventing a
+        # final-horizon execution for nonwinning models.
+        for method in foundation_ran:
+            validation_spec = model_spec(
+                method,
+                horizon=int(validation_size or horizon),
+                context_length=context_length,
+                accelerator=accelerator,
+            )
+            if method == best_method:
+                spec = model_spec(
+                    method, horizon=horizon, context_length=context_length,
+                    accelerator=accelerator,
+                )
+                spec["forecast_phase"] = "future"
+                spec["validation_spec"] = validation_spec
+            else:
+                spec = validation_spec
+                spec["forecast_phase"] = "validation"
+            foundation_specs[method] = spec
+        summary_data["foundation_models"] = foundation_specs
 
     artifacts = [
         write_json_artifact(
@@ -130,6 +242,15 @@ def run_forecast_series_workflow(
             created_by=workflow_name,
         ),
     ]
+    for method, spec in foundation_specs.items():
+        artifacts.append(
+            write_json_artifact(
+                data=spec,
+                path=output_path / "models" / method / "model_spec.json",
+                description=f"{method} checkpoint provenance (zero-shot; no weights saved).",
+                created_by=workflow_name,
+            )
+        )
     if not skip_plots:
         try:
             fig = plot_forecast_comparison(comparison, series_input.series)
@@ -163,6 +284,8 @@ def run_forecast_series_workflow(
             methods=selected_methods,
             comparison_payload=comparison_payload,
         )
+    if foundation_requested:
+        report += "\n\n" + _foundation_report_section(foundation_specs, foundation_failed)
     artifacts.append(
         write_text_artifact(
             content=report,
@@ -199,6 +322,7 @@ def run_forecast_series_workflow(
             "validation_size": validation_size,
             "skip_plots": skip_plots,
             "report_mode": report_mode,
+            **foundation_options,
         },
         resumed=resumed,
         output_dir_mode=output_dir_mode,
@@ -221,6 +345,23 @@ def _normalize_methods(methods: Optional[Iterable[str]]) -> List[str]:
             f"Supported: {', '.join(sorted(_SUPPORTED_METHODS))}."
         )
     return normalized
+
+
+def _validate_foundation_requests(
+    methods: List[str],
+    *,
+    horizons: set[int],
+    context_length: Optional[int],
+    accelerator: Optional[str],
+) -> None:
+    """Reject horizon/context/device requests a checkpoint cannot serve, before any work."""
+    from ts_agents.core.forecasting.foundation import ACCELERATORS, validate_request
+
+    if accelerator is not None and accelerator not in ACCELERATORS:
+        raise ValueError(f"accelerator must be one of {', '.join(ACCELERATORS)}, got {accelerator!r}.")
+    for method in methods:
+        for value in sorted(horizons):
+            validate_request(method, horizon=value, context_length=context_length)
 
 
 def _failed_methods(
@@ -300,6 +441,38 @@ def _forecast_quality_flags(
     return flags
 
 
+def _foundation_report_section(
+    foundation_specs: dict[str, dict[str, Any]],
+    foundation_failed: List[str],
+) -> str:
+    lines = ["#### Foundation models"]
+    if foundation_specs:
+        lines.append(
+            f"{', '.join(foundation_specs)} ran zero-shot through Darts: nothing was trained on "
+            "this series, each forecast conditions only on the last context_length points before "
+            "its cutoff, and pretraining corpora may overlap public benchmarks."
+        )
+        for method, spec in foundation_specs.items():
+            lines.append(
+                f"- {method}: {spec['darts_class']} from "
+                f"{spec['hub_model_name']}@{spec['hub_model_revision']}, "
+                f"context {spec['input_chunk_length'][1]}, licence {spec['license']}; "
+                f"{spec['forecast_phase']} horizon {spec['output_chunk_length']}."
+            )
+            if "validation_spec" in spec:
+                validation = spec["validation_spec"]
+                lines.append(
+                    f"  Validation used horizon {validation['output_chunk_length']} "
+                    f"and context {validation['input_chunk_length'][1]}."
+                )
+        lines.append("models/<foundation model>/ holds model_spec.json only; weights are not saved.")
+    if foundation_failed:
+        lines.append(
+            f"Requested but failed (see warnings; no forecasts produced): {', '.join(foundation_failed)}."
+        )
+    return "\n".join(lines)
+
+
 def _raise_all_methods_failed(
     selected_methods: List[str],
     comparison_payload: dict[str, Any],
@@ -324,6 +497,14 @@ def _raise_all_methods_failed(
         for method in selected_methods
     ):
         raise ImportError(message)
+    if all(
+        failure_types[method] == "FoundationModelUnavailableError"
+        for method in selected_methods
+    ):
+        from ts_agents.core.forecasting.foundation import FoundationModelUnavailableError
+
+        # Keep the typed weights-unavailable failure (backend_unavailable, exit 5).
+        raise FoundationModelUnavailableError(message)
     raise RuntimeError(message)
 
 
@@ -361,6 +542,7 @@ def _build_forecast_rows(
     method: Optional[str],
     horizon: int,
     season_length: Optional[int] = None,
+    **options: Any,
 ) -> List[dict[str, Any]]:
     if method is None:
         return []
@@ -370,6 +552,7 @@ def _build_forecast_rows(
         method=method,
         horizon=horizon,
         season_length=season_length,
+        **options,
     )
     forecast_values = to_jsonable(result.forecast)
     future_index = _infer_future_index(series_input=series_input, horizon=horizon)
@@ -391,24 +574,15 @@ def _forecast_with_method(
     method: str,
     horizon: int,
     season_length: Optional[int] = None,
+    **options: Any,
 ):
-    from ts_agents.core.forecasting import (
-        forecast_arima,
-        forecast_ets,
-        forecast_seasonal_naive,
-        forecast_theta,
-    )
+    from ts_agents.core.forecasting.catalog import get_series_forecaster
 
-    method_map = {
-        "seasonal_naive": forecast_seasonal_naive,
-        "arima": forecast_arima,
-        "ets": forecast_ets,
-        "theta": forecast_theta,
-    }
-    kwargs = {"horizon": horizon}
+    kwargs = dict(options)
     if season_length is not None:
         kwargs["season_length"] = season_length
-    return method_map[method](series, **kwargs)
+    # The catalog forecaster drops options a method does not accept.
+    return get_series_forecaster(method)(series, horizon=horizon, **kwargs)
 
 
 def _infer_future_index(

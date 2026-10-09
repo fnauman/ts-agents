@@ -10,8 +10,10 @@ so a model can bootstrap, discover what's available, execute real work, and
 produce inspectable artifacts — without hand-written glue code per project.
 
 It is not intended to be a broad time-series foundation-model hub.
-Foundation-model support is kept scoped to executable smoke paths and
-planning artifacts that exercise the same CLI/workflow contract.
+Foundation models are reached through [Darts](https://unit8co.github.io/darts/)
+as an interoperability layer: a small catalog of pinned zero-shot checkpoints
+(Chronos-2, TimesFM 2.5, PatchTST-FM) behind the optional `foundation` extra,
+exercised through the same CLI/workflow contract as every other method.
 
 It is built around:
 - a stable CLI contract for bootstrap, discovery, and execution (`ts-agents capabilities`, `ts-agents workflow ...`, `ts-agents tool ...`)
@@ -24,16 +26,16 @@ It is built around:
 
 It ships with four first-class workflows:
 - `inspect-series` (quick diagnostics + summary/report artifacts)
-- `forecast-series` (baseline comparison + forecast/report artifacts)
-- `forecast-panel` (unreleased: MLForecast GBMs and NeuralForecast NHITS with rolling validation and saved models)
+- `forecast-series` (baseline comparison + forecast/report artifacts; optional zero-shot foundation models)
+- `forecast-panel` (unreleased: seasonal baseline, MLForecast GBMs, NeuralForecast NHITS and Darts zero-shot foundation models with rolling validation and saved models)
 - `activity-recognition` (labeled-stream window-size selection + evaluation)
 
 It also includes autoresearch loops for repeatable dataset/model/metric
 experiments:
 - `forecast-daytona` (M4 mini forecasting baselines under constrained resources)
 - `classify-daytona` (windowed activity classification under constrained resources)
-- `foundation-chronos-smoke` (optional Chronos zero-shot smoke run on M4 mini)
-- `foundation-gpu-plan` (plan-only Chronos/MOMENT GPU fine-tuning recipes)
+- `foundation-smoke` (optional Darts zero-shot foundation-model smoke run on M4 mini; `--models` selects checkpoints)
+- `foundation-gpu-plan` (plan-only Darts Chronos-2 fine-tuning recipe with TimesFM/PatchTST-FM comparators and external MOMENT classification)
 
 Legacy compatibility aliases for `ts-agents demo ...` remain available for one
 release cycle and emit deprecation warnings.
@@ -76,7 +78,7 @@ ts-agents workflow run forecast-series --input-json '{"series":[1,2,3,4,5,6,7,8,
 
 Base install is guaranteed to support workflow discovery plus `inspect-series`.
 It also supports a light `seasonal_naive` forecasting baseline. Install
-`ts-agents[recommended]` for the full three-workflow experience, including
+`ts-agents[recommended]` for the main workflow stack, including
 ARIMA/ETS/Theta forecasting and `activity-recognition`. From a source
 checkout, plain `uv sync` matches the base CLI-first install; use
 `uv sync --extra recommended` for the same recommended workflow stack.
@@ -94,17 +96,24 @@ ts-agents autoresearch list --json
 ts-agents autoresearch show forecast-daytona --json
 ts-agents autoresearch run forecast-daytona --profile smoke --models seasonal_naive --json
 ts-agents autoresearch run classify-daytona --profile smoke --dataset synthetic --models knn --json
-ts-agents autoresearch run foundation-chronos-smoke --dry-run --json
+ts-agents autoresearch run foundation-smoke --dry-run --json
+ts-agents autoresearch run foundation-smoke --models timesfm2p5 --json
 ts-agents autoresearch run foundation-gpu-plan --json
 ```
 
 Pass `--sandbox daytona` to run an autoresearch loop through the Daytona
 backend after configuring `DAYTONA_API_KEY`; use `--dry-run` to materialize the
-trial plan without fitting models. `foundation-chronos-smoke` is the only
-executable foundation-model loop; real runs require `ts-agents[foundation]`
-and lazy-load `chronos`/`torch`, while dry-run mode needs no heavy TSFM
-dependencies. `foundation-gpu-plan` is intentionally plan-only and reports no
-trained-model metrics.
+trial plan without fitting models. `foundation-smoke` is the executable
+foundation-model loop: it scores zero-shot Darts checkpoints on the M4 mini
+holdout, defaulting to `chronos2_small` (`--models` also accepts `chronos2`,
+`timesfm2p5` and `patchtst_fm`). Only the selected checkpoints download into
+`HF_HOME`. Real runs require `ts-agents[foundation]` and lazy-load
+`darts`/`torch`/`huggingface_hub`, while dry-run mode needs no heavy TSFM
+dependencies. The old `foundation-chronos-smoke` name is a deprecated alias
+that resolves to `foundation-smoke` with a warning. `foundation-gpu-plan` is
+intentionally plan-only and reports no trained-model metrics; it writes a
+`darts_finetune_config.yaml` and labels MOMENT as external (plan-only, needs
+`momentfm`).
 
 ### 3. Use the low-level CLI on bundled or custom data
 
@@ -280,7 +289,7 @@ Use `ts-agents` when you want:
 - a stable CLI contract that works the same across workflows, agents, and automation
 - artifact-first outputs (plots, JSON, markdown/report assets) instead of chat-only responses
 - reusable skills and tool bundles that encode workflow guidance
-- scoped foundation-model smoke paths without taking on model-hub ownership
+- pinned zero-shot foundation models through Darts without taking on model-hub ownership
 - optional sandbox backends for isolation, deployment, and heavier workloads
 - swappable front ends: CLI, Gradio UI, or custom agent orchestration
 
@@ -289,7 +298,7 @@ Use `ts-agents` when you want:
 - **CLI as the stable contract**: `ts-agents` is the primary interface for automation and reproducibility. Autonomous agents plan against `capabilities`, `workflow show`, and `tool show` instead of hardcoded knowledge.
 - **Strict machine envelopes**: `--json` output is versioned, strict, and typed — with status, quality flags, and exit codes — so agents can branch on failure mode rather than parsing prose.
 - **Framework adapters, not framework lock-in**: LangChain/deep-agent wrappers are convenience layers over the same tool registry. If `deepagents` is unavailable, deep mode reports a LangChain fallback instead of hiding the runtime downgrade.
-- **Scoped TSFM interop, not a model hub**: external projects such as TimeCopilot are comparator and interoperability targets; `ts-agents` keeps foundation-model execution to narrow smoke paths plus reproducible artifacts.
+- **Scoped TSFM interop, not a model hub**: Darts is the foundation-model interop layer and external projects such as TimeCopilot are comparator targets; `ts-agents` keeps a small catalog of pinned checkpoints (revision, licence and resolved context recorded in artifacts) rather than owning model breadth.
 - **Artifacts over chat**: tools produce inspectable files (plots, JSON, reports), and agents return summaries plus paths.
 - **Run lifecycle as first-class metadata**: every workflow run gets a run ID, a `run_manifest.json`, and non-clobbering defaults — so long, multi-turn sessions remain traceable and safe to rerun.
 - **Swappable front-ends**: CLI agents, custom agents, and Gradio are interfaces around the same core tools.
@@ -372,6 +381,9 @@ Feature extras:
 - `forecasting`: statistical forecasting tools
 - `patterns`: matrix profile and changepoint tooling
 - `classification`: aeon/scikit-learn classification workflows
+- `ml`: MLForecast LightGBM and histogram GBM panel models
+- `neural`: NeuralForecast NHITS panel models
+- `foundation`: Darts (`darts[torch]`) zero-shot foundation models; weights are not packaged and download per requested checkpoint into `HF_HOME` on first use
 - `viz`: plotting-only installs without Gradio
 - `recommended`: the demo-friendly install profile
 - `all`: the full optional stack
@@ -381,8 +393,9 @@ Install profiles:
 - `ts-agents[forecasting]`: unlocks ARIMA, ETS, and Theta for `forecast-series`
 - `ts-agents[ml]`: MLForecast panel models (`lightgbm`, `histgbm`; unreleased, use `uv sync --extra ml`)
 - `ts-agents[neural]`: NeuralForecast panel models (`nhits`; unreleased, use `uv sync --extra neural`)
+- `ts-agents[foundation]`: Darts zero-shot foundation models (`chronos2_small`, `chronos2`, `timesfm2p5`, `patchtst_fm`) for `forecast-series`, `forecast-panel` and `foundation-smoke`; unreleased in this form, use `uv sync --extra foundation`
 - `ts-agents[classification]`: unlocks `activity-recognition`
-- `ts-agents[recommended]`: the documented three-workflow experience used in walkthroughs and demos
+- `ts-agents[recommended]`: the main workflow stack used in walkthroughs and demos
 - `source checkout + uv sync`: same base CLI-first profile as `ts-agents`
 - `source checkout + uv sync --extra recommended`: same recommended profile as `ts-agents[recommended]`
 
@@ -453,6 +466,7 @@ All optional. Set them via `export` or in `~/.env`.
 | `TS_AGENTS_USE_TEST_DATA` | Use bundled test data | `true` |
 | `TS_AGENTS_TEST_DATA_FILE` | Override test dataset filename | `short_real.csv` |
 | `TS_AGENTS_SANDBOX_MODE` | Default sandbox backend | `local` |
+| `HF_HOME` | Hugging Face cache for foundation-model weights (`foundation` extra); set `HF_HUB_OFFLINE=1` to use a pre-populated cache without network | `~/.cache/huggingface` |
 
 Sandbox-specific environment variables (Docker/Daytona/Modal auth, snapshots,
 streaming, and log files) are documented in `SANDBOX.md`.
@@ -508,7 +522,17 @@ ts-agents workflow list
 ts-agents workflow show forecast-series --json
 ts-agents workflow run inspect-series --input-json '{"series":[1,2,3,4]}'
 ts-agents workflow run forecast-series --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' --horizon 3 --methods seasonal_naive
+
+# Panel forecasting on the bundled M4 mini-panel (train split only)
+ts-agents workflow show forecast-panel --json
+ts-agents data export-panel m4-monthly-mini --split train --out panel.csv --json
+ts-agents workflow run forecast-panel --input panel.csv --freq MS --horizon 18 --season-length 12 --methods seasonal_naive --skip-plots
+# With ts-agents[foundation]: add a zero-shot foundation model
+ts-agents workflow run forecast-panel --input panel.csv --freq MS --horizon 18 --season-length 12 --methods seasonal_naive,chronos2_small --skip-plots
 ```
+
+See the [panel and foundation-model forecasting guide](https://fnauman.github.io/ts-agents/panel-forecasting.html)
+for method families, pinned checkpoints and validation semantics.
 
 Use `workflow show` before automation to inspect required extras, supported
 input modes, artifact outputs, and availability in the current environment.
@@ -623,7 +647,7 @@ Tools run inside a sandbox. Pick one with `--sandbox <mode>` or set
 |------|-----------|--------------|
 | **local** _(default)_ | None (in-process) | — |
 | **subprocess** | Separate Python process | — |
-| **docker** | Container | Docker running; build image first: `./build_docker_sandbox.sh` |
+| **docker** | Container | Docker running; build image first: `./build_docker_sandbox.sh` (base install; pass extras as a second argument, e.g. `bash build_docker_sandbox.sh ts-agents-sandbox:ml ml`) |
 | **daytona** | Cloud sandbox | `pip install daytona` + `DAYTONA_API_KEY` ([Daytona docs](https://www.daytona.io/docs)); default bootstrap clones this repo + runs `pip install -e` |
 | **modal** | Serverless cloud | Source-checkout deployment path: `pip install modal`, run `modal token new` (opens browser auth) or set `MODAL_TOKEN_ID`/`MODAL_TOKEN_SECRET`, then from the repo root deploy with `modal deploy -m ts_agents.sandbox.modal_app --env main --name ts-agents-sandbox` |
 
@@ -658,7 +682,7 @@ For full details (env vars, resource limits, networking), see `SANDBOX.md`.
 - `ts_agents/contracts.py` - shared data contracts (ArtifactRef, ToolPayload, CLIEnvelope, CLIError)
 - `ts_agents/core/` - pure time-series algorithms
 - `ts_agents/tools/` - tool registry, wrappers, execution/sandbox routing
-- `ts_agents/workflows/` - first-class workflow implementations (inspect, forecast, activity)
+- `ts_agents/workflows/` - first-class workflow implementations (inspect, forecast-series, forecast-panel, activity)
 - `ts_agents/agents/` - simple and deep agent implementations
 - `ts_agents/evals/` - deterministic evaluation harness
 - `ts_agents/ui/` - Gradio tabs/components

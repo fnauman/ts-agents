@@ -1,11 +1,9 @@
-"""Global GBM and neural panel forecasting with explicit rolling validation."""
+"""Global GBM, neural and zero-shot foundation-model panel forecasting with rolling validation."""
 
 from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
-from importlib.util import find_spec
-from contextlib import redirect_stdout
-import sys
+from contextlib import ExitStack
 import time
 
 import numpy as np
@@ -13,7 +11,9 @@ import pandas as pd
 
 from ts_agents.cli.input_parsing import PanelInput
 from ts_agents.contracts import ToolPayload
+from ts_agents.core.forecasting import catalog
 from ts_agents.core.forecasting.panel import (
+    FOUNDATION_METHODS,
     METHOD_DEPENDENCIES,
     PanelBackend,
     normalize_panel,
@@ -44,6 +44,7 @@ def run_forecast_panel_workflow(
     n_estimators: int = 200,
     max_steps: int = 1000,
     input_size=None,
+    context_length=None,
     num_threads: int = 2,
     accelerator: str = "cpu",
     seed: int = 1337,
@@ -57,6 +58,8 @@ def run_forecast_panel_workflow(
 
     Scores are validation scores used to rank models, not an independent final
     test. Callers must keep their final test targets outside this input.
+    Foundation models run zero-shot: each origin conditions on the last
+    ``context_length`` points before its cutoff and nothing is trained.
     """
     methods = list(["seasonal_naive", "lightgbm"] if methods is None else methods)
     if (
@@ -65,8 +68,9 @@ def run_forecast_panel_workflow(
         or set(methods) - set(METHOD_DEPENDENCIES)
     ):
         raise ValueError(
-            "Choose distinct methods from seasonal_naive, lightgbm, histgbm, nhits."
+            f"Choose distinct methods from {', '.join(catalog.methods_for('panel'))}."
         )
+    foundation_requested = [method for method in methods if method in FOUNDATION_METHODS]
     step_size = horizon if step_size is None else step_size
     input_size = 2 * horizon if input_size is None else input_size
     lags = list(lags if lags is not None else dict.fromkeys([1, season_length, 7 * season_length]))
@@ -81,6 +85,7 @@ def run_forecast_panel_workflow(
             n_estimators,
             max_steps,
             num_threads,
+            1 if context_length is None else context_length,
         )
     ):
         raise ValueError(
@@ -90,6 +95,13 @@ def run_forecast_panel_workflow(
         raise ValueError("Lags must be distinct positive integers.")
     if accelerator not in {"cpu", "gpu"}:
         raise ValueError("Choose accelerator cpu or gpu explicitly.")
+    from ts_agents.core.forecasting.foundation import validate_request
+
+    # Horizon/context caps per checkpoint; checked before any data or output work.
+    resolved_context = {
+        method: validate_request(method, horizon=horizon, context_length=context_length)
+        for method in foundation_requested
+    }
     frame = normalize_panel(pd.DataFrame(panel_input.records), freq)
     held_rows = horizon + (n_windows - 1) * step_size
     minimum = (
@@ -104,21 +116,11 @@ def run_forecast_panel_workflow(
             f"Each series needs at least {held_rows + minimum} rows for these models/backtests."
         )
     missing = sorted(
-        {
-            dep
-            for method in methods
-            for dep in METHOD_DEPENDENCIES[method]
-            if find_spec(dep) is None
-        }
+        {dep for method in methods for dep in catalog.missing_modules(method)}
     )
     if missing:
-        extras = [
-            extra
-            for extra, names in (("ml", {"lightgbm", "histgbm"}), ("neural", {"nhits"}))
-            if set(methods) & names
-        ]
         raise ImportError(
-            f"Missing panel dependencies: {', '.join(missing)}. Install ts-agents[{','.join(extras)}]."
+            f"Missing panel dependencies: {', '.join(missing)}. {catalog.install_hint_for(methods)}"
         )
     output = ensure_output_dir(output_dir)
     config = dict(
@@ -126,6 +128,7 @@ def run_forecast_panel_workflow(
         n_estimators=n_estimators,
         max_steps=max_steps,
         input_size=input_size,
+        context_length=context_length,
         num_threads=num_threads,
         accelerator=accelerator,
         seed=seed,
@@ -140,88 +143,88 @@ def run_forecast_panel_workflow(
         skip_plots=skip_plots,
         **config,
     )
+    if resolved_context:
+        options["resolved_context_length"] = resolved_context
     scored, runtime = [], []
-    # Common end dates ensure that every panel member is trained only on the
-    # same information cutoff. Longer series can retain their older history.
-    for window in range(n_windows):
-        tail = horizon + (n_windows - window - 1) * step_size
-        train = frame.groupby("unique_id", group_keys=False).head(-tail).copy()
-        targets = frame.groupby("unique_id", group_keys=False).tail(tail)
-        actual = targets.groupby("unique_id", group_keys=False).head(horizon)[
-            ["unique_id", "ds", "y"]
-        ]
-        cutoff = train.ds.max()
+    # Foundation models stay cached across origins and the final fit, then are released.
+    model_scope = ExitStack()
+    if foundation_requested:
+        from ts_agents.core.forecasting.foundation import model_cache_scope
+
+        model_scope.enter_context(model_cache_scope())
+    try:
+        # Common end dates ensure that every panel member is trained only on the
+        # same information cutoff. Longer series can retain their older history.
+        for window in range(n_windows):
+            tail = horizon + (n_windows - window - 1) * step_size
+            train = frame.groupby("unique_id", group_keys=False).head(-tail).copy()
+            targets = frame.groupby("unique_id", group_keys=False).tail(tail)
+            actual = targets.groupby("unique_id", group_keys=False).head(horizon)[
+                ["unique_id", "ds", "y"]
+            ]
+            cutoff = train.ds.max()
+            for method in methods:
+                started = time.monotonic()
+                backend = PanelBackend(method, freq, season_length, config)
+                backend.fit(train, horizon)
+                predicted = backend.predict(horizon)
+                rows = score_predictions(actual, predicted, method, train, season_length)
+                rows["cutoff"] = cutoff
+                rows["window"] = window
+                rows["horizon_step"] = (
+                    rows.groupby("unique_id").ds.rank(method="dense").astype(int)
+                )
+                scored.append(rows)
+                runtime.append(
+                    dict(model=method, window=window, seconds=time.monotonic() - started)
+                )
+        predictions = pd.concat(scored, ignore_index=True)
+        metrics = _metrics(predictions, ["model"])
+        per_series = _metrics(predictions, ["model", "unique_id"])
+        per_horizon = _metrics(predictions, ["model", "horizon_step"])
+        best = min(metrics, key=lambda row: (row["rmse"], row["model"]))["model"]
+        artifacts = []
+        forecasts = []
         for method in methods:
             started = time.monotonic()
             backend = PanelBackend(method, freq, season_length, config)
-            with redirect_stdout(sys.stderr):
-                backend.fit(train, horizon)
-                predicted = backend.predict(horizon)
-            rows = score_predictions(actual, predicted, method, train, season_length)
-            rows["cutoff"] = cutoff
-            rows["window"] = window
-            rows["horizon_step"] = (
-                rows.groupby("unique_id").ds.rank(method="dense").astype(int)
-            )
-            scored.append(rows)
-            runtime.append(
-                dict(model=method, window=window, seconds=time.monotonic() - started)
-            )
-    predictions = pd.concat(scored, ignore_index=True)
-    metrics = _metrics(predictions, ["model"])
-    per_series = _metrics(predictions, ["model", "unique_id"])
-    per_horizon = _metrics(predictions, ["model", "horizon_step"])
-    best = min(metrics, key=lambda row: (row["rmse"], row["model"]))["model"]
-    artifacts = []
-    forecasts = []
-    for method in methods:
-        started = time.monotonic()
-        backend = PanelBackend(method, freq, season_length, config)
-        with redirect_stdout(sys.stderr):
             backend.fit(frame, horizon)
             future = backend.predict(horizon).rename(columns={method: "prediction"})
-        expected = pd.concat(
-            [
-                pd.DataFrame(
-                    {
-                        "unique_id": series_id,
-                        "ds": pd.date_range(
-                            group.ds.iloc[-1], periods=horizon + 1, freq=freq
-                        )[1:],
-                        "y": 0.0,
-                    }
-                )
-                for series_id, group in frame.groupby("unique_id")
-            ],
-            ignore_index=True,
-        )
-        # Reuse coverage validation, without treating artificial zeros as scores.
-        score_predictions(
-            expected,
-            future.rename(columns={"prediction": method}),
-            method,
-            frame,
-            season_length,
-        )
-        future["model"] = method
-        forecasts.append(future)
-        directory = output / "models" / method
-        with redirect_stdout(sys.stderr):
-            backend.save(directory)
-        for path in sorted(directory.rglob("*")):
-            if path.is_file():
-                artifacts.append(
-                    artifact_ref(
-                        kind="model",
-                        path=path,
-                        created_by="forecast-panel",
-                        mime_type="application/octet-stream",
-                        description=f"Native {method} saved model/history; load only trusted artifacts.",
+            expected = pd.concat(
+                [
+                    pd.DataFrame(
+                        {
+                            "unique_id": series_id,
+                            "ds": pd.date_range(
+                                group.ds.iloc[-1], periods=horizon + 1, freq=freq
+                            )[1:],
+                            "y": 0.0,
+                        }
                     )
-                )
-        runtime.append(
-            dict(model=method, window="final_fit", seconds=time.monotonic() - started)
-        )
+                    for series_id, group in frame.groupby("unique_id")
+                ],
+                ignore_index=True,
+            )
+            # Reuse coverage validation, without treating artificial zeros as scores.
+            score_predictions(
+                expected,
+                future.rename(columns={"prediction": method}),
+                method,
+                frame,
+                season_length,
+            )
+            future["model"] = method
+            forecasts.append(future)
+            directory = output / "models" / method
+            backend.save(directory)
+            for path in sorted(directory.rglob("*")):
+                if path.is_file():
+                    artifacts.append(_model_artifact(method, path))
+            runtime.append(
+                dict(model=method, window="final_fit", seconds=time.monotonic() - started)
+            )
+    finally:
+        model_scope.close()
     flags = []
     warnings = []
     if (predictions.mase_scale == 0).any():
@@ -241,6 +244,9 @@ def run_forecast_panel_workflow(
         "scikit-learn",
         "neuralforecast",
         "torch",
+        "darts",
+        "huggingface-hub",
+        "pytorch-lightning",
     ):
         try:
             packages[package] = version(package)
@@ -259,6 +265,19 @@ def run_forecast_panel_workflow(
         packages=packages,
         n_series=int(frame.unique_id.nunique()),
     )
+    if foundation_requested:
+        from ts_agents.core.forecasting.foundation import model_spec
+
+        summary["foundation_models"] = {
+            method: model_spec(
+                method,
+                horizon=horizon,
+                context_length=context_length,
+                accelerator=accelerator,
+                seed=seed,
+            )
+            for method in foundation_requested
+        }
     for name, data, description in (
         (
             "backtest_predictions.csv",
@@ -359,6 +378,27 @@ def run_forecast_panel_workflow(
     )
 
 
+def _model_artifact(method, path):
+    if method in FOUNDATION_METHODS:
+        return artifact_ref(
+            kind="model",
+            path=path,
+            created_by="forecast-panel",
+            mime_type="application/json",
+            description=(
+                "Foundation-model config (checkpoint id, pinned revision, darts version); "
+                "weights are not saved and reload from the Hugging Face cache."
+            ),
+        )
+    return artifact_ref(
+        kind="model",
+        path=path,
+        created_by="forecast-panel",
+        mime_type="application/octet-stream",
+        description=f"Native {method} saved model/history; load only trusted artifacts.",
+    )
+
+
 def _metrics(rows, keys):
     output = []
     for name, group in rows.groupby(keys, sort=True):
@@ -388,6 +428,8 @@ def _metrics(rows, keys):
 
 
 def _report(summary):
+    methods = summary["options"]["methods"]
+    foundation = summary.get("foundation_models") or {}
     lines = [
         "# Panel forecasting report",
         "",
@@ -410,7 +452,39 @@ def _report(summary):
             "",
             "Metrics pool forecast origins and series; inspect per-series and per-horizon scores in metrics.json.",
             "MASE uses each origin's training history. Zero scales are excluded and counted explicitly.",
-            "NHITS uses a training-prefix tail for internal early stopping. Final fits retain this internal validation tail.",
+        ]
+    )
+    if "nhits" in methods:
+        lines.append(
+            "NHITS uses a training-prefix tail for internal early stopping. Final fits retain this internal validation tail."
+        )
+    if foundation:
+        lines.extend(["", "## Foundation models (zero-shot)", ""])
+        lines.append(
+            "Foundation models ran zero-shot through Darts: nothing was trained on this panel. "
+            "Each origin conditions only on its cutoff, using the last context_length points of each series."
+        )
+        for method, spec in foundation.items():
+            context = spec["input_chunk_length"][1]
+            lines.append(
+                f"- {method}: {spec['darts_class']} from {spec['hub_model_name']}@{spec['hub_model_revision']}, "
+                f"context {context}, licence {spec['license']}."
+            )
+            if spec.get("trained_horizon"):
+                lines.append(
+                    f"  {method} was trained for a {spec['trained_horizon']}-step horizon; "
+                    "longer horizons go beyond its training setup."
+                )
+        lines.extend(
+            [
+                "",
+                "Pretraining corpora may overlap public benchmarks such as M4, so scores on public data can be optimistic.",
+                "models/<foundation model>/ holds model_spec.json only; weights are not saved.",
+            ]
+        )
+    lines.extend(
+        [
+            "",
             "Saved native models are under models/. Load only trusted model artifacts.",
             "See backtest_predictions.csv, forecast.csv, metrics.json and run_manifest.json for reproducibility.",
         ]

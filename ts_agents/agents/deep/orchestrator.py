@@ -79,7 +79,8 @@ You can delegate to these specialists using the task tool:
 
 2. **forecasting-agent**: For time series prediction
    - Use when: Predicting future values
-   - Methods: ARIMA, ETS, Theta, Ensemble
+   - Methods: Seasonal naive, ARIMA, ETS, Theta, Ensemble; global GBM/NHITS panels
+     and Darts zero-shot foundation models (optional extras)
 
 3. **patterns-agent**: For pattern and anomaly detection
    - Use when: Finding motifs, discords, peaks, segments

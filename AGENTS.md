@@ -20,6 +20,7 @@ needed for optional surfaces:
 ```bash
 uv sync --extra recommended
 uv sync --extra ui
+uv sync --extra foundation   # Darts zero-shot foundation models (chronos2_small, ...)
 uv sync --all-extras
 ```
 
@@ -62,6 +63,8 @@ uv run python -m pytest -q
 - `TS_AGENTS_SANDBOX_MODE` (optional): default sandbox backend
 - `OPENAI_MODEL` (optional): defaults to `gpt-5-mini` (see `ts_agents/config.py`)
 - `OPENAI_API_KEY` (required for agent chat in many setups)
+- `HF_HOME` (optional): Hugging Face cache for foundation-model weights; add `HF_HUB_OFFLINE=1` to run from a pre-populated cache
+- `TS_AGENTS_RUN_FOUNDATION_TESTS=1` (optional): enables the real, weight-loading tests in `tests/core/test_foundation_real.py` (needs the `foundation` extra and cached or downloadable weights)
 - Hosted profile settings are env-var driven: `HOST`, `PORT`, `GRADIO_SHARE`, `TS_AGENTS_ENABLE_AGENT`, `TS_AGENTS_AGENT_TYPE`, `TS_AGENTS_PERSIST_SESSIONS`, `TS_AGENTS_UI_TITLE`
 
 ## Repo map (where to look first)
@@ -69,9 +72,9 @@ uv run python -m pytest -q
 - `ts_agents/cli/input_parsing.py` — flexible input handling (CSV, JSON, stdin)
 - `ts_agents/cli/output.py` — structured output rendering and image extraction
 - `ts_agents/contracts.py` — shared data contracts (ArtifactRef, ToolPayload, CLIEnvelope, CLIError)
-- `ts_agents/workflows/` — first-class workflow implementations (inspect, forecast, activity)
+- `ts_agents/workflows/` — first-class workflow implementations (inspect, forecast-series, forecast-panel, activity)
 - `ts_agents/tools/` — tool registry + wrappers (LangChain + deep agent tools)
-- `ts_agents/core/` — pure analysis implementations (decomposition, forecasting, patterns, classification, spectral)
+- `ts_agents/core/` — pure analysis implementations (decomposition, forecasting, patterns, classification, spectral); `core/forecasting/catalog.py` is the stdlib-only method catalog shared by every forecasting surface, and `core/forecasting/foundation.py` is the lazy Darts foundation-model adapter
 - `ts_agents/evals/` — deterministic evaluation harness
 - `ts_agents/agents/` — agent implementations (simple + deep)
 - `ts_agents/persistence/` — session persistence + caching

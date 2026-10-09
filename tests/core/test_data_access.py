@@ -4,6 +4,7 @@ import os
 
 import numpy as np
 import pandas as pd
+import pytest
 
 
 def _setup_test_data(monkeypatch, tmp_path):
@@ -117,3 +118,29 @@ def test_config_persistence_dir_is_resolved_on_access(monkeypatch, tmp_path):
 
     assert config.PERSISTENCE_DIR == second
     assert config.RESULTS_CACHE_DIR == second / "results"
+
+
+@pytest.mark.parametrize("value", ["2015-06-01", pd.Timestamp("1999-12-01")])
+def test_month_start_accepts_month_start_dates(value):
+    import ts_agents.data_access as data_access
+
+    assert data_access.month_start(value) == pd.Timestamp(value)
+
+
+@pytest.mark.parametrize("value", ["2015-06-02", "2015-06-01 12:00", "2015-06-01T00:00+01:00", "not-a-date", ""])
+def test_month_start_rejects_other_values(value):
+    import ts_agents.data_access as data_access
+
+    with pytest.raises(ValueError):
+        data_access.month_start(value)
+
+
+def test_m4_monthly_mini_path_resolves_independent_of_cwd(monkeypatch, tmp_path):
+    import ts_agents.data_access as data_access
+
+    monkeypatch.chdir(tmp_path)
+
+    path = data_access.resolve_m4_monthly_mini_path()
+
+    assert path.is_file()
+    assert path.name == "m4_monthly_mini.csv"

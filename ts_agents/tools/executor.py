@@ -30,7 +30,7 @@ import threading
 import time
 import uuid
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import Enum
 from pathlib import Path, PurePosixPath
@@ -319,7 +319,12 @@ def _resolve_docker_artifact_path(
     except ValueError:
         return None
 
-    return host_artifact_dir / Path(*relative_path.parts)
+    candidate = host_artifact_dir / Path(*relative_path.parts)
+    try:
+        candidate.resolve().relative_to(host_artifact_dir.resolve())
+    except ValueError:
+        return None
+    return candidate
 
 
 def _relocate_artifact_refs(
@@ -601,6 +606,11 @@ class ExecutionResult:
         )
 
 
+# Exception class name raised by ts_agents.core.forecasting.foundation when pinned
+# weights are neither cached nor downloadable (matched by name: no heavy import).
+FOUNDATION_WEIGHTS_UNAVAILABLE = "FoundationModelUnavailableError"
+
+
 class ToolErrorCode(Enum):
     """Standard error codes for tool execution."""
     UNKNOWN = "unknown"
@@ -688,6 +698,9 @@ class ToolError(Exception):
             "MemoryError": ToolErrorCode.RESOURCE_EXHAUSTED,
             "ImportError": ToolErrorCode.DEPENDENCY_ERROR,
             "ModuleNotFoundError": ToolErrorCode.DEPENDENCY_ERROR,
+            # Pinned foundation-model weights neither cached nor downloadable:
+            # recoverable by allowing network or pre-populating HF_HOME.
+            FOUNDATION_WEIGHTS_UNAVAILABLE: ToolErrorCode.BACKEND_UNAVAILABLE,
         }
 
         code = code_mapping.get(exc_type, ToolErrorCode.UNKNOWN)
@@ -697,13 +710,18 @@ class ToolError(Exception):
             ToolErrorCode.VALIDATION_ERROR,
             ToolErrorCode.TIMEOUT,
             ToolErrorCode.DATA_ERROR,
-        }
+        } or exc_type == FOUNDATION_WEIGHTS_UNAVAILABLE
 
         return cls(
             code=code,
             message=str(exc),
             recoverable=recoverable,
-            hint=str(exc) if code == ToolErrorCode.DEPENDENCY_ERROR else None,
+            hint=(
+                str(exc)
+                if code == ToolErrorCode.DEPENDENCY_ERROR
+                or exc_type == FOUNDATION_WEIGHTS_UNAVAILABLE
+                else None
+            ),
             details={"exception_type": exc_type},
             tool_name=tool_name,
         )
@@ -1960,13 +1978,30 @@ class ToolExecutor:
         # Apply resource limits from metadata if not specified in context
         context = self._apply_metadata_limits(metadata, context)
 
-        # Execute
-        result = backend.execute(
-            tool_name=tool_name,
-            func=metadata.core_function,
-            params=params,
-            context=context,
-        )
+        context = self._context_with_tool_extras(metadata, context, actual_backend)
+        if tool_name == "forecast_panel_from_csv":
+            # Read the file on the host, then use the workflow's portable input,
+            # model-directory staging and remote artifact restoration contract.
+            from .agent_tools import _prepare_panel_tool_input
+            from ts_agents.workflows.executor import WorkflowExecutor
+
+            try:
+                panel_input, options = _prepare_panel_tool_input(**params)
+                workflow_executor = WorkflowExecutor()
+                workflow_executor.backends = self.backends
+                result = workflow_executor.execute(
+                    "forecast-panel", panel_input, runner_kwargs=options, context=context,
+                )
+            except Exception as exc:
+                result = ExecutionResult(status=ExecutionStatus.FAILED,
+                    error=ToolError.from_exception(exc, tool_name=tool_name))
+        else:
+            result = backend.execute(
+                tool_name=tool_name,
+                func=metadata.core_function,
+                params=params,
+                context=context,
+            )
 
         result.metadata = {
             **(result.metadata or {}),
@@ -2034,15 +2069,24 @@ class ToolExecutor:
         context: ExecutionContext,
     ) -> ExecutionContext:
         """Apply resource limits from metadata if not specified."""
-        # Check for resource specs in metadata (new fields)
-        if context.timeout_seconds is None and hasattr(metadata, 'timeout_seconds'):
-            context.timeout_seconds = metadata.timeout_seconds
-        if context.memory_mb is None and hasattr(metadata, 'memory_mb'):
-            context.memory_mb = metadata.memory_mb
-        if context.disk_mb is None and hasattr(metadata, 'disk_mb'):
-            context.disk_mb = metadata.disk_mb
+        limits = {
+            name: getattr(metadata, name, None)
+            for name in ("timeout_seconds", "memory_mb", "disk_mb")
+            if getattr(context, name) is None
+        }
+        return replace(context, **limits)
 
-        return context
+    def _context_with_tool_extras(self, metadata: Any, context: ExecutionContext,
+                                 actual_backend: SandboxMode) -> ExecutionContext:
+        """Install required extras for every tool in a fresh Daytona sandbox."""
+        key = "TS_AGENTS_DAYTONA_INSTALL_EXTRAS"
+        if actual_backend != SandboxMode.DAYTONA or (context.environment or {}).get(key) or os.environ.get(key):
+            return context
+        from .registry import tool_required_extras
+        extras = tool_required_extras(metadata)
+        if not extras:
+            return context
+        return replace(context, environment={**(context.environment or {}), key: ",".join(extras)})
 
     def _log_execution(
         self,

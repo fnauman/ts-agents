@@ -4,6 +4,13 @@ FROM python:3.11-slim
 #
 # Build:
 #   docker build -f Dockerfile.sandbox -t ts-agents-sandbox:latest .
+#
+# Optional extras (comma-separated, e.g. forecasting,ml or foundation):
+#   docker build -f Dockerfile.sandbox --build-arg TS_AGENTS_EXTRAS=foundation \
+#     -t ts-agents-sandbox:foundation .
+# Foundation-model weights are not baked in; containers run with no network by
+# default, so mount a pre-populated HF_HOME (with HF_HUB_OFFLINE=1) or allow
+# network access.
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -21,8 +28,10 @@ RUN apt-get update && \
 COPY pyproject.toml uv.lock README.md ./
 COPY ts_agents ./ts_agents
 
+ARG TS_AGENTS_EXTRAS=""
+
 RUN python -m pip install --upgrade pip && \
-    python -m pip install -e .
+    python -m pip install -e ".${TS_AGENTS_EXTRAS:+[$TS_AGENTS_EXTRAS]}"
 
 # Default command is the sandbox runner help.
 CMD ["python", "-m", "ts_agents.sandbox.runner", "--help"]

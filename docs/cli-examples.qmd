@@ -8,6 +8,8 @@ current workflow/tool grammar rather than the deprecated compatibility aliases.
 Install notes:
 - `ts-agents`: workflow discovery, `inspect-series`, and `forecast-series --methods seasonal_naive`
 - `ts-agents[recommended]`: full forecasting comparisons plus `activity-recognition`
+- `ts-agents[ml]` / `ts-agents[neural]`: global GBM / NHITS models for `forecast-panel`
+- `ts-agents[foundation]`: Darts zero-shot foundation models (`chronos2_small`, `chronos2`, `timesfm2p5`, `patchtst_fm`) for `forecast-series`, `forecast-panel` and `foundation-smoke`
 - `source checkout + uv sync`: same base CLI-first profile as `ts-agents`
 - `source checkout + uv sync --extra recommended`: same recommended profile as `ts-agents[recommended]`
 
@@ -73,6 +75,28 @@ uv run ts-agents workflow run forecast-series \
   --methods seasonal_naive \
   --output-dir outputs/forecast
 
+# Export the bundled M4 mini-panel (train split; synthetic month-start dates)
+uv run ts-agents data export-panel m4-monthly-mini --split train --out panel.csv --json
+
+# Panel forecasting with the base-install seasonal baseline
+uv run ts-agents workflow show forecast-panel --json
+uv run ts-agents workflow run forecast-panel \
+  --input panel.csv --freq MS --horizon 18 --season-length 12 \
+  --methods seasonal_naive --skip-plots --output-dir outputs/panel-baseline
+
+# Add a zero-shot foundation model (requires the foundation extra; downloads
+# only the chronos2_small checkpoint into HF_HOME on first use)
+uv run ts-agents workflow run forecast-panel \
+  --input panel.csv --freq MS --horizon 18 --season-length 12 \
+  --methods seasonal_naive,chronos2_small --context-length 512 \
+  --skip-plots --output-dir outputs/panel-fm
+
+# Zero-shot foundation model on a single series
+uv run ts-agents workflow run forecast-series \
+  --input-json '{"series":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]}' \
+  --horizon 5 --methods seasonal_naive,chronos2_small --accelerator cpu \
+  --output-dir outputs/forecast-fm
+
 # Run labeled-stream activity recognition (requires classification/recommended extras)
 uv run python data/make_synthetic_labeled_stream.py \
   --scenario gait --seconds 40 --seed 1337 \
@@ -114,6 +138,21 @@ uv run ts-agents tool run select_window_size_from_csv \
   --param classifier=minirocket \
   --json \
   --save outputs/demo/window_selection.json
+```
+
+Forecasting tools for agents (all VERY_HIGH cost):
+
+```bash
+# Zero-shot foundation-model point forecast (foundation extra; default model chronos2_small).
+# VERY_HIGH cost tools need --approve, otherwise they fail with permission_denied (exit 7).
+uv run ts-agents tool show forecast_foundation_with_data --json
+uv run ts-agents tool run forecast_foundation_with_data \
+  --run Re200Rm200 --var bx001_real \
+  --param horizon=12 --param model=chronos2_small --approve --json
+
+# Run the forecast-panel workflow from a long-format file; output_dir defaults
+# under TS_AGENTS_TOOL_ARTIFACT_DIR
+uv run ts-agents tool show forecast_panel_from_csv --json
 ```
 
 Key flags:

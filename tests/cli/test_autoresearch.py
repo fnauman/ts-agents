@@ -2,7 +2,9 @@ import json
 import os
 import signal
 import subprocess
+import sys
 import time
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -21,8 +23,28 @@ def test_autoresearch_list_json_returns_loops(capsys):
     names = [loop["name"] for loop in payload["result"]["loops"]]
     assert "forecast-daytona" in names
     assert "classify-daytona" in names
-    assert "foundation-chronos-smoke" in names
+    assert "foundation-smoke" in names
     assert "foundation-gpu-plan" in names
+    # Deprecated aliases resolve but are never listed.
+    assert "foundation-chronos-smoke" not in names
+
+
+def test_autoresearch_show_resolves_deprecated_foundation_alias(capsys):
+    code = run(["autoresearch", "show", "foundation-chronos-smoke", "--json"])
+
+    assert code == 0
+    result = json.loads(capsys.readouterr().out)["result"]
+    assert result["name"] == "foundation-smoke"
+    assert result["default_models"] == ["chronos2_small"]
+    assert result["models"] == ["chronos2_small", "chronos2", "timesfm2p5", "patchtst_fm"]
+    assert result["required_extras"] == ["foundation"]
+    capabilities = result["capabilities"]
+    assert capabilities["context_length"] == 512
+    assert set(capabilities["checkpoints"]) == set(result["models"])
+    assert (
+        capabilities["checkpoints"]["chronos2_small"]["hub_model_name"]
+        == "autogluon/chronos-2-small"
+    )
 
 
 def test_autoresearch_leases_unpublished_output_and_final_manifest(
@@ -262,15 +284,56 @@ def test_autoresearch_run_classification_dry_run(capsys, tmp_path):
     assert (output_dir / "trials.csv").exists()
 
 
-def test_autoresearch_run_foundation_chronos_smoke_dry_run_writes_contract(
-    capsys, tmp_path
-):
-    output_dir = tmp_path / "chronos-dry-run"
+def _fake_foundation_backend(monkeypatch):
+    """Stub the Darts adapter seams so no darts, torch or weights are needed."""
+    from ts_agents.core.forecasting import catalog, foundation
+
+    resolved = []
+    constructed = []
+
+    class FakePrediction:
+        def __init__(self, values):
+            self._values = np.asarray(values, dtype=float).reshape(-1, 1)
+
+        def values(self, copy=False):
+            return self._values
+
+    class FakeSeries:
+        def __init__(self, values):
+            self.values = np.asarray(values)
+
+        @classmethod
+        def from_times_and_values(cls, _times, values, columns=None):
+            return cls(values)
+
+    class FakeModel:
+        def __init__(self, **kwargs):
+            constructed.append(kwargs)
+            self.horizon = kwargs["output_chunk_length"]
+
+        def fit(self, _series):
+            return self
+
+        def predict(self, n, series, verbose=False):
+            return [FakePrediction(np.full(n, float(item.values[-1]))) for item in series]
+
+    def fake_import_model_class(spec):
+        resolved.append(spec.darts_class)
+        return FakeModel
+
+    monkeypatch.setattr(catalog, "missing_modules", lambda _name: [])
+    monkeypatch.setattr(foundation, "_import_model_class", fake_import_model_class)
+    monkeypatch.setattr(foundation, "_timeseries_cls", lambda: FakeSeries)
+    return resolved, constructed
+
+
+def test_autoresearch_run_foundation_smoke_dry_run_writes_contract(capsys, tmp_path):
+    output_dir = tmp_path / "foundation-dry-run"
     code = run(
         [
             "autoresearch",
             "run",
-            "foundation-chronos-smoke",
+            "foundation-smoke",
             "--dry-run",
             "--skip-plots",
             "--output-dir",
@@ -283,6 +346,7 @@ def test_autoresearch_run_foundation_chronos_smoke_dry_run_writes_contract(
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
     assert payload["result"]["status"] == "ok"
+    assert payload["result"]["warnings"] == []
     assert payload["result"]["data"]["trial_count"] == 1
     assert payload["result"]["data"]["best_config"] == {}
     assert (output_dir / "trials.csv").exists()
@@ -291,43 +355,69 @@ def test_autoresearch_run_foundation_chronos_smoke_dry_run_writes_contract(
     assert (output_dir / "run_manifest.json").exists()
 
     from ts_agents.autoresearch.registry import (
-        FOUNDATION_CHRONOS_MODEL_SCOPE,
-        FOUNDATION_CHRONOS_MODEL_SCOPE_LABEL,
+        FOUNDATION_SMOKE_MODEL_SCOPE,
+        FOUNDATION_SMOKE_MODEL_SCOPE_LABEL,
     )
 
     report = (output_dir / "report.md").read_text()
-    assert FOUNDATION_CHRONOS_MODEL_SCOPE_LABEL in report
+    assert report.startswith("# Foundation Model Smoke (Darts)")
+    assert FOUNDATION_SMOKE_MODEL_SCOPE_LABEL in report
+    assert "autogluon/chronos-2-small" in report
+    assert "ddec01313e50b6bc58ebaa92ede81bc24a3d9f9a" in report
     summary = json.loads((output_dir / "summary.json").read_text())
+    assert list(summary["checkpoints"]) == ["chronos2_small"]
     # Run outputs must not reference repo-only files that are not shipped
     # in the wheel.
     assert "external_benchmark_context" not in summary
     assert "benchmarks/" not in report
     manifest = json.loads((output_dir / "run_manifest.json").read_text())
-    assert manifest["loop"] == "foundation-chronos-smoke"
-    assert manifest["options"]["model_scope"] == FOUNDATION_CHRONOS_MODEL_SCOPE
-    assert manifest["options"]["model_scope_label"] == FOUNDATION_CHRONOS_MODEL_SCOPE_LABEL
+    assert manifest["loop"] == "foundation-smoke"
+    assert manifest["options"]["models"] == ["chronos2_small"]
+    assert manifest["options"]["context_length"] == 512
+    assert manifest["options"]["model_scope"] == FOUNDATION_SMOKE_MODEL_SCOPE
+    assert manifest["options"]["model_scope_label"] == FOUNDATION_SMOKE_MODEL_SCOPE_LABEL
+    trial = json.loads((output_dir / "trials.jsonl").read_text().splitlines()[0])
+    assert trial["model"] == "chronos2_small"
+    assert trial["status"] == "planned"
 
 
-def test_autoresearch_run_foundation_chronos_smoke_executes_with_mocked_adapter(
+def test_autoresearch_foundation_smoke_dry_run_imports_no_heavy_modules(tmp_path):
+    output_dir = tmp_path / "isolation"
+    script = (
+        "import json, sys\n"
+        "from ts_agents.cli.main import run\n"
+        "code = run(['autoresearch', 'run', 'foundation-smoke', '--dry-run', "
+        f"'--skip-plots', '--output-dir', {str(output_dir)!r}, '--json'])\n"
+        "heavy = sorted({'darts', 'torch', 'huggingface_hub', 'pytorch_lightning'} "
+        "& set(sys.modules))\n"
+        "print(json.dumps({'code': code, 'heavy': heavy}), file=sys.stderr)\n"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    result = json.loads(completed.stderr.strip().splitlines()[-1])
+    assert result == {"code": 0, "heavy": []}
+
+
+def test_autoresearch_run_foundation_smoke_executes_only_selected_model(
     monkeypatch, capsys, tmp_path
 ):
     import ts_agents.autoresearch.executor as executor_module
-    import ts_agents.autoresearch.runner as runner_module
+    from ts_agents.core.forecasting import foundation
 
     monkeypatch.setattr(executor_module, "find_spec", lambda _name: object())
-
-    def fake_forecast(_model_id, series, *, horizon):
-        return np.full(horizon, float(series[-1]))
-
-    monkeypatch.setattr(runner_module, "_forecast_with_chronos", fake_forecast)
-    output_dir = tmp_path / "chronos-execute"
+    resolved, constructed = _fake_foundation_backend(monkeypatch)
+    output_dir = tmp_path / "foundation-timesfm"
     code = run(
         [
             "autoresearch",
             "run",
-            "foundation-chronos-smoke",
-            "--max-trials",
-            "1",
+            "foundation-smoke",
+            "--models",
+            "timesfm2p5",
             "--skip-plots",
             "--output-dir",
             str(output_dir),
@@ -341,60 +431,45 @@ def test_autoresearch_run_foundation_chronos_smoke_executes_with_mocked_adapter(
     assert payload["result"]["status"] == "ok"
     data = payload["result"]["data"]
     assert data["trial_count"] == 1
-    assert data["model_scope"] == "single_chronos_zero_shot_smoke"
-    assert data["best_config"]["model"] == "amazon/chronos-t5-tiny"
-    assert data["best_config"]["n_trials"] == 1
-
-    trials = (output_dir / "trials.csv").read_text()
-    assert "foundation-model-smoke" in trials
-    assert "season_length" not in trials
+    assert data["model_scope"] == "darts_foundation_zero_shot_smoke"
+    assert data["best_config"]["model"] == "timesfm2p5"
     assert data["best_config"]["smape"] is not None
+    # Only the selected Darts class is resolved and constructed, with its pin.
+    assert resolved == ["TimesFM2p5Model"]
+    assert len(constructed) == 1
+    assert constructed[0]["hub_model_name"] == "google/timesfm-2.5-200m-pytorch"
+    assert constructed[0]["hub_model_revision"] == "1d952420fba87f3c6dee4f240de0f1a0fbc790e3"
+    assert constructed[0]["input_chunk_length"] == (1, 512)
+    assert constructed[0]["output_chunk_length"] == 18
+    # The run-scoped model cache is released when the loop finishes.
+    assert foundation._MODEL_CACHE == {}
+
+    trial = json.loads((output_dir / "trials.jsonl").read_text().splitlines()[0])
+    assert trial["trial_id"] == "foundation-001-timesfm2p5"
+    assert trial["task"] == "foundation-model-smoke"
+    assert trial["execution_mode"] == "zero_shot"
+    assert trial["foundation_family"] == "TimesFM"
+    assert trial["darts_class"] == "TimesFM2p5Model"
+    assert trial["hub_model_revision"] == "1d952420fba87f3c6dee4f240de0f1a0fbc790e3"
+    assert "season_length" not in (output_dir / "trials.csv").read_text()
+    report = (output_dir / "report.md").read_text()
+    assert "google/timesfm-2.5-200m-pytorch" in report
+    assert "chronos-2" not in report
 
 
-def test_autoresearch_foundation_chronos_smoke_preflight_reports_missing_deps(
-    monkeypatch, tmp_path
-):
-    import ts_agents.autoresearch.executor as executor_module
-    from ts_agents.autoresearch.executor import AutoresearchExecutor
-    from ts_agents.tools.executor import ExecutionContext, SandboxMode, ToolErrorCode
-
-    def fake_find_spec(name):
-        if name == "chronos":
-            return None
-        return object()
-
-    monkeypatch.setattr(executor_module, "find_spec", fake_find_spec)
-    result = AutoresearchExecutor().execute(
-        "foundation-chronos-smoke",
-        {"output_dir": str(tmp_path / "chronos-deps")},
-        context=ExecutionContext(sandbox_mode=SandboxMode.LOCAL),
-    )
-
-    assert not result.success
-    assert result.error is not None
-    assert result.error.code == ToolErrorCode.DEPENDENCY_ERROR
-    assert "chronos-forecasting" in result.error.message
-    assert "ts-agents[foundation]" in result.error.message
-
-
-def test_autoresearch_foundation_chronos_smoke_full_profile_stays_single_smoke(
+def test_autoresearch_foundation_smoke_defaults_to_one_chronos2_small_trial(
     monkeypatch, capsys, tmp_path
 ):
     import ts_agents.autoresearch.executor as executor_module
-    import ts_agents.autoresearch.runner as runner_module
 
     monkeypatch.setattr(executor_module, "find_spec", lambda _name: object())
-    monkeypatch.setattr(
-        runner_module,
-        "_forecast_with_chronos",
-        lambda _model_id, series, *, horizon: np.full(horizon, float(series[-1])),
-    )
-    output_dir = tmp_path / "chronos-full"
+    resolved, _constructed = _fake_foundation_backend(monkeypatch)
+    output_dir = tmp_path / "foundation-full"
     code = run(
         [
             "autoresearch",
             "run",
-            "foundation-chronos-smoke",
+            "foundation-smoke",
             "--profile",
             "full",
             "--skip-plots",
@@ -408,11 +483,167 @@ def test_autoresearch_foundation_chronos_smoke_full_profile_stays_single_smoke(
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
     assert payload["result"]["data"]["trial_count"] == 1
+    assert payload["result"]["data"]["best_config"]["model"] == "chronos2_small"
+    assert resolved == ["Chronos2Model"]
     manifest = json.loads((output_dir / "run_manifest.json").read_text())
-    assert manifest["options"]["max_trials"] == 1
+    assert manifest["options"]["models"] == ["chronos2_small"]
+    assert manifest["options"]["max_trials"] == 4
 
 
-def test_autoresearch_foundation_chronos_smoke_fails_empty_holdout():
+def test_autoresearch_foundation_smoke_deprecated_alias_runs_new_loop(
+    monkeypatch, capsys, tmp_path
+):
+    import ts_agents.autoresearch.executor as executor_module
+
+    monkeypatch.setattr(executor_module, "find_spec", lambda _name: object())
+    _fake_foundation_backend(monkeypatch)
+    output_dir = tmp_path / "foundation-alias"
+    code = run(
+        [
+            "autoresearch",
+            "run",
+            "foundation-chronos-smoke",
+            "--skip-plots",
+            "--output-dir",
+            str(output_dir),
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    # A deprecation notice asks for review but does not degrade the run.
+    assert payload["result"]["status"] == "ok"
+    warnings = payload["result"]["warnings"]
+    assert any(
+        "'foundation-chronos-smoke' is deprecated" in warning
+        and "'foundation-smoke'" in warning
+        for warning in warnings
+    )
+    assert payload["result"]["data"]["loop"] == "foundation-smoke"
+    assert payload["result"]["data"]["best_config"]["model"] == "chronos2_small"
+    manifest = json.loads((output_dir / "run_manifest.json").read_text())
+    assert manifest["loop"] == "foundation-smoke"
+    assert manifest["warnings"] == warnings
+
+
+def test_autoresearch_alias_default_output_dir_uses_canonical_name(
+    monkeypatch, capsys, tmp_path
+):
+    monkeypatch.chdir(tmp_path)
+    code = run(["autoresearch", "run", "foundation-chronos-smoke", "--dry-run", "--json"])
+
+    assert code == 0
+    output_dir = Path(json.loads(capsys.readouterr().out)["result"]["data"]["output_dir"])
+    assert output_dir.parent == (tmp_path / "outputs" / "autoresearch" / "foundation-smoke").resolve()
+
+
+def test_autoresearch_foundation_smoke_rejects_unknown_model(capsys, tmp_path):
+    code = run(
+        [
+            "autoresearch",
+            "run",
+            "foundation-smoke",
+            "--models",
+            "not-a-model",
+            "--dry-run",
+            "--output-dir",
+            str(tmp_path / "foundation-unknown"),
+            "--json",
+        ]
+    )
+
+    assert code == 2
+    message = json.loads(capsys.readouterr().out)["error"]["message"]
+    assert "Unsupported model(s) for foundation-smoke: not-a-model" in message
+    assert "chronos2_small" in message
+
+
+def test_normalize_models_uses_loop_default_models():
+    from ts_agents.autoresearch.runner import _normalize_models
+
+    assert _normalize_models("foundation-smoke", None) == ["chronos2_small"]
+    assert _normalize_models("foundation-smoke", ["", "  "]) == ["chronos2_small"]
+    assert _normalize_models("foundation-chronos-smoke", None) == ["chronos2_small"]
+    assert _normalize_models("foundation-smoke", ["patchtst_fm", "chronos2"]) == [
+        "patchtst_fm",
+        "chronos2",
+    ]
+    # Loops without default_models still run every model.
+    assert _normalize_models("forecast-daytona", None) == [
+        "seasonal_naive",
+        "theta",
+        "ets",
+        "arima",
+    ]
+
+
+def test_autoresearch_foundation_smoke_preflight_reports_missing_deps(
+    monkeypatch, tmp_path
+):
+    import ts_agents.autoresearch.executor as executor_module
+    from ts_agents.autoresearch.executor import AutoresearchExecutor
+    from ts_agents.tools.executor import ExecutionContext, SandboxMode, ToolErrorCode
+
+    def fake_find_spec(name):
+        if name == "darts":
+            return None
+        return object()
+
+    monkeypatch.setattr(executor_module, "find_spec", fake_find_spec)
+    result = AutoresearchExecutor().execute(
+        "foundation-smoke",
+        {"output_dir": str(tmp_path / "foundation-deps")},
+        context=ExecutionContext(sandbox_mode=SandboxMode.LOCAL),
+    )
+
+    assert not result.success
+    assert result.error is not None
+    assert result.error.code == ToolErrorCode.DEPENDENCY_ERROR
+    assert "darts" in result.error.message
+    assert "ts-agents[foundation]" in result.error.message
+    assert not (tmp_path / "foundation-deps").exists()
+
+
+def test_autoresearch_foundation_smoke_failed_trial_degrades(
+    monkeypatch, capsys, tmp_path
+):
+    import ts_agents.autoresearch.executor as executor_module
+    import ts_agents.autoresearch.runner as runner_module
+
+    monkeypatch.setattr(executor_module, "find_spec", lambda _name: object())
+
+    def unavailable(_model, _series, *, horizon, context_length):
+        from ts_agents.core.forecasting.foundation import FoundationModelUnavailableError
+
+        raise FoundationModelUnavailableError("weights are not cached")
+
+    monkeypatch.setattr(runner_module, "_forecast_with_foundation", unavailable)
+    code = run(
+        [
+            "autoresearch",
+            "run",
+            "foundation-smoke",
+            "--skip-plots",
+            "--output-dir",
+            str(tmp_path / "foundation-failed"),
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["result"]["status"] == "degraded"
+    assert payload["result"]["data"]["best_config"] == {}
+    trial = json.loads(
+        (tmp_path / "foundation-failed" / "trials.jsonl").read_text().splitlines()[0]
+    )
+    assert trial["status"] == "failed"
+    assert trial["error_type"] == "FoundationModelUnavailableError"
+
+
+def test_autoresearch_foundation_smoke_fails_empty_holdout():
     from ts_agents.autoresearch.runner import _evaluate_forecast_trial_with_runner
 
     row = _evaluate_forecast_trial_with_runner(
@@ -425,9 +656,9 @@ def test_autoresearch_foundation_chronos_smoke_fails_empty_holdout():
             "train": np.array([1.0, 2.0, 3.0]),
             "actual": np.array([]),
         },
-        model="amazon/chronos-t5-tiny",
+        model="chronos2_small",
         task="foundation-model-smoke",
-        trial_id_prefix="foundation-chronos",
+        trial_id_prefix="foundation",
         forecast_runner=lambda _model, _series, *, horizon: np.ones(horizon),
         horizon=18,
     )
@@ -458,35 +689,95 @@ def test_autoresearch_run_foundation_gpu_plan_materializes_plan_only_recipes(
     assert payload["result"]["status"] == "plan-only"
     assert payload["result"]["data"]["trial_count"] == 0
     assert payload["result"]["data"]["best_config"] == {}
+    plan = payload["result"]["data"]["plan"]
+    assert plan["target_hardware"] == "1x RTX PRO 6000 Blackwell"
+    assert plan["plan_only"] is True
     assert (
-        payload["result"]["data"]["plan"]["target_hardware"]
-        == "1x RTX PRO 6000 Blackwell"
+        plan["model_revisions"]["amazon/chronos-2"]
+        == "29ec3766d36d6f73f0696f85560a422f50e8498c"
     )
-    assert payload["result"]["data"]["plan"]["plan_only"] is True
-    assert payload["result"]["data"]["plan"]["model_revisions"]["amazon/chronos-2"]
+    assert set(plan["model_revisions"]) == {
+        "amazon/chronos-2",
+        "google/timesfm-2.5-200m-pytorch",
+        "ibm-granite/granite-timeseries-patchtst-fm-r1",
+        "AutonLab/MOMENT-1-large",
+    }
+    assert plan["forecasting"]["backend"] == "darts"
+    assert plan["forecasting"]["package"] == "darts[torch]>=0.47,<0.48"
+    assert set(plan["forecasting"]["zero_shot_comparators"]) == {"timesfm2p5", "patchtst_fm"}
+    assert plan["classification"]["support"] == "external_plan_only"
+    runs = plan["recommended_runs"]
+    assert [(row.get("method"), row["mode"]) for row in runs] == [
+        ("chronos2", "zero_shot_evaluation"),
+        ("chronos2", "fine_tune"),
+        ("timesfm2p5", "zero_shot_comparator"),
+        ("patchtst_fm", "zero_shot_comparator"),
+        (None, "linear_probe_then_peft_after_adapter"),
+    ]
+    assert runs[1]["darts_kwargs"] == {"enable_finetuning": True}
+    assert runs[-1]["support"] == "external_plan_only"
+    assert not any(".arrow" in item for item in plan["adapter_requirements"])
+
     assert (output_dir / "foundation_gpu_plan.json").exists()
-    assert (output_dir / "chronos_finetune_config.yaml").exists()
+    assert (output_dir / "darts_finetune_config.yaml").exists()
+    assert not (output_dir / "chronos_finetune_config.yaml").exists()
     assert (output_dir / "moment_classification_config.yaml").exists()
     assert (output_dir / "commands.sh").exists()
 
     subprocess.run(["bash", "-n", str(output_dir / "commands.sh")], check=True)
-    chronos_config = yaml.safe_load(
-        (output_dir / "chronos_finetune_config.yaml").read_text()
+    darts_config = yaml.safe_load(
+        (output_dir / "darts_finetune_config.yaml").read_text()
     )
     moment_config = yaml.safe_load(
         (output_dir / "moment_classification_config.yaml").read_text()
     )
-    assert chronos_config["adapter_required"] is True
-    assert chronos_config["prediction_length"] == 18
-    assert chronos_config["training_data_paths"] == []
+    assert darts_config["darts_class"] == "Chronos2Model"
+    assert darts_config["hub_model_name"] == "amazon/chronos-2"
+    assert darts_config["hub_model_revision"] == "29ec3766d36d6f73f0696f85560a422f50e8498c"
+    assert darts_config["enable_finetuning"] is True
+    assert darts_config["input_chunk_length"] == 512
+    assert darts_config["output_chunk_length"] == 18
+    assert darts_config["optimizer_kwargs"]["lr"] > 0
+    assert darts_config["pl_trainer_kwargs"] == {
+        "accelerator": "gpu",
+        "devices": 1,
+        "precision": "bf16-mixed",
+    }
+    assert darts_config["data"]["split"] == "train"
+    assert darts_config["adapter_required"] is False
     assert moment_config["adapter_required"] is True
     assert moment_config["dataset_path"] is None
-    assert "training/train.py" not in (output_dir / "commands.sh").read_text()
+    commands = (output_dir / "commands.sh").read_text()
+    assert "training/train.py" not in commands
+    assert "ts-agents[foundation]" in commands
+    assert "chronos" not in commands.lower()
+    assert ".arrow" not in commands
+    assert "windowed_activity_dataset.npz" in commands
+    report = (output_dir / "report.md").read_text()
+    assert "darts_finetune_config.yaml" in report
+    assert "external_plan_only" in report
 
     manifest = json.loads((output_dir / "run_manifest.json").read_text())
     assert manifest["loop"] == "foundation-gpu-plan"
     assert manifest["status"] == "plan-only"
     assert manifest["best_config"] == {}
+
+
+def test_foundation_gpu_plan_registry_uses_catalog_pins():
+    from ts_agents.autoresearch.registry import get_loop
+    from ts_agents.core.forecasting.catalog import get_method
+
+    loop = get_loop("foundation-gpu-plan")
+    chronos2 = get_method("chronos2").foundation
+    assert loop.models == ["chronos2", "timesfm2p5", "patchtst_fm", "AutonLab/MOMENT-1-large"]
+    capabilities = loop.capabilities
+    assert capabilities["forecasting_backend"] == "darts"
+    assert capabilities["forecasting_model"] == chronos2.hub_model_name
+    assert capabilities["forecasting_model_revision"] == chronos2.hub_model_revision
+    assert capabilities["forecasting_finetune"] == "Chronos2Model(enable_finetuning=True)"
+    assert capabilities["zero_shot_comparators"] == ["timesfm2p5", "patchtst_fm"]
+    assert capabilities["classification_support"].startswith("external_plan_only:")
+    assert "forecasting_finetune_fallback" not in capabilities
 
 
 def test_autoresearch_subprocess_sandbox_hook(capsys, tmp_path):
@@ -784,7 +1075,7 @@ def test_daytona_extras_context_isolated_between_loops():
         context, get_loop("classify-daytona"), SandboxMode.DAYTONA
     )
     foundation_context = _context_with_loop_environment(
-        context, get_loop("foundation-chronos-smoke"), SandboxMode.DAYTONA
+        context, get_loop("foundation-smoke"), SandboxMode.DAYTONA
     )
 
     assert context.environment == {"TS_AGENTS_DAYTONA_INSTALL_EXTRAS": "previous"}
@@ -940,3 +1231,42 @@ def test_trial_timeout_restores_expired_outer_alarm_immediately():
         signal.signal(signal.SIGALRM, previous_handler)
         if previous_timer[0] > 0:
             signal.setitimer(signal.ITIMER_REAL, previous_timer[0], previous_timer[1])
+
+
+def test_foundation_smoke_uses_and_records_configured_context(monkeypatch, tmp_path):
+    from ts_agents.autoresearch import runner
+    from ts_agents.autoresearch.registry import get_loop
+    from dataclasses import replace
+    definition = get_loop("foundation-smoke")
+    configured = replace(definition, capabilities={**definition.capabilities, "context_length": 37})
+    monkeypatch.setattr(runner, "get_loop", lambda name: configured)
+    observed = []
+    def forecast(model, series, *, horizon, context_length):
+        observed.append(context_length)
+        return np.full(horizon, series[-1])
+    monkeypatch.setattr(runner, "_forecast_with_foundation", forecast)
+    result = runner.run_autoresearch_loop(loop_name="foundation-smoke", output_dir=str(tmp_path),
+        models=["chronos2_small"], skip_plots=True)
+    assert observed == [37]
+    trial = json.loads((tmp_path / "trials.jsonl").read_text().splitlines()[0])
+    manifest = json.loads((tmp_path / "run_manifest.json").read_text())
+    assert trial["context_length"] == manifest["options"]["context_length"] == 37
+    assert manifest["options"]["resolved_context_length"] == {"chronos2_small": 37}
+    assert result["status"] == "ok"
+
+
+def test_deprecated_alias_writes_notice_with_initial_manifest(monkeypatch, tmp_path):
+    from ts_agents.autoresearch import runner
+    writes = []
+    original = runner.write_output
+    def record(content, path):
+        if Path(path).name == "run_manifest.json":
+            writes.append(json.loads(content))
+        return original(content, path)
+    monkeypatch.setattr(runner, "write_output", record)
+    result = runner.run_autoresearch_loop(loop_name="foundation-chronos-smoke", output_dir=str(tmp_path),
+        dry_run=True, skip_plots=True)
+    assert len(writes) == 1
+    assert writes[0]["warnings"] == result["warnings"]
+    assert "deprecated" in writes[0]["warnings"][0].lower()
+    assert result["status"] == "ok"

@@ -19,7 +19,7 @@ website:
           - href: walkthroughs.qmd
             text: Walkthroughs
           - href: panel-forecasting.qmd
-            text: ML and Neural Forecasting
+            text: Panel and Foundation-Model Forecasting
           - href: skills-guide.qmd
             text: Skills Guide
       - text: Reference

@@ -13,8 +13,97 @@ All notable changes to this project will be documented in this file.
   validation origins, records train-only seasonal MASE plus MAE/RMSE, produces
   future forecasts, and persists native trained models with report/plot artifacts.
   It supports CLI discovery, input-content resume checks and sandbox serialization.
+- Darts zero-shot foundation models `chronos2_small` (default), `chronos2`,
+  `timesfm2p5` and `patchtst_fm` in `forecast-series` and `forecast-panel`,
+  driven by one stdlib-only method catalog
+  (`ts_agents.core.forecasting.catalog`) with pinned checkpoint revisions.
+  Only the requested checkpoints download into `HF_HOME`; in both workflows
+  `models/<fm>/` holds only `model_spec.json` (checkpoint, pinned revision,
+  licence, resolved context; no weights) for each FM that produced forecasts,
+  and reports carry zero-shot and pretraining-overlap caveats. Uncached
+  weights without network fail as `backend_unavailable` (exit code 5) with the
+  remediation in `hint`.
+- `--context-length` on `forecast-series` and `forecast-panel` (default 512,
+  capped per model) and `--accelerator {cpu,gpu}` on `forecast-series`.
+  Horizon and context limits are validated before any work (exit code 2).
+- Agent tools `forecast_foundation` and `forecast_foundation_with_data`
+  (VERY_HIGH cost, `foundation` extra, checkpoint provenance in the payload;
+  loaded weights are released when each call returns),
+  and `forecast_panel_from_csv`, which runs the `forecast-panel` workflow with
+  `output_dir` defaulting under `TS_AGENTS_TOOL_ARTIFACT_DIR`. They are in the
+  `full` and `forecasting` bundles and the forecasting subagent.
+- `ts-agents data export-panel m4-monthly-mini --split {train,holdout,all}
+  --out PATH [--train-end YYYY-MM-01]` writes a `unique_id, ds, y` panel at
+  `MS` frequency. The dates are a synthetic alignment ending at `--train-end`.
+- Daytona workflow runs set `TS_AGENTS_DAYTONA_INSTALL_EXTRAS` automatically:
+  the workflow's required extras, the requested methods' extras, and `viz`
+  unless `--skip-plots`. This applies to every workflow; a user-set value is
+  never overridden.
+- `Dockerfile.sandbox` accepts a `TS_AGENTS_EXTRAS` build argument, and
+  `build_docker_sandbox.sh` takes extras as an optional second argument. The
+  default image stays base-only and no weights are baked in.
+- `workflow show forecast-panel` / `forecast-series` capabilities report
+  `foundation_models`, `zero_shot_methods`, `method_extras` and
+  `foundation_model_checkpoints`.
 
 ### Fixed
+
+- Reject unknown forecasting option names, empty panel method selections and missing
+  requested columns; keep existing JSON file paths ahead of inline parsing.
+- Preserve native model directories and durable manifest/artifact paths across
+  Docker, subprocess and remote panel-tool execution; normalize host CSV inputs
+  before dispatch and install required Daytona extras for tools.
+- Apply resource defaults without mutating caller contexts. Foundation inference
+  preserves stdout/logger state, retains one model across repeated agent calls,
+  and uses one checkpoint for series validation and future forecasts.
+- Record the context actually used by autoresearch, validate checkpoint-specific
+  window limits, align method schema defaults, and include alias notices in the
+  initial manifest rather than an extra rewrite.
+
+### Changed
+
+- **Breaking:** the `foundation` extra is now `darts[torch]>=0.47,<0.48` plus
+  `torch`, replacing `chronos-forecasting`; `all` follows. Base and
+  recommended profiles are unchanged.
+- **Breaking:** the `foundation-chronos-smoke` autoresearch loop is renamed
+  `foundation-smoke` (scope `darts_foundation_zero_shot_smoke`). It runs
+  `chronos2_small` by default, and `--models` accepts any of the four
+  checkpoints. The weekly CI job is now `darts-fm-smoke`, with a dispatch
+  `model` input.
+- **Breaking:** `foundation-gpu-plan` writes `darts_finetune_config.yaml`
+  (`Chronos2Model` with `enable_finetuning`, `amazon/chronos-2` pinned) with
+  TimesFM 2.5 and PatchTST-FM zero-shot comparators. MOMENT stays in the plan
+  labelled `external_plan_only` (requires `momentfm`, which no extra installs).
+- `forecast-panel` availability is always `available` (the seasonal baseline
+  works on every install). The ML, neural, foundation-model and plot families
+  are reported under `optional_features`, and the install hint covers only
+  missing families. `metrics.json` gains `foundation_models` and
+  `options.resolved_context_length` when FMs are requested.
+- `compare_forecasting_methods` reports unknown or panel-only methods as
+  error entries instead of skipping them silently.
+- Remote workflow artifact staging bundles `models/` last, so metrics, reports
+  and manifests are staged first when size limits apply.
+- `inspect-series` suggests `forecast-series --methods
+  seasonal_naive,chronos2_small` for series shorter than 64 points.
+
+### Deprecated
+
+- The `foundation-chronos-smoke` loop name. It still resolves in
+  `autoresearch show` and `run` (with a warning in the payload and manifest)
+  but is no longer listed.
+
+### Removed
+
+- The `chronos-forecasting` dependency and its chronos-t5 models, the
+  `chronos_finetune_config.yaml` gpu-plan artifact and the GluonTS `.arrow`
+  adapter requirement.
+
+### Fixed
+
+- Foundation-model inputs reject multidimensional histories and contexts outside
+  the finite Float32 range before loading weights. `forecast-series` saves the
+  actual validation configuration for nonwinning foundation models and both
+  validation/future configurations for a winning foundation model.
 
 - Large inline JSON inputs no longer fail filesystem filename-length probes.
 - `forecast-panel` reruns and `--resume` replace each `models/<method>/`

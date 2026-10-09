@@ -102,8 +102,33 @@ with tempfile.TemporaryDirectory(prefix="wheel-cli-", dir=Path.cwd()) as directo
         manifest = json.loads(Path(workflow["data"]["manifest_path"]).read_text())
         assert manifest["resume_identity"]["input_sha256"]
     invoke("autoresearch", "run", "forecast-daytona", "--profile", "smoke", "--models", "seasonal_naive", "--json")
+
+    # The base wheel ships no Darts: foundation models must be reported as an
+    # optional feature behind the foundation extra, and the smoke loop must
+    # still plan without importing it.
+    panel_workflow = invoke("workflow", "show", "forecast-panel", "--json")
+    features = {feature["name"]: feature for feature in panel_workflow["availability"]["optional_features"]}
+    foundation_feature = features["foundation_models"]
+    assert foundation_feature["available"] is False, foundation_feature
+    assert foundation_feature["required_extras"] == ["foundation"], foundation_feature
+    smoke = invoke("autoresearch", "run", "foundation-smoke", "--dry-run", "--json")
+    assert smoke["data"]["trial_count"] == 1 and not smoke["warnings"], smoke
+    smoke_manifest = json.loads(Path(smoke["data"]["manifest_path"]).read_text())
+    assert smoke_manifest["options"]["models"] == ["chronos2_small"], smoke_manifest["options"]
+
+    exported = invoke("data", "export-panel", "m4-monthly-mini", "--split", "train",
+                      "--out", str(workdir / "m4_panel.csv"), "--json")
+    assert exported["n_series"] == 5 and exported["columns"] == ["unique_id", "ds", "y"], exported
+    panel = invoke("workflow", "run", "forecast-panel", "--input", exported["path"], "--freq", "MS",
+                   "--horizon", "18", "--season-length", "12", "--n-windows", "2",
+                   "--methods", "seasonal_naive", "--skip-plots", "--json")
+    for artifact in panel["artifacts"]:
+        assert Path(artifact["path"]).is_absolute() and Path(artifact["path"]).is_file(), artifact
+
     catalog = invoke("runs", "list", "--json")
-    assert {"inspect-series", "forecast-series", "forecast-daytona"} <= {run["name"] for run in catalog["runs"]}
+    assert {"inspect-series", "forecast-series", "forecast-panel", "forecast-daytona"} <= {
+        run["name"] for run in catalog["runs"]
+    }
     invoke("runs", "show", forecast["data"]["run_id"], "--json")
     preview = invoke("runs", "gc", "--older-than", "30", "--json")
     assert preview["dry_run"] is True and preview["matched"] == 0

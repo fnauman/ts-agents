@@ -95,10 +95,13 @@ You can help users with:
    - Holt-Winters: Exponential smoothing for forecasting-ready decomposition
 
 2. **Forecasting**:
+   - Seasonal naive: The baseline every other model must beat
    - ARIMA: Auto-regressive integrated moving average
    - ETS: Exponential smoothing with automatic model selection
    - Theta: Simple but effective (M3 competition winner)
    - Ensemble: Combine multiple models for robust predictions
+   - Global GBM/NHITS panels and Darts zero-shot foundation models
+     (Chronos-2, TimesFM 2.5, PatchTST-FM) when their optional extras are installed
 
 3. **Pattern Detection**:
    - Peak detection and counting
@@ -150,9 +153,9 @@ GUIDELINES_PROMPT = """
    file, run, or variable, ask for it. Only suggest domain-specific bundled
    data when the prompt explicitly includes that context.
 
-8. **Consider Computational Cost**: Some tools (like HC2 classification or
-   ensemble forecasting) are computationally expensive. Mention this before
-   running them.
+8. **Consider Computational Cost**: Some tools (like HC2 classification,
+   ensemble forecasting, foundation-model or panel forecasting) are
+   computationally expensive. Mention this before running them.
 
 9. **Compare When Useful**: When the user wants to understand which method is
    best, use comparison tools to evaluate multiple approaches.
@@ -200,8 +203,10 @@ FULL_BUNDLE_ADDITIONS = """
 ## Tool Set: Full (25+ tools)
 
 You have access to the complete toolkit including advanced classification,
-multiple decomposition methods, comprehensive forecasting, and all pattern
-detection tools. Consider computational cost when choosing tools."""
+multiple decomposition methods, comprehensive forecasting (seasonal naive,
+ARIMA, ETS, Theta, Ensemble; global GBM/NHITS panels and Darts zero-shot
+foundation models via optional extras), and all pattern detection tools.
+Consider computational cost and tool availability when choosing tools."""
 
 
 def get_bundle_prompt(bundle_name: str) -> str:

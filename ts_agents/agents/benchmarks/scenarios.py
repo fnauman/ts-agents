@@ -175,6 +175,7 @@ register_scenario(BenchmarkScenario(
     query="Forecast the next 50 time steps of bx001_real for Re200Rm200",
     expected=ExpectedOutcome(
         required_tools=["forecast_arima", "forecast_ets", "forecast_theta", "forecast_ensemble"],
+        optional_tools=["forecast_seasonal_naive", "forecast_foundation_with_data"],
         must_contain=["forecast"],
         expects_number=True,
         min_tool_calls=1,
@@ -255,7 +256,10 @@ register_scenario(BenchmarkScenario(
     query="What is the best forecasting method for bx001_real in Re200Rm200? Compare at least 2 methods.",
     expected=ExpectedOutcome(
         required_tools=["compare_forecasts"],
-        optional_tools=["forecast_arima", "forecast_ets", "forecast_theta", "forecast_ensemble"],
+        optional_tools=[
+            "forecast_arima", "forecast_ets", "forecast_theta", "forecast_ensemble",
+            "forecast_seasonal_naive", "forecast_foundation_with_data",
+        ],
         must_contain=["arima", "ets"],
         reasoning_should_contain=["compare", "confidence", "availability"],
         reasoning_must_not_contain=["guarantee"],

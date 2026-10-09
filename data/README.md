@@ -96,6 +96,25 @@ This subset is intentionally small enough for deterministic tests. It is useful
 for workflow validation, but it is **not** meant to stand in for the full M4
 benchmark.
 
+### Exporting it as a forecast-panel input
+
+`ts-agents data export-panel` writes the mini-panel as a CSV with exactly
+`unique_id`, `ds`, `y` at month-start (`MS`) frequency:
+
+```bash
+ts-agents data export-panel m4-monthly-mini --split train --out panel.csv --json
+ts-agents data export-panel m4-monthly-mini --split holdout --out holdout.csv
+ts-agents workflow run forecast-panel --input panel.csv --freq MS \
+  --horizon 18 --season-length 12 --methods seasonal_naive
+```
+
+`--split` is `train` (default), `holdout` or `all`. The source stores integer
+time indexes, so the dates are a **synthetic alignment**: every series' last
+train observation is placed at `--train-end` (default `2015-06-01`, which must
+be a month start) and the holdout covers the next 18 months. They are not the
+original M4 calendar dates. Keep the holdout out of `forecast-panel` input and
+use it only to score the saved `forecast.csv`.
+
 ## `demo_labeled_stream.csv`
 
 A small single-subject demo stream used for quick workflow demos and

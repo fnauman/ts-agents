@@ -190,6 +190,10 @@ def _recommend_next_steps(
         steps.append("Inspect decomposition or changepoints because the series shows strong short-lag dependence.")
     if length < 64:
         steps.append("Treat periodicity findings as low-confidence because the series is short.")
+        steps.append(
+            "For short histories, compare forecast-series --methods seasonal_naive,chronos2_small "
+            "(zero-shot foundation model; needs ts-agents[foundation])."
+        )
     if not steps:
         steps.append("Use forecast-series as the next baseline workflow if forecasting is the downstream task.")
     return steps

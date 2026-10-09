@@ -11,6 +11,7 @@ skills/
   activity-recognition/SKILL.md       # End-to-end windowing/classification workflow
   forecasting/SKILL.md                # Forecasting methods
   forecasting/SKILL-pro.md            # Professional M4 benchmark workflow
+  panel-forecasting/SKILL.md          # Panel GBM/NHITS and zero-shot foundation models
   diagnostics/SKILL.md                # Quick EDA diagnostics
   decomposition/SKILL.md              # Decomposition methods
   classification/SKILL.md             # Time series classification

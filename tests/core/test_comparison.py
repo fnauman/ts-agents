@@ -238,6 +238,54 @@ class TestForecastingComparison:
         assert result.rankings["rmse"] == ["seasonal_naive"]
         assert result.metrics["seasonal_naive"]["rmse"] == pytest.approx(0.0)
 
+    @pytest.mark.parametrize("method", ["not_a_method", "lightgbm"])
+    def test_unknown_or_panel_only_method_yields_error_entry(self, method):
+        """Unknown methods are reported instead of silently skipped."""
+        from ts_agents.core.comparison import compare_forecasting_methods
+
+        x = np.tile(np.arange(1, 5, dtype=float), 3)
+        result = compare_forecasting_methods(
+            x,
+            horizon=4,
+            methods=["seasonal_naive", method],
+            validation_size=4,
+            season_length=4,
+        )
+
+        assert result.methods == ["seasonal_naive"]
+        assert result.metrics[method]["error_type"] == "ValueError"
+        assert result.metrics[method]["error"].startswith("Unsupported forecasting method")
+        assert result.rankings["rmse"] == ["seasonal_naive"]
+
+    def test_mocked_foundation_method_is_scored(self, monkeypatch):
+        """Foundation models go through the catalog forecaster with their own options."""
+        from ts_agents.core.comparison import compare_forecasting_methods
+        from ts_agents.core.forecasting import foundation
+
+        calls = []
+
+        def fake_forecast_arrays(arrays, *, model, horizon, context_length=None, accelerator="cpu", seed=0):
+            calls.append((model, horizon, context_length, len(arrays[0])))
+            return [np.full(horizon, float(arrays[0][-1]))]
+
+        monkeypatch.setattr(foundation, "forecast_arrays", fake_forecast_arrays)
+        x = np.tile(np.arange(1, 5, dtype=float), 3)
+        result = compare_forecasting_methods(
+            x,
+            horizon=4,
+            methods=["seasonal_naive", "chronos2_small"],
+            validation_size=4,
+            season_length=4,
+            context_length=6,
+        )
+
+        # season_length is dropped for the foundation model; context_length reaches it.
+        assert calls == [("chronos2_small", 4, 6, 8)]
+        assert result.methods == ["seasonal_naive", "chronos2_small"]
+        assert result.metrics["chronos2_small"]["mae"] == pytest.approx(1.5)
+        assert result.rankings["rmse"][0] == "seasonal_naive"
+        assert "Zero-shot foundation model" in result.recommendation
+
 
 class TestGenericCompare:
     """Tests for the generic compare_methods function."""

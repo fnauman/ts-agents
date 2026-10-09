@@ -137,6 +137,19 @@ class TestBundles:
             assert "tools" in info
             assert info["count"] == len(info["tools"])
 
+    def test_foundation_and_panel_tools_only_in_forecasting_heavy_bundles(self):
+        """Heavy optional-extra tools join full/forecasting bundles but stay out of light ones."""
+        from ts_agents.tools.bundles import get_bundle, get_bundle_names, get_subagent_bundle
+
+        new_tools = {"forecast_foundation_with_data", "forecast_panel_from_csv"}
+
+        assert new_tools <= set(get_bundle_names("full"))
+        assert new_tools <= set(get_bundle_names("forecasting"))
+        assert new_tools <= {tool.name for tool in get_subagent_bundle("forecasting")}
+        assert new_tools <= {tool.name for tool in get_bundle("forecasting")}
+        for light in ("minimal", "standard", "demo", "demo_forecasting", "orchestrator"):
+            assert not new_tools & set(get_bundle_names(light)), light
+
 
 class TestCustomBundles:
     """Tests for custom bundle creation."""

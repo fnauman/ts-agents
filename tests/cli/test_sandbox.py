@@ -41,8 +41,10 @@ def test_capabilities_json_returns_bootstrap_surface(capsys):
 
 
 def test_detect_install_profile_requires_foundation_for_all(monkeypatch):
+    # torch stays available so the neural extra is unaffected; only the Darts
+    # stack behind the foundation extra is missing.
     def fake_module_is_available(module_name):
-        return module_name not in {"chronos", "torch"}
+        return module_name not in {"darts", "huggingface_hub"}
 
     monkeypatch.setattr(cli_main, "_module_is_available", fake_module_is_available)
 
@@ -50,7 +52,24 @@ def test_detect_install_profile_requires_foundation_for_all(monkeypatch):
 
     assert install_profile["current_profile"] == "recommended"
     assert install_profile["extras"]["foundation"]["available"] is False
+    assert install_profile["extras"]["foundation"]["missing_dependencies"] == [
+        "darts",
+        "huggingface_hub",
+    ]
+    assert install_profile["extras"]["neural"]["available"] is True
     assert "foundation" in install_profile["profiles"]["all"]["extras"]
+
+
+def test_install_profile_foundation_extra_tracks_catalog_modules():
+    from ts_agents.core.forecasting.catalog import FOUNDATION_MODULES
+
+    install_profile = cli_main._detect_install_profile()
+    foundation = install_profile["extras"]["foundation"]
+
+    assert cli_main._INSTALL_EXTRA_METADATA["foundation"]["dependencies"] == list(FOUNDATION_MODULES)
+    assert foundation["install_spec"] == "ts-agents[foundation]"
+    assert "Darts" in foundation["description"]
+    assert "chronos" not in cli_main._INSTALL_EXTRA_METADATA["foundation"]["dependencies"]
 
 
 def test_capabilities_text_reports_install_profile_on_its_own_line(capsys):

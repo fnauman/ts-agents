@@ -124,6 +124,147 @@ class TestToolRegistry:
         assert availability["install_hint"] is None
         assert availability["optional_features"][0]["available"] is False
 
+    def test_foundation_tools_registered_with_heavy_limits(self):
+        """Both foundation tools are VERY_HIGH cost with raised sandbox limits."""
+        from ts_agents.core.forecasting.catalog import (
+            DEFAULT_FOUNDATION_MODEL,
+            foundation_methods,
+        )
+        from ts_agents.tools.registry import ComputationalCost, ToolCategory, ToolRegistry
+
+        for name in ("forecast_foundation", "forecast_foundation_with_data"):
+            tool = ToolRegistry.get(name)
+            params = {param.name: param for param in tool.parameters}
+
+            assert tool.category == ToolCategory.FORECASTING
+            assert tool.cost == ComputationalCost.VERY_HIGH
+            assert tool.dependencies == ["darts", "torch", "huggingface-hub"]
+            assert (tool.timeout_seconds, tool.memory_mb, tool.disk_mb) == (900, 4096, 2048)
+            assert params["model"].default == DEFAULT_FOUNDATION_MODEL == "chronos2_small"
+            assert "context_length" in params
+            for model in foundation_methods("series"):
+                assert model in params["model"].description
+            assert "Only the chosen model" in params["model"].description
+
+        series_params = [p.name for p in ToolRegistry.get("forecast_foundation").parameters]
+        assert "accelerator" in series_params
+
+    def test_foundation_tool_availability_reports_foundation_extra_only(self, monkeypatch):
+        """torch is shared with [neural], but the FM tool only needs [foundation]."""
+        import ts_agents.tools.registry as registry_mod
+        from ts_agents.tools.registry import ToolRegistry, tool_availability
+
+        missing = {"darts", "torch", "huggingface-hub"}
+        real_available = registry_mod._module_available
+        monkeypatch.setattr(
+            registry_mod,
+            "_module_available",
+            lambda name: False if name in missing else real_available(name),
+        )
+
+        availability = tool_availability(ToolRegistry.get("forecast_foundation_with_data"))
+
+        assert availability["available"] is False
+        assert availability["missing_dependencies"] == ["darts", "torch", "huggingface-hub"]
+        assert availability["required_extras"] == ["foundation"]
+        assert "ts-agents[foundation]" in availability["install_hint"]
+
+    def test_dependency_maps_cover_panel_and_foundation_backends(self):
+        """New optional backends map to their extras and import names."""
+        from ts_agents.tools.registry import (
+            ToolMetadata,
+            ToolCategory,
+            ComputationalCost,
+            _dependency_import_name,
+            dependency_required_extras,
+            tool_install_hint,
+            tool_required_extras,
+        )
+
+        assert _dependency_import_name("huggingface-hub") == "huggingface_hub"
+        assert dependency_required_extras("mlforecast") == ["ml"]
+        assert dependency_required_extras("lightgbm") == ["ml"]
+        assert dependency_required_extras("neuralforecast") == ["neural"]
+        assert dependency_required_extras("darts") == ["foundation"]
+        assert dependency_required_extras("huggingface-hub") == ["foundation"]
+        assert dependency_required_extras("torch") == ["neural", "foundation"]
+        assert dependency_required_extras("scikit-learn") == ["classification", "ml"]
+
+        def tool(dependencies):
+            return ToolMetadata(
+                name="fake",
+                description="fake",
+                category=ToolCategory.FORECASTING,
+                cost=ComputationalCost.LOW,
+                core_function=lambda: None,
+                dependencies=dependencies,
+            )
+
+        # A shared dependency on its own reports its primary extra.
+        assert tool_required_extras(tool(["torch"])) == ["neural"]
+        assert tool_required_extras(tool(["neuralforecast", "torch"])) == ["neural"]
+        assert tool_required_extras(tool(["numpy", "scikit-learn"])) == ["classification"]
+        assert tool_required_extras(tool(["mlforecast", "scikit-learn"])) == ["ml"]
+        hint = tool_install_hint(tool(["torch"]))
+        assert "ts-agents[neural]" in hint and "ts-agents[foundation]" in hint
+
+    def test_forecast_panel_from_csv_registration(self):
+        """The panel tool is base-available and lists optional families from the catalog."""
+        from ts_agents.core.forecasting.catalog import methods_for
+        from ts_agents.tools.registry import ComputationalCost, ToolRegistry, tool_availability
+
+        tool = ToolRegistry.get("forecast_panel_from_csv")
+        params = {param.name: param for param in tool.parameters}
+
+        assert tool.cost == ComputationalCost.VERY_HIGH
+        assert tool.dependencies == []
+        assert tool.optional_dependencies == ["mlforecast", "neuralforecast", "darts"]
+        assert (tool.timeout_seconds, tool.memory_mb) == (1800, 8192)
+        assert [name for name, param in params.items() if not param.optional] == [
+            "input_path",
+            "freq",
+        ]
+        assert params["methods"].default == "seasonal_naive"
+        for method in methods_for("panel"):
+            assert method in params["methods"].description
+            assert method in tool.optional_dependency_note
+        assert "[ml]" in tool.optional_dependency_note
+        assert "[neural]" in tool.optional_dependency_note
+        assert "[foundation]" in tool.optional_dependency_note
+
+        availability = tool_availability(tool)
+        assert availability["available"] is True
+        assert availability["install_hint"] is None
+        features = {f["name"]: f["required_extras"] for f in availability["optional_features"]}
+        assert features == {
+            "mlforecast_backend": ["ml"],
+            "neuralforecast_backend": ["neural"],
+            "darts_backend": ["foundation"],
+        }
+
+    def test_registry_and_agent_prompts_do_not_import_foundation_stacks(self):
+        """Registry, bundles and agent prompts must not import darts/torch/huggingface_hub."""
+        import json
+        import subprocess
+
+        code = (
+            "import json, sys\n"
+            "from ts_agents.tools.registry import ToolRegistry, tool_availability\n"
+            "from ts_agents.tools.bundles import get_bundle, get_subagent_bundle\n"
+            "import ts_agents.agents.deep.subagents.forecasting\n"
+            "import ts_agents.agents.simple.prompts\n"
+            "for tool in ToolRegistry.list_all():\n"
+            "    tool_availability(tool)\n"
+            "get_bundle('full'); get_subagent_bundle('forecasting')\n"
+            "heavy = {'darts', 'torch', 'huggingface_hub', 'pytorch_lightning', 'lightning'}\n"
+            "print(json.dumps(sorted(m for m in sys.modules if m.split('.')[0] in heavy)))\n"
+        )
+        completed = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, check=True
+        )
+
+        assert json.loads(completed.stdout.strip().splitlines()[-1]) == []
+
     def test_segment_changepoint_with_data_has_expected_params(self):
         """Test segment_changepoint_with_data exposes core controls + compatibility alias."""
         from ts_agents.tools.registry import ToolRegistry

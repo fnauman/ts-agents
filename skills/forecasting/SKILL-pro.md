@@ -24,6 +24,10 @@ Use this skill when the user wants:
 
 If the user wants to forecast an arbitrary repo series by `run_id` + `variable`,
 use [`SKILL.md`](./SKILL.md) instead.
+To compare global GBM/NHITS or zero-shot foundation models on this panel, use
+the `panel-forecasting` skill: export only the train split with
+`ts-agents data export-panel m4-monthly-mini --split train --out panel.csv` and
+keep the 18-step holdout outside the `forecast-panel` input.
 
 ## Fixed workflow contract
 This workflow uses the vendored reference dataset:

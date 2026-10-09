@@ -27,6 +27,45 @@ def test_workflow_list_json_returns_envelope(capsys):
     assert "activity-recognition" in workflow_names
     assert "inspect-series" in workflow_names
     assert "forecast-series" in workflow_names
+    assert "forecast-panel" in workflow_names
+
+
+def test_workflow_show_forecast_panel_reports_foundation_models(capsys):
+    from ts_agents.core.forecasting.catalog import foundation_methods, methods_for
+
+    assert run(["workflow", "show", "forecast-panel", "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)["result"]
+    capabilities = result["capabilities"]
+    assert capabilities["foundation_models"] is True
+    assert capabilities["zero_shot_methods"] == foundation_methods("panel")
+    assert capabilities["method_extras"]["chronos2_small"] == "foundation"
+    assert capabilities["method_extras"]["seasonal_naive"] is None
+    checkpoint = capabilities["foundation_model_checkpoints"]["chronos2_small"]
+    assert checkpoint["hub_model_name"] == "autogluon/chronos-2-small"
+    assert result["availability"]["status"] == "available"
+    features = {feature["name"]: feature for feature in result["availability"]["optional_features"]}
+    assert features["foundation_models"]["required_extras"] == ["foundation"]
+    options = {option["name"]: option for option in result["options"]}
+    assert options["methods"]["choices"] == methods_for("panel")
+    assert "context_length" in options
+    assert any("chronos2_small" in example for example in result["examples"])
+
+
+def test_workflow_show_forecast_series_lists_foundation_methods(capsys):
+    from ts_agents.core.forecasting.catalog import methods_for
+
+    assert run(["workflow", "show", "forecast-series", "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)["result"]
+    assert result["capabilities"]["supported_methods"] == methods_for("series")
+    assert result["capabilities"]["foundation_models"] is True
+    availability = result["availability"]
+    features = {feature["name"] for feature in availability["optional_features"]}
+    assert {"foundation_models", "plots"} <= features
+    # Missing foundation models never change forecast-series status on their own.
+    expected = "available" if "statsforecast" not in availability["missing_dependencies"] else "degraded"
+    assert availability["status"] == expected
+    options = {option["name"] for option in result["options"]}
+    assert {"context_length", "accelerator"} <= options
 
 
 def test_workflow_show_json_returns_machine_metadata(capsys):
@@ -767,6 +806,56 @@ def test_workflow_executor_skips_host_availability_gate_for_docker(monkeypatch):
     assert probe_calls["backend"] is executor.backends[SandboxMode.DOCKER]
 
 
+@pytest.mark.parametrize(
+    ("workflow_name", "runner_kwargs", "expected"),
+    [
+        ("forecast-panel", {"methods": ["lightgbm", "chronos2"], "skip_plots": False}, "foundation,ml,viz"),
+        ("forecast-panel", {"methods": ["seasonal_naive"], "skip_plots": True}, None),
+        ("forecast-series", {"methods": ["seasonal_naive", "arima"], "skip_plots": False}, "forecasting,viz"),
+        ("forecast-series", {"methods": ["chronos2_small"], "skip_plots": True}, "forecasting,foundation"),
+    ],
+)
+def test_daytona_workflow_runs_install_extras_for_requested_methods(
+    monkeypatch, workflow_name, runner_kwargs, expected
+):
+    from ts_agents.tools.executor import ExecutionContext, SandboxMode
+    from ts_agents.workflows import get_workflow
+    from ts_agents.workflows.executor import _context_with_workflow_extras
+
+    monkeypatch.delenv("TS_AGENTS_DAYTONA_INSTALL_EXTRAS", raising=False)
+    context = ExecutionContext(sandbox_mode=SandboxMode.DAYTONA, environment={"KEEP": "1"})
+    updated = _context_with_workflow_extras(
+        context, get_workflow(workflow_name), runner_kwargs, SandboxMode.DAYTONA
+    )
+
+    assert context.environment == {"KEEP": "1"}
+    assert updated.environment.get("TS_AGENTS_DAYTONA_INSTALL_EXTRAS") == expected
+    assert updated.environment["KEEP"] == "1"
+    local = _context_with_workflow_extras(
+        context, get_workflow(workflow_name), runner_kwargs, SandboxMode.LOCAL
+    )
+    assert local is context
+
+
+def test_daytona_workflow_extras_preserve_user_setting(monkeypatch):
+    from ts_agents.tools.executor import ExecutionContext, SandboxMode
+    from ts_agents.workflows import get_workflow
+    from ts_agents.workflows.executor import _context_with_workflow_extras
+
+    workflow = get_workflow("forecast-panel")
+    kwargs = {"methods": ["chronos2_small"], "skip_plots": False}
+    monkeypatch.delenv("TS_AGENTS_DAYTONA_INSTALL_EXTRAS", raising=False)
+    context = ExecutionContext(
+        sandbox_mode=SandboxMode.DAYTONA,
+        environment={"TS_AGENTS_DAYTONA_INSTALL_EXTRAS": "all"},
+    )
+    assert _context_with_workflow_extras(context, workflow, kwargs, SandboxMode.DAYTONA) is context
+
+    monkeypatch.setenv("TS_AGENTS_DAYTONA_INSTALL_EXTRAS", "recommended")
+    bare = ExecutionContext(sandbox_mode=SandboxMode.DAYTONA)
+    assert _context_with_workflow_extras(bare, workflow, kwargs, SandboxMode.DAYTONA) is bare
+
+
 def test_run_serialized_workflow_bundles_remote_artifacts(monkeypatch, tmp_path):
     import ts_agents.workflows.executor as workflow_executor_mod
 
@@ -1208,6 +1297,233 @@ def test_workflow_run_forecast_series_writes_expected_files(monkeypatch, capsys,
     assert str(output_dir / "forecast.csv") in artifact_paths
     assert str(output_dir / "report.md") in artifact_paths
     assert str(output_dir / "run_manifest.json") in artifact_paths
+
+
+def _fake_series_foundation(monkeypatch):
+    from ts_agents.core.forecasting import foundation
+
+    calls = []
+    cleared = []
+
+    def fake_forecast_arrays(arrays, *, model, horizon, context_length=None, accelerator="cpu", seed=0):
+        calls.append(dict(model=model, horizon=horizon, context_length=context_length, accelerator=accelerator))
+        return [np.full(horizon, float(np.asarray(arrays[0])[-1])) for _ in arrays]
+
+    monkeypatch.setattr(foundation, "forecast_arrays", fake_forecast_arrays)
+    monkeypatch.setattr(foundation, "clear_model_cache", lambda: cleared.append(True))
+    return calls, cleared
+
+
+def test_workflow_run_forecast_series_mocked_foundation_model(monkeypatch, capsys, tmp_path):
+    calls, cleared = _fake_series_foundation(monkeypatch)
+    output_dir = tmp_path / "forecast"
+    code = run(
+        [
+            "workflow",
+            "run",
+            "forecast-series",
+            "--input-json",
+            json.dumps({"series": [float(i % 4) for i in range(24)]}),
+            "--horizon",
+            "4",
+            "--methods",
+            "seasonal_naive,chronos2_small",
+            "--season-length",
+            "4",
+            "--skip-plots",
+            "--output-dir",
+            str(output_dir),
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    data = payload["result"]["data"]
+    assert data["valid_methods"] == ["seasonal_naive", "chronos2_small"]
+    assert data["best_method"] == "seasonal_naive"
+    assert data["foundation_models"]["chronos2_small"]["hub_model_name"] == "autogluon/chronos-2-small"
+    assert data["foundation_models"]["chronos2_small"]["input_chunk_length"] == [1, 512]
+    assert calls == [dict(model="chronos2_small", horizon=4, context_length=None, accelerator="cpu")]
+    assert cleared == [True]
+    report = (output_dir / "report.md").read_text()
+    assert "zero-shot" in report
+    assert "autogluon/chronos-2-small@" in report and "licence" in report
+    # Provenance is persisted, not only returned in the envelope.
+    spec = json.loads((output_dir / "models" / "chronos2_small" / "model_spec.json").read_text())
+    assert spec == data["foundation_models"]["chronos2_small"]
+    assert spec["weights_saved"] is False and spec["license"]
+    artifact_paths = {artifact["path"] for artifact in payload["result"]["artifacts"]}
+    assert str(output_dir / "models" / "chronos2_small" / "model_spec.json") in artifact_paths
+    manifest = json.loads((output_dir / "run_manifest.json").read_text())
+    assert "context_length" not in manifest["resume_identity"]["options"]
+
+
+def _run_forecast_series_cli(tmp_path, methods, *extra_args):
+    output_dir = tmp_path / "forecast"
+    code = run(
+        [
+            "workflow",
+            "run",
+            "forecast-series",
+            "--input-json",
+            json.dumps({"series": [float(i % 4) for i in range(24)]}),
+            "--horizon",
+            "4",
+            "--methods",
+            methods,
+            "--season-length",
+            "4",
+            *extra_args,
+            "--skip-plots",
+            "--output-dir",
+            str(output_dir),
+            "--json",
+        ]
+    )
+    return code, output_dir
+
+
+def test_forecast_series_failed_foundation_model_is_not_reported_as_run(monkeypatch, capsys, tmp_path):
+    from ts_agents.core.forecasting import foundation
+
+    def unavailable(arrays, **kwargs):
+        raise foundation.FoundationModelUnavailableError(
+            "weights for autogluon/chronos-2@abc are not cached and could not be downloaded"
+        )
+
+    monkeypatch.setattr(foundation, "forecast_arrays", unavailable)
+    code, output_dir = _run_forecast_series_cli(tmp_path, "seasonal_naive,chronos2")
+
+    assert code == 0
+    data = json.loads(capsys.readouterr().out)["result"]["data"]
+    assert data["failed_methods"] == ["chronos2"]
+    assert "foundation_models" not in data
+    report = (output_dir / "report.md").read_text()
+    assert "ran zero-shot" not in report
+    assert "Requested but failed" in report and "chronos2" in report
+    assert not (output_dir / "models").exists()
+
+
+def test_forecast_series_all_weights_unavailable_is_typed_backend_unavailable(
+    monkeypatch, capsys, tmp_path
+):
+    from ts_agents.core.forecasting import foundation
+
+    def unavailable(arrays, **kwargs):
+        raise foundation.FoundationModelUnavailableError(
+            "weights for autogluon/chronos-2-small@abc are not cached and could not be "
+            "downloaded; pre-populate HF_HOME"
+        )
+
+    monkeypatch.setattr(foundation, "forecast_arrays", unavailable)
+    code, _ = _run_forecast_series_cli(tmp_path, "chronos2_small")
+
+    assert code == 5
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert error["code"] == "backend_unavailable"
+    assert error["retryable"] is True
+    assert "HF_HOME" in error["hint"]
+    assert error["details"]["exception_type"] == "FoundationModelUnavailableError"
+
+
+def test_forecast_series_rejects_invalid_context_length_without_foundation_models(capsys, tmp_path):
+    code, output_dir = _run_forecast_series_cli(
+        tmp_path, "seasonal_naive", "--context-length", "0"
+    )
+
+    assert code == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "validation_error"
+    assert "context_length" in payload["error"]["message"]
+
+
+def test_forecast_series_foundation_options_are_forwarded(monkeypatch, tmp_path):
+    from ts_agents.workflows.forecast import run_forecast_series_workflow
+
+    calls, _ = _fake_series_foundation(monkeypatch)
+    series = SeriesInput(series=np.arange(40, dtype=float), source_type="inline_json", label="ramp")
+    payload = run_forecast_series_workflow(
+        series,
+        output_dir=str(tmp_path / "run"),
+        horizon=6,
+        validation_size=4,
+        methods=["chronos2_small"],
+        context_length=16,
+        accelerator="cpu",
+        skip_plots=True,
+    )
+
+    # Holdout validation at 4 steps, then the final forecast at 6 steps.
+    assert [(call["horizon"], call["context_length"]) for call in calls] == [(4, 16), (6, 16)]
+    assert payload.data["best_method"] == "chronos2_small"
+    assert len(payload.data["forecast"]) == 6
+
+    spec = payload.data["foundation_models"]["chronos2_small"]
+    assert spec["forecast_phase"] == "future"
+    assert spec["output_chunk_length"] == 6
+    assert spec["validation_spec"]["output_chunk_length"] == 6
+    assert spec["validation_spec"]["forecast_horizon"] == 4
+    assert spec["input_chunk_length"] == [1, 16]
+
+
+def test_forecast_series_nonwinning_foundation_spec_records_validation_horizon(monkeypatch, tmp_path):
+    from ts_agents.workflows.forecast import run_forecast_series_workflow
+
+    calls, _ = _fake_series_foundation(monkeypatch)
+    series = SeriesInput(
+        series=np.tile(np.arange(4.0), 10), source_type="inline_json", label="seasonal"
+    )
+    payload = run_forecast_series_workflow(
+        series, output_dir=str(tmp_path / "run"), horizon=3, validation_size=4,
+        methods=["seasonal_naive", "chronos2_small"], season_length=4, skip_plots=True,
+    )
+    assert payload.data["best_method"] == "seasonal_naive"
+    assert [call["horizon"] for call in calls] == [4]
+    spec = payload.data["foundation_models"]["chronos2_small"]
+    assert spec["forecast_phase"] == "validation"
+    assert spec["output_chunk_length"] == 4
+    assert "validation_spec" not in spec
+    persisted = json.loads((tmp_path / "run/models/chronos2_small/model_spec.json").read_text())
+    assert persisted == spec
+
+
+@pytest.mark.parametrize(
+    ("extra_args", "expected_code"),
+    [(["--horizon", "2000"], 2), (["--horizon", "4"], 3)],
+)
+def test_workflow_run_forecast_series_foundation_error_paths(
+    monkeypatch, capsys, tmp_path, extra_args, expected_code
+):
+    from ts_agents.core.forecasting import catalog
+
+    monkeypatch.setattr(
+        catalog, "missing_modules", lambda name: list(catalog.get_method(name).modules)
+    )
+    code = run(
+        [
+            "workflow",
+            "run",
+            "forecast-series",
+            "--input-json",
+            json.dumps({"series": [float(i) for i in range(30)]}),
+            *extra_args,
+            "--methods",
+            "chronos2_small",
+            "--skip-plots",
+            "--output-dir",
+            str(tmp_path / "forecast"),
+            "--json",
+        ]
+    )
+
+    assert code == expected_code
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    if expected_code == 3:
+        assert "ts-agents[foundation]" in payload["error"]["message"]
+    else:
+        assert "horizon" in payload["error"]["message"]
 
 
 def test_workflow_run_forecast_series_reports_degraded_when_some_methods_fail(
