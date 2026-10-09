@@ -181,6 +181,7 @@ class PanelBackend:
         staging = Path(tempfile.mkdtemp(prefix=f".{directory.name}-", dir=directory.parent))
         try:
             if self.method == "seasonal_naive":
+                assert self.history is not None  # Checked before creating staging.
                 self.history.to_csv(staging / "history.csv", index=False)
             elif self.method == "nhits":
                 self.estimator.save(path=str(staging), overwrite=False, save_dataset=True)
