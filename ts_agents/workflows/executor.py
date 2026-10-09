@@ -379,14 +379,21 @@ def _rewrite_docker_workflow_output_paths(
     destination_dir.mkdir(parents=True, exist_ok=True)
     rewritten_paths: Dict[str, Path] = {}
 
+    source_root = Path(str((payload.get("data") or {}).get("output_dir", ""))).resolve()
     for artifact in artifacts:
         if not isinstance(artifact, dict):
             continue
         source = Path(str(artifact.get("path", "")))
         if not source.exists():
             continue
-        destination = destination_dir / source.name
-        shutil.copy2(source, destination)
+        try:
+            relative_path = source.resolve().relative_to(source_root)
+        except ValueError:
+            relative_path = Path(source.name)
+        destination = destination_dir / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if source.resolve() != destination.resolve():
+            shutil.copy2(source, destination)
         rewritten_paths[str(source)] = destination
         artifact["path"] = str(destination)
 

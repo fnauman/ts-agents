@@ -336,3 +336,33 @@ def test_panel_subprocess_keeps_artifacts_and_json_envelope(tmp_path):
     assert all(
         Path(artifact["path"]).is_file() for artifact in payload["result"]["artifacts"]
     )
+
+
+@pytest.mark.parametrize("name", ["[1]", "{}"])
+def test_existing_json_looking_filename_wins(monkeypatch, tmp_path, name):
+    from ts_agents.cli.input_parsing import load_json_value
+    monkeypatch.chdir(tmp_path)
+    Path(name).write_text('{"value": 7}')
+    assert load_json_value(input_json=name) == ({"value": 7}, "json_file")
+
+
+def test_missing_requested_panel_column_is_not_ignored(tmp_path):
+    path = tmp_path / "panel.csv"
+    panel_frame().to_csv(path, index=False)
+    with pytest.raises(ValueError, match="Missing requested panel columns: customer"):
+        load_panel_input(input_path=str(path), id_col="customer", freq="D")
+
+
+@pytest.mark.parametrize("methods", [[], ()])
+def test_explicit_empty_methods_fail_before_output(tmp_path, methods):
+    with pytest.raises(ValueError, match="Choose distinct methods"):
+        run_forecast_panel_workflow(panel_input(), output_dir=str(tmp_path / "run"),
+                                    freq="D", methods=methods)
+    assert not (tmp_path / "run").exists()
+
+
+def test_default_lags_work_for_period_one(tmp_path):
+    result = run_forecast_panel_workflow(panel_input(), output_dir=str(tmp_path / "run"),
+        freq="D", methods=["seasonal_naive"], season_length=1, horizon=2,
+        n_windows=1, skip_plots=True)
+    assert result.data["options"]["lags"] == [1, 7]

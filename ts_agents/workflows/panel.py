@@ -58,7 +58,7 @@ def run_forecast_panel_workflow(
     Scores are validation scores used to rank models, not an independent final
     test. Callers must keep their final test targets outside this input.
     """
-    methods = list(methods or ["seasonal_naive", "lightgbm"])
+    methods = list(["seasonal_naive", "lightgbm"] if methods is None else methods)
     if (
         not methods
         or len(set(methods)) != len(methods)
@@ -69,7 +69,7 @@ def run_forecast_panel_workflow(
         )
     step_size = horizon if step_size is None else step_size
     input_size = 2 * horizon if input_size is None else input_size
-    lags = list(lags if lags is not None else [1, season_length, 7 * season_length])
+    lags = list(lags if lags is not None else dict.fromkeys([1, season_length, 7 * season_length]))
     if any(
         value <= 0
         for value in (

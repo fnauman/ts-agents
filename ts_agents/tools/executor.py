@@ -276,11 +276,12 @@ def _is_artifact_ref_dict(value: Any) -> bool:
     )
 
 
-def _copy_artifact_to_dir(source_path: Path, dest_dir: Path) -> Path:
-    destination = dest_dir / source_path.name
+def _copy_artifact_to_dir(source_path: Path, dest_dir: Path, source_root: Path) -> Path:
+    destination = dest_dir / source_path.resolve().relative_to(source_root.resolve())
+    destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
         destination = (
-            dest_dir / f"{source_path.stem}_{uuid.uuid4().hex[:8]}{source_path.suffix}"
+            destination.parent / f"{source_path.stem}_{uuid.uuid4().hex[:8]}{source_path.suffix}"
         )
     shutil.copy2(source_path, destination)
     return destination
@@ -326,6 +327,8 @@ def _relocate_artifact_refs(
     *,
     source_path_resolver: Callable[[str], Optional[Path]],
     persistent_dir_holder: list[Optional[Path]],
+    source_root: Path,
+    path_mapping: Dict[str, str],
 ) -> tuple[Any, bool]:
     if _is_artifact_ref_dict(value):
         relocated = dict(value)
@@ -338,7 +341,8 @@ def _relocate_artifact_refs(
             persistent_dir = _get_persistent_artifact_dir()
             persistent_dir_holder[0] = persistent_dir
 
-        relocated["path"] = str(_copy_artifact_to_dir(source_path, persistent_dir))
+        relocated["path"] = str(_copy_artifact_to_dir(source_path, persistent_dir, source_root))
+        path_mapping[value["path"]] = relocated["path"]
         return relocated, True
 
     if isinstance(value, dict):
@@ -349,6 +353,8 @@ def _relocate_artifact_refs(
                 item,
                 source_path_resolver=source_path_resolver,
                 persistent_dir_holder=persistent_dir_holder,
+                source_root=source_root,
+                path_mapping=path_mapping,
             )
             relocated[key] = relocated_item
             changed = changed or item_changed
@@ -362,6 +368,8 @@ def _relocate_artifact_refs(
                 item,
                 source_path_resolver=source_path_resolver,
                 persistent_dir_holder=persistent_dir_holder,
+                source_root=source_root,
+                path_mapping=path_mapping,
             )
             relocated.append(relocated_item)
             changed = changed or item_changed
@@ -370,23 +378,46 @@ def _relocate_artifact_refs(
     return value, False
 
 
+def _rewrite_artifact_paths(value: Any, paths: Dict[str, str]) -> Any:
+    """Keep output/manifest metadata consistent with relocated artifact references."""
+    if isinstance(value, str):
+        return paths.get(value, value)
+    if isinstance(value, dict):
+        return {key: _rewrite_artifact_paths(item, paths) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_rewrite_artifact_paths(item, paths) for item in value]
+    return value
+
+
 def _persist_subprocess_artifacts(
     result: ExecutionResult,
     *,
     host_artifact_dir: Path,
 ) -> ExecutionResult:
+    holder: list[Optional[Path]] = [None]
+    path_mapping: Dict[str, str] = {}
+    source_root = host_artifact_dir
+    output_dir = (result.result.get("data") or {}).get("output_dir") if isinstance(result.result, dict) else None
+    if isinstance(output_dir, str):
+        resolved_output = _resolve_subprocess_artifact_path(output_dir, host_artifact_dir=host_artifact_dir)
+        if resolved_output is not None:
+            source_root = resolved_output
     relocated_result, changed = _relocate_artifact_refs(
         result.result,
         source_path_resolver=lambda artifact_path: _resolve_subprocess_artifact_path(
             artifact_path,
             host_artifact_dir=host_artifact_dir,
         ),
-        persistent_dir_holder=[None],
+        persistent_dir_holder=holder,
+        source_root=source_root,
+        path_mapping=path_mapping,
     )
     if not changed:
         return result
 
-    result.result = relocated_result
+    if isinstance(output_dir, str) and holder[0] is not None:
+        path_mapping[output_dir] = str(holder[0])
+    result.result = _rewrite_artifact_paths(relocated_result, path_mapping)
     if result.result is not None:
         result.formatted_output = format_result(result.result)
     return result
@@ -398,6 +429,14 @@ def _persist_docker_artifacts(
     container_artifact_dir: str,
     host_artifact_dir: Path,
 ) -> ExecutionResult:
+    holder: list[Optional[Path]] = [None]
+    path_mapping: Dict[str, str] = {}
+    source_root = host_artifact_dir
+    output_dir = (result.result.get("data") or {}).get("output_dir") if isinstance(result.result, dict) else None
+    if isinstance(output_dir, str):
+        resolved_output = _resolve_docker_artifact_path(output_dir, container_artifact_dir=container_artifact_dir, host_artifact_dir=host_artifact_dir)
+        if resolved_output is not None:
+            source_root = resolved_output
     relocated_result, changed = _relocate_artifact_refs(
         result.result,
         source_path_resolver=lambda artifact_path: _resolve_docker_artifact_path(
@@ -405,12 +444,16 @@ def _persist_docker_artifacts(
             container_artifact_dir=container_artifact_dir,
             host_artifact_dir=host_artifact_dir,
         ),
-        persistent_dir_holder=[None],
+        persistent_dir_holder=holder,
+        source_root=source_root,
+        path_mapping=path_mapping,
     )
     if not changed:
         return result
 
-    result.result = relocated_result
+    if isinstance(output_dir, str) and holder[0] is not None:
+        path_mapping[output_dir] = str(holder[0])
+    result.result = _rewrite_artifact_paths(relocated_result, path_mapping)
     if result.result is not None:
         result.formatted_output = format_result(result.result)
     return result
