@@ -6,13 +6,17 @@ The `forecast-panel` workflow compares models across related series:
 MLForecast with LightGBM or scikit-learn histogram gradient boosting,
 NeuralForecast with NHITS, and zero-shot foundation models (FMs) through
 [Darts](https://unit8co.github.io/darts/). A dependency-light seasonal baseline
-is always available. These capabilities are currently unreleased; from this
-checkout use:
+is always available. These capabilities are available from version 0.3.0:
 
 ```bash
-uv sync --extra ml --extra neural --extra foundation --extra viz
-uv run ts-agents workflow show forecast-panel --json
+python -m pip install "ts-agents[ml,neural,foundation,viz]==0.3.0"
+ts-agents workflow show forecast-panel --json
 ```
+
+From a source checkout, use `uv sync --extra ml --extra neural --extra foundation --extra viz`
+and prefix commands with `uv run`. The foundation extra switched from
+`chronos-forecasting` to Darts in 0.3.0; recreate older foundation environments
+when upgrading.
 
 The base and recommended profiles remain unchanged. The `all` profile includes
 every optional backend. All imports of the optional libraries are lazy.
