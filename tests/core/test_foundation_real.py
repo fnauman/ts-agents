@@ -110,3 +110,24 @@ def test_r4_offline_with_empty_cache_raises_unavailable_error(tmp_path):
     )
     assert completed.returncode == 0, completed.stderr[-2000:]
     assert "UNAVAILABLE weights for autogluon/chronos-2-small@" in completed.stdout
+
+
+def test_r5_series_validation_and_future_load_one_checkpoint(tmp_path, monkeypatch):
+    from ts_agents.cli.input_parsing import SeriesInput
+    from ts_agents.workflows.forecast import run_forecast_series_workflow
+    original = foundation._import_model_class
+    loads = []
+    def counted(spec):
+        loads.append(spec.hub_model_name)
+        return original(spec)
+    monkeypatch.setattr(foundation, "_import_model_class", counted)
+    result = run_forecast_series_workflow(
+        SeriesInput(_series(48, seed=6), "inline_json", "real"),
+        output_dir=str(tmp_path), horizon=6, validation_size=4,
+        methods=[MODEL], skip_plots=True)
+    assert loads == ["autogluon/chronos-2-small"]
+    spec = result.data["foundation_models"][MODEL]
+    assert spec["output_chunk_length"] == spec["validation_spec"]["output_chunk_length"] == 6
+    assert spec["forecast_horizon"] == 6 and spec["validation_spec"]["forecast_horizon"] == 4
+    assert len(result.data["forecast"]) == 6
+    assert foundation._MODEL_CACHE == {}

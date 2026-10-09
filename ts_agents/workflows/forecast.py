@@ -78,7 +78,7 @@ def run_forecast_series_workflow(
         from ts_agents.core.forecasting.foundation import model_cache_scope
 
         # Models stay loaded for the validation and final forecasts, then are released.
-        model_scope.enter_context(model_cache_scope())
+        model_scope.enter_context(model_cache_scope(horizon=max(int(validation_size or horizon), int(horizon))))
     try:
         return _run_forecast_series(
             series_input,

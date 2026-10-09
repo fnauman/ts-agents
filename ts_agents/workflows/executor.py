@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import json
 from dataclasses import asdict, replace
 import os
 from pathlib import Path
@@ -362,7 +363,30 @@ class WorkflowExecutor:
         elif result.success and actual_backend in {SandboxMode.DAYTONA, SandboxMode.MODAL}:
             _materialize_remote_workflow_output_paths(result, requested_output_dir)
 
+        if result.success:
+            _synchronize_restored_manifest(result)
         return result
+
+
+def _synchronize_restored_manifest(result: ExecutionResult) -> None:
+    """Rebase sandbox manifest paths for callers without the CLI finalization pass."""
+    payload = result.result
+    if not isinstance(payload, dict):
+        return
+    data = payload.get("data") or {}
+    if not isinstance(data, dict) or not isinstance(data.get("manifest_path"), str):
+        return
+    path = Path(data["manifest_path"])
+    if not path.is_file():
+        return
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        return
+    updated = {**manifest, "output_dir": data.get("output_dir"), "manifest_path": str(path),
+               "artifacts": payload.get("artifacts", [])}
+    if updated != manifest:
+        from ts_agents.workflows.lifecycle import write_manifest
+        write_manifest(path, updated)
 
 
 def _context_with_workflow_extras(

@@ -418,20 +418,18 @@ def forecast_foundation(
 ):
     """Zero-shot Darts foundation-model forecast; only ``model``'s weights are fetched.
 
-    The loaded model is released when the call returns, so repeated tool calls in a
-    long-running agent or UI process do not accumulate weights.
+    A bounded one-model cache reuses weights across repeated agent/UI calls.
+    Loading another configuration evicts the previous model.
     """
     from ts_agents.core.forecasting.catalog import get_series_forecaster
-    from ts_agents.core.forecasting.foundation import model_cache_scope
 
     forecaster = get_series_forecaster(_foundation_model_name(model))
-    with model_cache_scope():
-        return forecaster(
-            np.asarray(series, dtype=float),
-            horizon=horizon,
-            context_length=context_length,
-            accelerator=accelerator,
-        )
+    return forecaster(
+        np.asarray(series, dtype=float),
+        horizon=horizon,
+        context_length=context_length,
+        accelerator=accelerator,
+    )
 
 
 def forecast_foundation_with_data(
@@ -442,17 +440,15 @@ def forecast_foundation_with_data(
     context_length: Optional[int] = None,
 ) -> ToolPayload:
     from ts_agents.core.forecasting.catalog import get_method, get_series_forecaster
-    from ts_agents.core.forecasting.foundation import model_cache_scope, model_spec
+    from ts_agents.core.forecasting.foundation import model_spec
 
     model = _foundation_model_name(model)
     series = _get_series_data(variable_name, unique_id)
-    # Weights are released when the call returns (see forecast_foundation).
-    with model_cache_scope():
-        result = get_series_forecaster(model)(
-            series,
-            horizon=horizon,
-            context_length=context_length,
-        )
+    result = get_series_forecaster(model)(
+        series,
+        horizon=horizon,
+        context_length=context_length,
+    )
     data = _result_data(result)
     if isinstance(data, dict):
         # Checkpoint provenance (hub id, pinned revision, resolved context); no weights.
@@ -493,8 +489,25 @@ def forecast_panel_from_csv(
     workflow payload (metrics, keyed predictions, forecasts, report) is returned
     unchanged.
     """
-    from ts_agents.cli.input_parsing import load_panel_input
     from ts_agents.workflows.panel import run_forecast_panel_workflow
+
+    panel_input, options = _prepare_panel_tool_input(
+        input_path=input_path, freq=freq, horizon=horizon, methods=methods,
+        season_length=season_length, n_windows=n_windows, input_size=input_size,
+        context_length=context_length, id_col=id_col, time_col=time_col,
+        value_col=value_col, output_dir=output_dir,
+    )
+    return run_forecast_panel_workflow(panel_input, **options)
+
+
+def _prepare_panel_tool_input(
+    input_path: str, freq: str, horizon: int = 24, methods: Any = "seasonal_naive",
+    season_length: int = 24, n_windows: int = 3, input_size: Optional[int] = None,
+    context_length: Optional[int] = None, id_col: str = "unique_id",
+    time_col: str = "ds", value_col: str = "y", output_dir: Optional[str] = None,
+):
+    """Read host files into portable records before dispatching a sandbox workflow."""
+    from ts_agents.cli.input_parsing import load_panel_input
 
     if isinstance(methods, str):
         method_list = [method.strip() for method in methods.split(",")]
@@ -523,7 +536,7 @@ def forecast_panel_from_csv(
     )
     if context_length is not None:
         options["context_length"] = context_length
-    return run_forecast_panel_workflow(panel_input, **options)
+    return panel_input, options
 
 # Pattern Wrappers
 

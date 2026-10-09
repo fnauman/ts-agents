@@ -51,8 +51,8 @@ ts-agents workflow run forecast-panel --input panel.csv --freq h \
 
 Covariates are unsupported. FMs run zero-shot: nothing is trained, and each
 origin conditions only on its own cutoff history, truncated to
-`--context-length` points (default 512, capped so context plus horizon fits the
-model). Weights are fetched per requested model into `HF_HOME` on first use, so
+`--context-length` points (default 512, validated against each
+model's window limit). Weights are fetched per requested model into `HF_HOME` on first use, so
 request only the checkpoints you need; network-less sandboxes need a
 pre-populated cache (`HF_HUB_OFFLINE=1`). `models/<fm>/` holds only
 `model_spec.json` (checkpoint id, pinned revision, resolved context), never

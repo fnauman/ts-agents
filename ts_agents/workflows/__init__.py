@@ -428,7 +428,6 @@ def _inspect_workflow_availability() -> Dict[str, Any]:
     }
 
 
-_DISTRIBUTION_NAMES = {"sklearn": "scikit-learn", **_catalog.FOUNDATION_DISTRIBUTIONS}
 _FOUNDATION_FEATURE_NOTE = (
     "Darts zero-shot foundation models ({methods}); weights download per requested model "
     "into HF_HOME; sandboxes need network or a pre-populated cache."
@@ -438,7 +437,7 @@ _FOUNDATION_FEATURE_NOTE = (
 def _missing_distributions(methods: List[str]) -> List[str]:
     return sorted(
         {
-            _DISTRIBUTION_NAMES.get(module, module)
+            _catalog.MODULE_DISTRIBUTIONS.get(module, module)
             for method in methods
             for module in _catalog.missing_modules(method)
         }
@@ -604,7 +603,7 @@ _PANEL_OPTIONS = [
     WorkflowOption("n_estimators", "integer", "GBM tree/iteration cap per fit.", default=200),
     WorkflowOption("max_steps", "integer", "NHITS training-step cap per fit.", default=1000),
     WorkflowOption("input_size", "integer", "NHITS context; defaults to 2*horizon."),
-    WorkflowOption("context_length", "integer", "Foundation-model context (default 512, capped per model)."),
+    WorkflowOption("context_length", "integer", "Foundation-model context (default 512; explicit values must fit the model limit)."),
     WorkflowOption("num_threads", "integer", "MLForecast/LightGBM threads.", default=2),
     WorkflowOption("accelerator", "string", "NHITS/foundation-model CPU/GPU selection.", default="cpu", choices=["cpu", "gpu"]),
     WorkflowOption("seed", "integer", "Estimator random seed.", default=1337),
@@ -719,16 +718,16 @@ _WORKFLOWS = {
             ),
             WorkflowOption(
                 "methods",
-                "string",
-                "Comma-separated methods to compare.",
-                default="seasonal_naive,arima,theta",
+                "array",
+                "Methods to compare (comma-separated at the CLI).",
+                default=["seasonal_naive", "arima", "theta"],
                 choices=_catalog.methods_for("series"),
             ),
             WorkflowOption("validation_size", "integer", "Holdout size for comparison.", default=None),
             WorkflowOption(
                 "context_length",
                 "integer",
-                "Foundation-model context (default 512, capped per model).",
+                "Foundation-model context (default 512; explicit values must fit the model limit).",
                 default=None,
             ),
             WorkflowOption(

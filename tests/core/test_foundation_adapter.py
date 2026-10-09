@@ -258,19 +258,19 @@ def test_model_cache_scope_releases_models_on_error(fake_darts):
     assert foundation._MODEL_CACHE == {}
 
 
-def test_foundation_agent_tools_release_weights_after_each_call(fake_darts, monkeypatch):
+def test_foundation_agent_tools_reuse_one_bounded_model(fake_darts, monkeypatch):
     from ts_agents.tools import agent_tools
 
-    for horizon in (6, 7, 8):
+    for horizon in (6, 6, 6):
         result = agent_tools.forecast_foundation(np.arange(50.0), horizon=horizon)
         assert len(result.forecast) == horizon
-        assert foundation._MODEL_CACHE == {}
-    assert len(FakeModel.instances) == 3
+        assert len(foundation._MODEL_CACHE) == 1
+    assert len(FakeModel.instances) == 1
 
     monkeypatch.setattr(agent_tools, "_get_series_data", lambda variable, run: np.arange(40.0))
     payload = agent_tools.forecast_foundation_with_data("bx001_real", "Re200Rm200", horizon=4)
     assert payload.data["foundation_model"]["output_chunk_length"] == 4
-    assert foundation._MODEL_CACHE == {}
+    assert len(foundation._MODEL_CACHE) == 1
 
 
 def test_dropped_models_in_reference_cycles_are_freed(fake_darts):
@@ -345,7 +345,8 @@ def test_request_validation_bounds():
     with pytest.raises(ValueError, match="context_length"):
         foundation.validate_request("chronos2_small", horizon=12, context_length=0)
     with pytest.raises(ValueError, match="context_length"):
-        foundation.validate_request("chronos2_small", horizon=24, context_length=8180)
+        foundation.validate_request("chronos2_small", horizon=24, context_length=8193)
+    assert foundation.validate_request("chronos2_small", horizon=1024, context_length=8192) == 8192
     assert foundation.resolve_context_length("chronos2_small", None, 1000) == 512
     assert foundation.validate_request("chronos2_small", horizon=1000, context_length=7192) == 7192
     with pytest.raises(ValueError, match="not a foundation model"):
@@ -373,3 +374,36 @@ def test_input_validation_rejects_float32_overflow_before_loading(fake_darts):
     with pytest.raises(ValueError, match="float32"):
         foundation.forecast_arrays([np.array([1e100])], model="chronos2_small", horizon=2)
     assert FakeModel.instances == []
+
+
+def test_scope_reserves_one_model_for_different_forecast_horizons(fake_darts):
+    with foundation.model_cache_scope(horizon=12):
+        foundation.forecast_arrays([np.arange(80.0)], model="chronos2_small", horizon=4)
+        foundation.forecast_arrays([np.arange(80.0)], model="chronos2_small", horizon=12)
+        assert len(FakeModel.instances) == 1
+        assert FakeModel.instances[0].kwargs["output_chunk_length"] == 12
+        record = foundation.model_spec("chronos2_small", horizon=4)
+        assert record["output_chunk_length"] == 12 and record["forecast_horizon"] == 4
+    assert foundation._MODEL_CACHE == {}
+
+
+def test_concurrent_inference_preserves_process_output_and_logger_levels(fake_darts):
+    from concurrent.futures import ThreadPoolExecutor
+    import logging
+    import sys
+    stdout = sys.stdout
+    logger = logging.getLogger("lightning.pytorch")
+    before = logger.level
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(executor.map(lambda _: foundation.forecast_arrays(
+            [np.arange(80.0)], model="chronos2_small", horizon=6), range(8)))
+    assert len(FakeModel.instances) == 1
+    assert sys.stdout is stdout and logger.level == before
+    assert all(result[0].shape == (6,) for result in results)
+
+
+@pytest.mark.parametrize("model,limit", [("patchtst_fm", 8192), ("timesfm2p5", 16384)])
+def test_decoder_only_window_limits_include_the_forecast_horizon(model, limit):
+    assert foundation.validate_request(model, horizon=24, context_length=limit - 24) == limit - 24
+    with pytest.raises(ValueError, match="context_length"):
+        foundation.validate_request(model, horizon=24, context_length=limit)

@@ -614,7 +614,7 @@ def test_autoresearch_foundation_smoke_failed_trial_degrades(
 
     monkeypatch.setattr(executor_module, "find_spec", lambda _name: object())
 
-    def unavailable(_model, _series, *, horizon):
+    def unavailable(_model, _series, *, horizon, context_length):
         from ts_agents.core.forecasting.foundation import FoundationModelUnavailableError
 
         raise FoundationModelUnavailableError("weights are not cached")
@@ -1231,3 +1231,42 @@ def test_trial_timeout_restores_expired_outer_alarm_immediately():
         signal.signal(signal.SIGALRM, previous_handler)
         if previous_timer[0] > 0:
             signal.setitimer(signal.ITIMER_REAL, previous_timer[0], previous_timer[1])
+
+
+def test_foundation_smoke_uses_and_records_configured_context(monkeypatch, tmp_path):
+    from ts_agents.autoresearch import runner
+    from ts_agents.autoresearch.registry import get_loop
+    from dataclasses import replace
+    definition = get_loop("foundation-smoke")
+    configured = replace(definition, capabilities={**definition.capabilities, "context_length": 37})
+    monkeypatch.setattr(runner, "get_loop", lambda name: configured)
+    observed = []
+    def forecast(model, series, *, horizon, context_length):
+        observed.append(context_length)
+        return np.full(horizon, series[-1])
+    monkeypatch.setattr(runner, "_forecast_with_foundation", forecast)
+    result = runner.run_autoresearch_loop(loop_name="foundation-smoke", output_dir=str(tmp_path),
+        models=["chronos2_small"], skip_plots=True)
+    assert observed == [37]
+    trial = json.loads((tmp_path / "trials.jsonl").read_text().splitlines()[0])
+    manifest = json.loads((tmp_path / "run_manifest.json").read_text())
+    assert trial["context_length"] == manifest["options"]["context_length"] == 37
+    assert manifest["options"]["resolved_context_length"] == {"chronos2_small": 37}
+    assert result["status"] == "ok"
+
+
+def test_deprecated_alias_writes_notice_with_initial_manifest(monkeypatch, tmp_path):
+    from ts_agents.autoresearch import runner
+    writes = []
+    original = runner.write_output
+    def record(content, path):
+        if Path(path).name == "run_manifest.json":
+            writes.append(json.loads(content))
+        return original(content, path)
+    monkeypatch.setattr(runner, "write_output", record)
+    result = runner.run_autoresearch_loop(loop_name="foundation-chronos-smoke", output_dir=str(tmp_path),
+        dry_run=True, skip_plots=True)
+    assert len(writes) == 1
+    assert writes[0]["warnings"] == result["warnings"]
+    assert "deprecated" in writes[0]["warnings"][0].lower()
+    assert result["status"] == "ok"

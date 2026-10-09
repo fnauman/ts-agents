@@ -137,9 +137,10 @@ uv run ts-agents workflow run forecast-panel --input panel.csv --freq MS \
   conditions only on that origin's history, so no later target leaks into a
   forecast. The final forecast conditions on the most recent history.
 - **Context:** `--context-length` sets how many trailing points each series
-  contributes (default 512). It is capped so context plus horizon fits the
-  model (8192 points, or 16384 for TimesFM 2.5); an explicit value that does
-  not fit fails validation (exit code 2). Horizons above 1024 are rejected.
+  contributes (default 512). Chronos-2 allows up to 8192 input points independently
+  of its output horizon. TimesFM 2.5 requires context plus output chunk to fit
+  16384 points; PatchTST-FM uses a combined limit of 8192. An explicit value that
+  does not fit fails validation (exit code 2). Horizons above 1024 are rejected.
   Shorter series use all available history. `--input-size` stays NHITS-only.
 - **Model notes:** TimesFM 2.5 switches to its longer projection head above
   128 steps. PatchTST-FM was trained for a 64-step horizon and is used
@@ -158,8 +159,8 @@ uv run ts-agents workflow run forecast-panel --input panel.csv --freq MS \
   `weights_saved: false`). Weights are never copied into run directories.
 - **Resources:** each requested FM stays loaded for the whole run and is
   released at the end; running all four together needs several GB of RAM.
-  The `forecast_foundation*` agent tools release weights after every call,
-  and direct library calls outside a run keep at most one model loaded.
+  The `forecast_foundation*` agent tools and direct library calls outside a run
+  reuse a bounded one-model cache; another configuration evicts the old model.
   `--accelerator gpu` is used only when requested.
 - **Interpretation:** public benchmarks such as M4 may overlap FM pretraining
   data, so FM scores on them can be optimistic. FMs produce point forecasts
@@ -176,3 +177,10 @@ describe the underlying training interfaces.
 Requested input columns must exist; missing custom names fail even when the default
 columns exist. Default lag offsets are deduplicated for a season length of one.
 Explicit empty method lists are rejected. Sandbox exports preserve model subdirectories.
+
+Foundation inference is serialized within a process without changing global stdout or
+logger levels. Repeated agent tool calls retain at most one loaded model; workflows
+release their scoped models on completion. Series comparisons reserve one output
+chunk for the larger validation/future horizon and record that chunk plus each requested
+forecast horizon. Daytona tool runs install their required extras unless overridden.
+The CSV panel tool reads files on the host and returns durable host artifact paths.

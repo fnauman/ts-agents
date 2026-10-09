@@ -14,11 +14,13 @@ from typing import Any, Callable, Iterable, Mapping, Optional
 
 FOUNDATION_EXTRA = "foundation"
 FOUNDATION_MODULES = ("darts", "torch", "huggingface_hub")
-FOUNDATION_DISTRIBUTIONS = {
+MODULE_DISTRIBUTIONS = {
+    "sklearn": "scikit-learn",
     "darts": "darts",
     "torch": "torch",
     "huggingface_hub": "huggingface-hub",
 }
+FOUNDATION_DISTRIBUTIONS = {module: MODULE_DISTRIBUTIONS[module] for module in FOUNDATION_MODULES}
 DEFAULT_FOUNDATION_MODEL = "chronos2_small"
 SURFACES = ("series", "panel", "autoresearch")
 
@@ -36,6 +38,7 @@ class FoundationSpec:
     hub_model_revision: str
     max_horizon: int
     max_context: int
+    context_includes_horizon: bool = False
     default_context: int = 512
     trained_horizon: Optional[int] = None
     # Extra constructor kwargs applied only when horizon > native_max_horizon.
@@ -188,6 +191,7 @@ METHODS: tuple[MethodSpec, ...] = (
             hub_model_revision="1d952420fba87f3c6dee4f240de0f1a0fbc790e3",
             max_horizon=1024,
             max_context=16384,
+            context_includes_horizon=True,
             long_horizon_kwargs={"use_longer_projection_head": True},
             native_max_horizon=128,
             license="apache-2.0",
@@ -204,6 +208,7 @@ METHODS: tuple[MethodSpec, ...] = (
             hub_model_revision="151f9c6d576281b95c2ff784d0863bd3f12c80f1",
             max_horizon=1024,
             max_context=8192,
+            context_includes_horizon=True,
             trained_horizon=64,
             license="apache-2.0",
             approx_weights_mb=1032,
@@ -315,9 +320,8 @@ def foundation_checkpoints(surface: Optional[str] = None) -> dict[str, dict[str,
 def get_series_forecaster(name: str) -> Callable[..., Any]:
     """Return ``f(series, horizon=..., **options) -> ForecastResult`` for a series method.
 
-    Options the method does not accept (for example ``context_length`` for ARIMA or
-    ``season_length`` for a foundation model) are dropped, so callers can pass one
-    option set to every method.
+    Known shared options irrelevant to this method are ignored. Unknown option names
+    raise TypeError before fitting, so spelling mistakes cannot change an evaluation.
     """
     spec = get_method(name)
     if "series" not in spec.surfaces:
@@ -340,6 +344,9 @@ def get_series_forecaster(name: str) -> Callable[..., Any]:
     accepted = spec.accepted_options
 
     def forecaster(series, horizon: int = 10, **options):
+        unknown = set(options) - (_STATISTICAL_OPTIONS | _FOUNDATION_OPTIONS)
+        if unknown:
+            raise TypeError(f"Unknown forecasting options: {', '.join(sorted(unknown))}")
         kept = {key: value for key, value in options.items() if key in accepted}
         return target(series, horizon=horizon, **kept)
 

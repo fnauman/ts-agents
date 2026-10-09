@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
-from contextlib import ExitStack, redirect_stdout
-import sys
+from contextlib import ExitStack
 import time
 
 import numpy as np
@@ -167,9 +166,8 @@ def run_forecast_panel_workflow(
             for method in methods:
                 started = time.monotonic()
                 backend = PanelBackend(method, freq, season_length, config)
-                with redirect_stdout(sys.stderr):
-                    backend.fit(train, horizon)
-                    predicted = backend.predict(horizon)
+                backend.fit(train, horizon)
+                predicted = backend.predict(horizon)
                 rows = score_predictions(actual, predicted, method, train, season_length)
                 rows["cutoff"] = cutoff
                 rows["window"] = window
@@ -190,9 +188,8 @@ def run_forecast_panel_workflow(
         for method in methods:
             started = time.monotonic()
             backend = PanelBackend(method, freq, season_length, config)
-            with redirect_stdout(sys.stderr):
-                backend.fit(frame, horizon)
-                future = backend.predict(horizon).rename(columns={method: "prediction"})
+            backend.fit(frame, horizon)
+            future = backend.predict(horizon).rename(columns={method: "prediction"})
             expected = pd.concat(
                 [
                     pd.DataFrame(
@@ -219,8 +216,7 @@ def run_forecast_panel_workflow(
             future["model"] = method
             forecasts.append(future)
             directory = output / "models" / method
-            with redirect_stdout(sys.stderr):
-                backend.save(directory)
+            backend.save(directory)
             for path in sorted(directory.rglob("*")):
                 if path.is_file():
                     artifacts.append(_model_artifact(method, path))

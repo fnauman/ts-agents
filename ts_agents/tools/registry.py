@@ -15,6 +15,8 @@ from importlib.util import find_spec
 import threading
 import numpy as np
 
+from ts_agents.core.forecasting.catalog import MODULE_DISTRIBUTIONS
+
 
 class ToolCategory(Enum):
     """Categories of analysis tools."""
@@ -51,8 +53,7 @@ _COST_ORDER = [
 ]
 
 _DEPENDENCY_IMPORT_NAME_MAP = {
-    "scikit-learn": "sklearn",
-    "huggingface-hub": "huggingface_hub",
+    distribution: module for module, distribution in MODULE_DISTRIBUTIONS.items()
 }
 
 _FOUNDATION_INSTALL_HINT = (
@@ -1077,7 +1078,7 @@ def _register_default_tools() -> None:
             ToolParameter(
                 "context_length",
                 "int",
-                "Most recent points the model conditions on (default 512, capped per model)",
+                "Most recent points the model conditions on (default 512; explicit values must fit the model limit)",
                 optional=True,
             ),
             ToolParameter("accelerator", "str", "cpu or gpu", optional=True, default="cpu"),
@@ -1106,7 +1107,7 @@ def _register_default_tools() -> None:
             ToolParameter(
                 "context_length",
                 "int",
-                "Most recent points the model conditions on (default 512, capped per model)",
+                "Most recent points the model conditions on (default 512; explicit values must fit the model limit)",
                 optional=True,
             ),
         ],
@@ -1165,7 +1166,7 @@ def _register_default_tools() -> None:
             ToolParameter(
                 "context_length",
                 "int",
-                "Foundation-model context (default 512, capped per model)",
+                "Foundation-model context (default 512; explicit values must fit the model limit)",
                 optional=True,
             ),
             ToolParameter("id_col", "str", "Series ID column", optional=True, default="unique_id"),

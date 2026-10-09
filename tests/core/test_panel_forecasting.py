@@ -469,11 +469,21 @@ def test_real_optional_backend_training_persistence_and_reload(method, tmp_path)
     expected = backend.predict(3).sort_values(["unique_id", "ds"])
     assert len(expected) == 6 and np.isfinite(expected[method]).all()
     backend.save(tmp_path / method)
+    # Exercise both Docker relocation stages with real native model files.
+    from ts_agents.tools.executor import ExecutionResult, ExecutionStatus, _persist_docker_artifacts
+    from ts_agents.workflows.executor import _rewrite_docker_workflow_output_paths
+    result = ExecutionResult(status=ExecutionStatus.SUCCESS, result={
+        "data": {"output_dir": "/io/artifacts"}, "artifacts": [
+            {"kind": "model", "path": "/io/artifacts/" + str(path.relative_to(tmp_path))}
+            for path in (tmp_path / method).rglob("*") if path.is_file()]})
+    _persist_docker_artifacts(result, container_artifact_dir="/io/artifacts", host_artifact_dir=tmp_path)
+    relocated = tmp_path / "restored"
+    _rewrite_docker_workflow_output_paths(result, str(relocated))
     if method == "nhits":
-        restored = NeuralForecast.load(str(tmp_path / method))
+        restored = NeuralForecast.load(str(relocated / method))
         actual = restored.predict()
     else:
-        restored = MLForecast.load(str(tmp_path / method))
+        restored = MLForecast.load(str(relocated / method))
         actual = restored.predict(3)
     actual = actual.sort_values(["unique_id", "ds"])
     assert actual[method].to_numpy() == pytest.approx(
@@ -570,3 +580,18 @@ def test_default_lags_work_for_period_one(tmp_path):
         freq="D", methods=["seasonal_naive"], season_length=1, horizon=2,
         n_windows=1, skip_plots=True)
     assert result.data["options"]["lags"] == [1, 7]
+
+
+@pytest.mark.parametrize("method,module", [("lightgbm", "mlforecast"), ("nhits", "neuralforecast")])
+def test_real_optional_panel_cli_outputs_clean_json(method, module, tmp_path):
+    pytest.importorskip(module)
+    path = tmp_path / "panel.csv"
+    panel_frame(35).to_csv(path, index=False)
+    completed = subprocess.run([sys.executable, "-m", "ts_agents", "workflow", "run",
+        "forecast-panel", "--input", str(path), "--freq", "D", "--horizon", "3",
+        "--methods", method, "--season-length", "7", "--n-windows", "1", "--lags", "1,7",
+        "--n-estimators", "5", "--max-steps", "3", "--input-size", "6", "--num-threads", "1",
+        "--output-dir", str(tmp_path / "run"), "--skip-plots", "--json"],
+        capture_output=True, text=True, timeout=120)
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout)["ok"]

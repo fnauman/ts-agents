@@ -136,3 +136,17 @@ def test_series_forecaster_binds_foundation_model(monkeypatch):
     forecaster = catalog.get_series_forecaster("timesfm2p5")
     assert forecaster(np.ones(20), horizon=5, season_length=12, context_length=64, seed=3) == "fm-result"
     assert captured == {"model": "timesfm2p5", "horizon": 5, "context_length": 64, "seed": 3}
+
+
+@pytest.mark.parametrize("method", ["arima", "chronos2_small"])
+def test_unknown_forecaster_option_is_rejected_before_backend(method):
+    forecaster = catalog.get_series_forecaster(method)
+    with pytest.raises(TypeError, match="season_lenght"):
+        forecaster(np.ones(30), horizon=3, season_lenght=12)
+
+
+def test_forecast_series_methods_schema_accepts_its_default():
+    from ts_agents.workflows import get_workflow
+    option = next(option for option in get_workflow("forecast-series").options if option.name == "methods")
+    assert option.type == "array"
+    assert isinstance(option.default, list) and set(option.default) <= set(option.choices)

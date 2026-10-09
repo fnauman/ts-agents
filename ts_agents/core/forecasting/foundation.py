@@ -3,22 +3,20 @@
 Darts, torch and huggingface_hub are imported lazily inside functions, so importing
 this module stays cheap on base installs. Models are constructed with a pinned Hugging
 Face revision, "fitted" once (which only loads weights; nothing is trained) and cached.
-Inside :func:`model_cache_scope` (workflows, autoresearch loops, agent tools) every
+Inside :func:`model_cache_scope` (workflows and autoresearch loops) every
 model stays loaded until the outermost scope exits; outside any scope at most
 ``_UNSCOPED_CACHE_LIMIT`` models are kept, so long-running processes do not grow.
 """
 
 from __future__ import annotations
 
-from contextlib import contextmanager, redirect_stdout
+from contextlib import contextmanager
 from importlib import metadata
-import logging
 import operator
 import socket
 import sys
 import threading
 from typing import Any, Iterator, Optional, Sequence
-import warnings
 
 import numpy as np
 import pandas as pd
@@ -34,6 +32,7 @@ _MODEL_CACHE: dict[tuple[str, int, int, str, int], Any] = {}
 _UNSCOPED_CACHE_LIMIT = 1
 _CACHE_LOCK = threading.RLock()
 _SCOPE_DEPTH = 0
+_SCOPE_HORIZON: Optional[int] = None
 _HF_UNAVAILABLE_ERRORS = (
     "LocalEntryNotFoundError",
     "HfHubHTTPError",
@@ -67,17 +66,17 @@ def _as_int(value: Any, label: str) -> int:
 
 
 def resolve_context_length(name: str, context_length: Optional[int], horizon: int) -> int:
-    """Context points fed to ``name``: default 512, capped so context + horizon fits."""
+    """Resolve context using the checkpoint's independent or combined window limit."""
     spec = _spec(name)
     horizon = _as_int(horizon, "horizon")
+    limit = spec.max_context - horizon if spec.context_includes_horizon else spec.max_context
     if context_length is None:
-        ctx = min(spec.default_context, spec.max_context - horizon)
+        ctx = min(spec.default_context, limit)
     else:
         ctx = _as_int(context_length, "context_length")
-    if ctx < 1 or ctx + horizon > spec.max_context:
+    if ctx < 1 or ctx > limit:
         raise ValueError(
-            f"{name}: context_length ({ctx}) must be >= 1 and context_length + horizon "
-            f"({ctx + horizon}) must not exceed {spec.max_context}."
+            f"{name}: context_length ({ctx}) must be between 1 and {limit} for horizon {horizon}."
         )
     return ctx
 
@@ -118,6 +117,7 @@ def model_spec(
     """Small JSON-serialisable record of how ``name`` is (re)constructed; no weights."""
     spec = _spec(name)
     ctx = validate_request(name, horizon=horizon, context_length=context_length)
+    loading_horizon = _loading_horizon(int(horizon))
     record: dict[str, Any] = {
         "method": name,
         "backend": "darts",
@@ -126,7 +126,8 @@ def model_spec(
         "hub_model_revision": spec.hub_model_revision,
         "darts_version": _darts_version(),
         "input_chunk_length": [1, ctx],
-        "output_chunk_length": int(horizon),
+        "output_chunk_length": loading_horizon,
+        "forecast_horizon": int(horizon),
         "likelihood": None,
         "accelerator": _resolve_accelerator(accelerator),
         "random_state": 0 if seed is None else int(seed),
@@ -134,7 +135,7 @@ def model_spec(
         "license": spec.license,
         "weights_saved": False,
     }
-    overrides = spec.constructor_overrides(int(horizon))
+    overrides = spec.constructor_overrides(loading_horizon)
     if overrides:
         record["model_kwargs"] = overrides
     if spec.trained_horizon is not None:
@@ -174,18 +175,10 @@ def _timeseries_cls():
     return TimeSeries
 
 
-@contextmanager
-def _quiet_lightning() -> Iterator[None]:
-    """Keep Lightning/HF chatter off stdout, which carries CLI JSON."""
-    for logger_name in ("lightning.pytorch", "pytorch_lightning", "lightning_fabric"):
-        logging.getLogger(logger_name).setLevel(logging.WARNING)
-    with warnings.catch_warnings(), redirect_stdout(sys.stderr):
-        # CPU is the deliberate default; GPU runs need an explicit accelerator.
-        warnings.filterwarnings("ignore", message=r".*GPU available but not used.*")
-        warnings.filterwarnings("ignore", message=r".*does not have many workers.*")
-        # torch/pytorch_lightning API drift; printed once per predict otherwise.
-        warnings.filterwarnings("ignore", message=r".*isinstance\(treespec, LeafSpec\)` is deprecated.*")
-        yield
+def _loading_horizon(horizon: int) -> int:
+    """Reserve one compatible output chunk for all horizons in a workflow."""
+    with _CACHE_LOCK:
+        return max(horizon, _SCOPE_HORIZON or horizon)
 
 
 def _weights_unavailable(exc: BaseException) -> bool:
@@ -252,6 +245,8 @@ def _constructor_kwargs(
 
 def _load(name: str, ctx: int, horizon: int, accelerator: str, seed: int, fit_series: Any):
     """Construct + fit (weight load only) once per cache key."""
+    horizon = _loading_horizon(horizon)
+    validate_request(name, horizon=horizon, context_length=ctx)
     key = (name, ctx, horizon, accelerator, seed)
     with _CACHE_LOCK:
         cached = _MODEL_CACHE.pop(key, None)
@@ -262,11 +257,12 @@ def _load(name: str, ctx: int, horizon: int, accelerator: str, seed: int, fit_se
     spec = _spec(name)
     model_cls = _import_model_class(spec)
     try:
-        with _quiet_lightning():
-            model = model_cls(
-                **_constructor_kwargs(spec, ctx=ctx, horizon=horizon, accelerator=accelerator, seed=seed)
-            )
-            model.fit(fit_series)
+        # Trainer options disable progress/loggers; diagnostics use stderr.
+        # Never change global stdout, logger levels or warning filters.
+        model = model_cls(
+            **_constructor_kwargs(spec, ctx=ctx, horizon=horizon, accelerator=accelerator, seed=seed)
+        )
+        model.fit(fit_series)
     except Exception as exc:
         if _weights_unavailable(exc):
             raise FoundationModelUnavailableError(_unavailable_message(spec)) from exc
@@ -314,23 +310,26 @@ def clear_model_cache() -> None:
 
 
 @contextmanager
-def model_cache_scope() -> Iterator[None]:
-    """Keep every loaded model until the outermost scope exits, then release them.
+def model_cache_scope(*, horizon: Optional[int] = None) -> Iterator[None]:
+    """Keep scoped models, then release them; optionally reserve a shared horizon.
 
-    Scopes nest (a tool that runs a workflow, a workflow that compares methods);
-    only the outermost exit calls :func:`clear_model_cache`.
+    Forecast workflows know both validation and future horizons before loading.
+    Reserving their maximum loads one checkpoint with one output chunk rather than
+    keeping two copies. A reentrant lock serializes scopes and model inference so
+    concurrent threads cannot reuse or release a model during another prediction.
     """
-    global _SCOPE_DEPTH
+    global _SCOPE_DEPTH, _SCOPE_HORIZON
     with _CACHE_LOCK:
+        previous_horizon = _SCOPE_HORIZON
+        _SCOPE_HORIZON = max(horizon or 0, previous_horizon or 0) or None
         _SCOPE_DEPTH += 1
-    try:
-        yield
-    finally:
-        with _CACHE_LOCK:
+        try:
+            yield
+        finally:
             _SCOPE_DEPTH -= 1
-            outermost = _SCOPE_DEPTH == 0
-        if outermost:
-            clear_model_cache()
+            _SCOPE_HORIZON = previous_horizon
+            if _SCOPE_DEPTH == 0:
+                clear_model_cache()
 
 
 def forecast_arrays(
@@ -373,8 +372,8 @@ def forecast_arrays(
         for values in contexts
     ]
     longest = max(range(len(series)), key=lambda index: len(contexts[index]))
-    fitted = _load(model, ctx, horizon, accelerator, seed, series[longest])
-    with _quiet_lightning():
+    with _CACHE_LOCK:
+        fitted = _load(model, ctx, horizon, accelerator, seed, series[longest])
         predictions = fitted.predict(n=horizon, series=series, verbose=False)
     if not isinstance(predictions, (list, tuple)):
         predictions = [predictions]

@@ -581,3 +581,100 @@ def test_docker_relocation_preserves_model_hierarchy_and_metadata(tmp_path):
     assert (dest / "models/nhits/model.pkl").read_text() == "models/nhits/model.pkl"
     assert result.result["data"]["manifest_path"] == str(dest / "run_manifest.json")
     assert len({ref["path"] for ref in result.result["artifacts"]}) == 3
+
+
+def test_tool_limits_and_daytona_extras_reach_backend_without_mutating_context(monkeypatch):
+    from ts_agents.tools import executor as module
+    calls = []
+    class Backend:
+        def is_available(self): return True
+        def execute(self, **kwargs):
+            calls.append(kwargs)
+            return ExecutionResult(status=ExecutionStatus.SUCCESS, result={})
+    monkeypatch.setattr(module, "describe_sandbox_backend", lambda *args, **kwargs: {"available": True})
+    monkeypatch.delenv("TS_AGENTS_DAYTONA_INSTALL_EXTRAS", raising=False)
+    executor = ToolExecutor()
+    executor.backends[SandboxMode.DAYTONA] = Backend()
+    context = ExecutionContext(sandbox_mode="daytona", user_approved=True)
+    assert executor.execute("forecast_foundation", {"series": [1., 2.]}, context=context).success
+    actual = calls[-1]["context"]
+    assert (actual.timeout_seconds, actual.memory_mb, actual.disk_mb) == (900, 4096, 2048)
+    assert actual.environment["TS_AGENTS_DAYTONA_INSTALL_EXTRAS"] == "foundation"
+    assert context.timeout_seconds is None and context.memory_mb is None and context.environment == {}
+    explicit = ExecutionContext(sandbox_mode="daytona", user_approved=True, timeout_seconds=120,
+        memory_mb=1000, environment={"TS_AGENTS_DAYTONA_INSTALL_EXTRAS": "foundation,viz"})
+    assert executor.execute("forecast_foundation", {"series": [1., 2.]}, context=explicit).success
+    assert calls[-1]["context"].timeout_seconds == 120
+    assert calls[-1]["context"].memory_mb == 1000
+    assert calls[-1]["context"].environment == explicit.environment
+
+
+def test_panel_tool_subprocess_returns_durable_directory_and_manifest(tmp_path, monkeypatch):
+    import pandas as pd
+    monkeypatch.setenv("TS_AGENTS_TOOL_ARTIFACT_DIR", str(tmp_path / "artifacts"))
+    path = tmp_path / "panel.csv"
+    pd.DataFrame({"unique_id": ["a"] * 30, "ds": pd.date_range("2024-01-01", periods=30),
+                  "y": np.arange(30.) + 1}).to_csv(path, index=False)
+    result = ToolExecutor().execute("forecast_panel_from_csv", {"input_path": str(path),
+        "freq": "D", "horizon": 2, "season_length": 1, "n_windows": 1},
+        context=ExecutionContext(sandbox_mode="subprocess", user_approved=True))
+    assert result.success, result.error
+    data = result.result["data"]
+    root = Path(data["output_dir"])
+    assert root.is_dir() and Path(data["manifest_path"]).is_file()
+    assert all(Path(ref["path"]).is_file() for ref in result.result["artifacts"])
+    manifest = json.loads(Path(data["manifest_path"]).read_text())
+    assert manifest["output_dir"] == str(root)
+
+
+def test_panel_tool_transports_rows_and_restores_daytona_bundle(tmp_path, monkeypatch):
+    import pandas as pd
+    from ts_agents.tools import executor as module
+    from ts_agents.workflows import executor as workflow_module
+    from ts_agents.tools.results import serialize_result
+    monkeypatch.setenv("TS_AGENTS_TOOL_ARTIFACT_DIR", str(tmp_path / "artifacts"))
+    monkeypatch.delenv("TS_AGENTS_DAYTONA_INSTALL_EXTRAS", raising=False)
+    for target in (module, workflow_module):
+        monkeypatch.setattr(target, "describe_sandbox_backend", lambda *args, **kwargs: {"available": True})
+    path = tmp_path / "panel.csv"
+    pd.DataFrame({"unique_id": ["a"] * 30, "ds": pd.date_range("2024-01-01", periods=30),
+                  "y": np.arange(30.) + 1}).to_csv(path, index=False)
+    observed = {}
+    class Backend:
+        def is_available(self): return True
+        def execute(self, **kwargs):
+            observed.update(kwargs)
+            params = dict(kwargs["params"])
+            assert params["workflow_input"]["kind"] == "panel_input"
+            assert len(params["workflow_input"]["records"]) == 30
+            path.unlink()  # The sandbox cannot read the host file.
+            params["sandbox_artifact_dir"] = str(tmp_path / "remote")
+            payload = serialize_result(kwargs["func"](**params))
+            shutil.rmtree(tmp_path / "remote")  # Equivalent to deleting the ephemeral sandbox.
+            return ExecutionResult(status=ExecutionStatus.SUCCESS, result=payload)
+    executor = ToolExecutor()
+    executor.backends[SandboxMode.DAYTONA] = Backend()
+    result = executor.execute("forecast_panel_from_csv", {"input_path": str(path),
+        "freq": "D", "horizon": 2, "season_length": 1, "n_windows": 1},
+        context=ExecutionContext(sandbox_mode="daytona", user_approved=True))
+    assert result.success, result.error
+    assert observed["context"].environment["TS_AGENTS_DAYTONA_INSTALL_EXTRAS"] == "viz"
+    assert (observed["context"].timeout_seconds, observed["context"].memory_mb) == (1800, 8192)
+    root = Path(result.result["data"]["output_dir"])
+    assert (root / "models/seasonal_naive/history.csv").is_file()
+    assert all(Path(ref["path"]).is_file() for ref in result.result["artifacts"])
+    manifest = json.loads(Path(result.result["data"]["manifest_path"]).read_text())
+    assert manifest["output_dir"] == str(root)
+    assert all(Path(ref["path"]).is_file() for ref in manifest["artifacts"])
+
+
+def test_docker_artifact_resolver_rejects_escape_and_symlink(tmp_path):
+    from ts_agents.tools.executor import _resolve_docker_artifact_path
+    root = tmp_path / "artifacts"
+    root.mkdir()
+    external = tmp_path / "private"
+    external.write_text("outside the sandbox volume")
+    (root / "link").symlink_to(external)
+    for name in ("/io/artifacts/../private", "/io/artifacts/link"):
+        assert _resolve_docker_artifact_path(name, container_artifact_dir="/io/artifacts",
+                                             host_artifact_dir=root) is None

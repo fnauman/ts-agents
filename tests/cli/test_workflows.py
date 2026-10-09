@@ -1462,7 +1462,8 @@ def test_forecast_series_foundation_options_are_forwarded(monkeypatch, tmp_path)
     spec = payload.data["foundation_models"]["chronos2_small"]
     assert spec["forecast_phase"] == "future"
     assert spec["output_chunk_length"] == 6
-    assert spec["validation_spec"]["output_chunk_length"] == 4
+    assert spec["validation_spec"]["output_chunk_length"] == 6
+    assert spec["validation_spec"]["forecast_horizon"] == 4
     assert spec["input_chunk_length"] == [1, 16]
 
 

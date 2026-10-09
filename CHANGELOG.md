@@ -46,6 +46,20 @@ All notable changes to this project will be documented in this file.
   `foundation_models`, `zero_shot_methods`, `method_extras` and
   `foundation_model_checkpoints`.
 
+### Fixed
+
+- Reject unknown forecasting option names, empty panel method selections and missing
+  requested columns; keep existing JSON file paths ahead of inline parsing.
+- Preserve native model directories and durable manifest/artifact paths across
+  Docker, subprocess and remote panel-tool execution; normalize host CSV inputs
+  before dispatch and install required Daytona extras for tools.
+- Apply resource defaults without mutating caller contexts. Foundation inference
+  preserves stdout/logger state, retains one model across repeated agent calls,
+  and uses one checkpoint for series validation and future forecasts.
+- Record the context actually used by autoresearch, validate checkpoint-specific
+  window limits, align method schema defaults, and include alias notices in the
+  initial manifest rather than an extra rewrite.
+
 ### Changed
 
 - **Breaking:** the `foundation` extra is now `darts[torch]>=0.47,<0.48` plus

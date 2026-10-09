@@ -114,6 +114,7 @@ def run_autoresearch_loop(
         "skip_plots": skip_plots,
         "seed": int(seed),
         "dataset": dataset,
+        "notice_warnings": [alias_warning] if alias_warning else [],
     }
 
     runner = _RUNNERS.get(loop_name)
@@ -121,25 +122,7 @@ def run_autoresearch_loop(
         raise ValueError(
             f"Autoresearch loop '{loop_name}' is registered but has no runner."
         )
-    result = runner(**common)
-    if alias_warning:
-        _add_notice_warning(result, alias_warning)
-    return result
-
-
-def _add_notice_warning(result: dict[str, Any], warning: str) -> None:
-    """Record a non-degrading warning in the payload and the written manifest."""
-    result["warnings"] = [warning, *(result.get("warnings") or [])]
-    manifest_path = Path(str(result.get("data", {}).get("manifest_path", "")))
-    if not manifest_path.is_file():
-        return
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return
-    if isinstance(manifest, dict):
-        manifest["warnings"] = [warning, *(manifest.get("warnings") or [])]
-        write_output(render_output(to_jsonable(manifest), json_output=True), str(manifest_path))
+    return runner(**common)
 
 
 def _run_forecast_daytona(**kwargs: Any) -> dict[str, Any]:
@@ -264,6 +247,7 @@ def _run_forecast_daytona(**kwargs: Any) -> dict[str, Any]:
         extra_json={"model_ranking": ranking},
         status=status,
         warnings=warnings,
+        notice_warnings=kwargs.get("notice_warnings"),
         extra_artifacts=plot_artifacts,
     )
 
@@ -400,6 +384,7 @@ def _run_classify_daytona(**kwargs: Any) -> dict[str, Any]:
             extra_json={"model_ranking": ranking},
             status=status,
             warnings=warnings,
+            notice_warnings=kwargs.get("notice_warnings"),
             extra_artifacts=plot_artifacts,
         )
     )
@@ -533,6 +518,12 @@ def _run_foundation_smoke(**kwargs: Any) -> dict[str, Any]:
     context_length = int(
         capabilities.get("context_length", FOUNDATION_SMOKE_CONTEXT_LENGTH)
     )
+    from ts_agents.core.forecasting.foundation import validate_request
+
+    resolved_context = {
+        model: validate_request(model, horizon=horizon, context_length=context_length)
+        for model in models
+    }
     checkpoints = {
         model: checkpoint
         for model, checkpoint in foundation_checkpoints("autoresearch").items()
@@ -564,9 +555,9 @@ def _run_foundation_smoke(**kwargs: Any) -> dict[str, Any]:
                 break
             if dry_run:
                 trials.append(
-                    _planned_trial_row(
+                    {**_planned_trial_row(
                         run_id, trial_index, FOUNDATION_SMOKE_TASK, spec, model
-                    )
+                    ), "context_length": resolved_context[model]}
                 )
                 continue
             trial_timeout = _trial_timeout_for_next(
@@ -585,7 +576,8 @@ def _run_foundation_smoke(**kwargs: Any) -> dict[str, Any]:
                         model=model,
                         task=FOUNDATION_SMOKE_TASK,
                         trial_id_prefix="foundation",
-                        forecast_runner=_forecast_with_foundation,
+                        forecast_runner=lambda name, series, *, horizon: _forecast_with_foundation(
+                            name, series, horizon=horizon, context_length=resolved_context[name]),
                         horizon=horizon,
                         extra_fields={
                             "foundation_family": checkpoint["family"],
@@ -593,6 +585,7 @@ def _run_foundation_smoke(**kwargs: Any) -> dict[str, Any]:
                             "hub_model_name": checkpoint["hub_model_name"],
                             "hub_model_revision": checkpoint["hub_model_revision"],
                             "execution_mode": "zero_shot",
+                            "context_length": resolved_context[model],
                         },
                     )
                 )
@@ -623,6 +616,7 @@ def _run_foundation_smoke(**kwargs: Any) -> dict[str, Any]:
         "dry_run": dry_run,
         "horizon": horizon,
         "context_length": context_length,
+        "resolved_context_length": resolved_context,
         "dataset": str(dataset_path),
         "model_scope": capabilities.get("model_scope"),
         "model_scope_label": capabilities.get("model_scope_label"),
@@ -654,6 +648,7 @@ def _run_foundation_smoke(**kwargs: Any) -> dict[str, Any]:
         },
         status=status,
         warnings=warnings,
+        notice_warnings=kwargs.get("notice_warnings"),
         extra_artifacts=plot_artifacts,
     )
 
@@ -886,14 +881,15 @@ def _forecast_with_method(method: str, series: np.ndarray, *, horizon: int, seas
     )
 
 
-def _forecast_with_foundation(model: str, series: np.ndarray, *, horizon: int) -> np.ndarray:
+def _forecast_with_foundation(model: str, series: np.ndarray, *, horizon: int,
+                              context_length: int = FOUNDATION_SMOKE_CONTEXT_LENGTH) -> np.ndarray:
     # The catalog forecaster lazy-imports the Darts adapter, which resolves and
     # downloads only the selected checkpoint.
     return np.asarray(
         get_series_forecaster(model)(
             series,
             horizon=horizon,
-            context_length=FOUNDATION_SMOKE_CONTEXT_LENGTH,
+            context_length=context_length,
         ).forecast,
         dtype=float,
     )
@@ -1175,8 +1171,12 @@ def _write_autoresearch_artifacts(
     extra_json: Optional[dict[str, Any]] = None,
     status: str = "ok",
     warnings: Optional[list[str]] = None,
+    notice_warnings: Optional[list[str]] = None,
     extra_artifacts: Optional[list[ArtifactRef]] = None,
 ) -> list[ArtifactRef]:
+    if warnings is None:
+        warnings = []
+    warnings[:0] = [notice for notice in notice_warnings or [] if notice not in warnings]
     trials_df = pd.DataFrame(trials)
     artifacts = [
         _write_csv(output_path / "trials.csv", trials_df, "Autoresearch trial table."),
@@ -1459,7 +1459,7 @@ def _foundation_smoke_report(
         f"- models: `{', '.join(models)}`",
         f"- mode: `{'dry-run' if dry_run else 'executed'}`",
         f"- scope: {capabilities.get('model_scope_label', 'scoped zero-shot smoke path')}",
-        f"- context length: `{context_length}` points (capped per model)",
+        f"- context length: `{context_length}` points (validated against each model limit)",
         "- primary metric: `sMAPE` (lower is better)",
         "",
         "Models run zero-shot: nothing is trained on this data, and only the selected",
