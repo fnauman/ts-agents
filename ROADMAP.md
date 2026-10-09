@@ -21,6 +21,9 @@ It complements `README.md` (what exists today) with direction (what is next).
 
 ## Current Focus
 
+- Qualify the new MLForecast GBM and NeuralForecast NHITS panel workflow on
+  the bounded electricity-demand dogfood. External covariates and calibrated
+  intervals remain future additions.
 - Keep published artifacts, install instructions, and source claims aligned
   through installed-wheel and source-identity release gates.
 - Checkpoint recovery for interrupted autoresearch/workflow computations.

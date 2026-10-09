@@ -5,6 +5,8 @@ from __future__ import annotations
 from ts_agents._lazy import load_export
 
 _LAZY_EXPORTS = {
+    "PanelBackend": ("panel", "PanelBackend"),
+    "normalize_panel": ("panel", "normalize_panel"),
     "forecast_arima": ("statistical", "forecast_arima"),
     "forecast_ets": ("statistical", "forecast_ets"),
     "forecast_theta": ("statistical", "forecast_theta"),
@@ -20,6 +22,8 @@ def __getattr__(name: str):
     return value
 
 __all__ = [
+    "PanelBackend",
+    "normalize_panel",
     "forecast_arima",
     "forecast_ets",
     "forecast_theta",

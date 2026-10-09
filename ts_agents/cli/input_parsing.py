@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from io import StringIO
+import errno
 import json
 from pathlib import Path
 import sys
@@ -44,6 +45,42 @@ class LabeledStreamInput:
     label_column: str = "label"
 
 
+@dataclass
+class PanelInput:
+    """Portable long-format panel, including every row in resume identity."""
+
+    records: list[dict[str, Any]]
+    source_type: str
+    label: str
+    provenance: Dict[str, Any] = field(default_factory=dict)
+    input_path: Optional[str] = None
+
+
+def load_panel_input(*, input_path=None, input_json=None, use_stdin=False,
+                     id_col="unique_id", time_col="ds", value_col="y", freq: str) -> PanelInput:
+    """Load tabular panel inputs through the same file/JSON/stdin surface."""
+    if sum(bool(source) for source in (input_path, input_json, use_stdin)) != 1:
+        raise ValueError("Panel inputs require exactly one of --input, --input-json, --stdin.")
+    from ts_agents.core.forecasting.panel import normalize_panel
+
+    frame, source_type, label, path = _load_dataframe_input_source(
+        input_path=input_path, input_json=input_json, use_stdin=use_stdin,
+    )
+    if len({id_col, time_col, value_col}) != 3:
+        raise ValueError("Panel ID, time, and value columns must be distinct.")
+    missing = sorted({id_col, time_col, value_col} - set(frame.columns))
+    if missing:
+        raise ValueError(f"Missing requested panel columns: {', '.join(missing)}")
+    frame = frame.rename(columns={id_col: "unique_id", time_col: "ds", value_col: "y"})
+    frame = normalize_panel(frame, freq)
+    frame["ds"] = frame.ds.map(lambda value: value.isoformat())
+    return PanelInput(
+        records=frame.to_dict("records"), source_type=source_type, label=label, input_path=path,
+        provenance={"series_ref": {"source_type": source_type, "input_path": path, "name": label,
+                                   "id_column": id_col, "time_column": time_col, "value_column": value_col}},
+    )
+
+
 def load_json_value(
     *,
     input_json: Optional[str] = None,
@@ -63,7 +100,13 @@ def load_json_value(
         source_type = "stdin_json"
     else:
         candidate_path = Path(input_json)
-        if candidate_path.exists():
+        try:
+            exists = candidate_path.exists()
+        except OSError as exc:
+            if exc.errno != errno.ENAMETOOLONG:
+                raise
+            exists = False
+        if exists:
             raw_text = candidate_path.read_text()
             source_type = "json_file"
         else:

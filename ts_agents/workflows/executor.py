@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
-from ts_agents.cli.input_parsing import LabeledStreamInput, SeriesInput
+from ts_agents.cli.input_parsing import LabeledStreamInput, PanelInput, SeriesInput
 from ts_agents.tools import artifact_staging as _staging
 from ts_agents.tools.executor import (
     DockerBackend,
@@ -53,6 +53,8 @@ def is_workflow_target(tool_name: str) -> bool:
 
 
 def _serialize_workflow_input(workflow_input: Any) -> Dict[str, Any]:
+    if isinstance(workflow_input, PanelInput):
+        return {**asdict(workflow_input), "kind": "panel_input"}
     if isinstance(workflow_input, SeriesInput):
         payload = asdict(workflow_input)
         payload["kind"] = "series_input"
@@ -71,6 +73,8 @@ def _serialize_workflow_input(workflow_input: Any) -> Dict[str, Any]:
 
 def _deserialize_workflow_input(payload: Dict[str, Any]) -> Any:
     kind = payload.get("kind")
+    if kind == "panel_input":
+        return PanelInput(**{key: value for key, value in payload.items() if key != "kind"})
     if kind == "series_input":
         data = dict(payload)
         data.pop("kind", None)
@@ -375,14 +379,21 @@ def _rewrite_docker_workflow_output_paths(
     destination_dir.mkdir(parents=True, exist_ok=True)
     rewritten_paths: Dict[str, Path] = {}
 
+    source_root = Path(str((payload.get("data") or {}).get("output_dir", ""))).resolve()
     for artifact in artifacts:
         if not isinstance(artifact, dict):
             continue
         source = Path(str(artifact.get("path", "")))
         if not source.exists():
             continue
-        destination = destination_dir / source.name
-        shutil.copy2(source, destination)
+        try:
+            relative_path = source.resolve().relative_to(source_root)
+        except ValueError:
+            relative_path = Path(source.name)
+        destination = destination_dir / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if source.resolve() != destination.resolve():
+            shutil.copy2(source, destination)
         rewritten_paths[str(source)] = destination
         artifact["path"] = str(destination)
 

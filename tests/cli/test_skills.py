@@ -1,4 +1,6 @@
+import filecmp
 import json
+from pathlib import Path
 
 from ts_agents.cli.main import run
 
@@ -39,3 +41,34 @@ def test_skills_export_json_writes_structured_catalog(tmp_path):
     skill_names = [skill["name"] for skill in payload["skills"]]
     assert "forecasting" in skill_names
     assert "report-generation" in skill_names
+
+
+def test_skills_validate_fails_for_invalid_skill(tmp_path, capsys):
+    skill_dir = tmp_path / "broken"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: broken\ndescription: Broken skill for validation.\n---\n\n"
+        "# Broken\n\nThis body is long enough but lacks both recommended sections.\n"
+    )
+
+    code = run(["skills", "validate", "--path", str(tmp_path), "--json"])
+
+    assert code != 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "validation_error"
+    assert "broken" in payload["error"]["details"]["errors"]
+
+
+def test_bundled_skills_validate_and_match_packaged_mirror(capsys):
+    assert run(["skills", "validate", "--json"]) == 0
+    capsys.readouterr()
+    root = Path(__file__).resolve().parents[2]
+    comparison = filecmp.dircmp(root / "skills", root / "ts_agents" / "resources" / "skills")
+    pending = [comparison]
+    while pending:
+        current = pending.pop()
+        assert not (current.left_only or current.right_only or current.diff_files), (
+            current.left, current.left_only, current.right_only, current.diff_files,
+        )
+        pending.extend(current.subdirs.values())

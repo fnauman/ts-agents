@@ -60,7 +60,7 @@ def resume_identity(workflow: str, workflow_input: Any, options: dict) -> dict:
     fields = (
         "series", "values", "labels", "time_values", "time_column",
         "value_column", "value_columns", "label_column", "source_type",
-        "input_path", "label", "provenance",
+        "input_path", "label", "provenance", "records",
     )
     normalized = {name: getattr(workflow_input, name) for name in fields if hasattr(workflow_input, name)}
     analysis_options = {key: value for key, value in options.items() if key != "output_dir"}

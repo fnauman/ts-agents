@@ -37,6 +37,8 @@ def test_project_metadata_defines_dependency_extras():
     assert "ui" in extras
     assert "agents" in extras
     assert "forecasting" in extras
+    assert "ml" in extras
+    assert "neural" in extras
     assert "decomposition" in extras
     assert "patterns" in extras
     assert "classification" in extras
@@ -51,4 +53,8 @@ def test_project_metadata_defines_dependency_extras():
     assert any(dep.startswith("chronos-forecasting") for dep in extras["foundation"])
     assert any(dep.startswith("torch") for dep in extras["foundation"])
     assert set(extras["foundation"]).issubset(set(extras["all"]))
+    assert set(extras["ml"]).issubset(set(extras["all"]))
+    assert set(extras["neural"]).issubset(set(extras["all"]))
+    assert not any(dep.startswith(("mlforecast", "neuralforecast", "lightgbm")) for dep in dependencies)
+    assert not any(dep.startswith(("mlforecast", "neuralforecast", "lightgbm")) for dep in extras["recommended"])
     assert project["scripts"]["ts-agents-ui"] == "ts_agents.ui.entrypoint:main"

@@ -12,6 +12,7 @@ from ts_agents.cli.input_parsing import load_labeled_stream_input, load_series_i
 from .activity import run_activity_recognition_workflow
 from .forecast import run_forecast_series_workflow
 from .inspect import run_inspect_series_workflow
+from .panel import run_forecast_panel_workflow
 
 
 def _module_available(module_name: str) -> bool:
@@ -125,6 +126,12 @@ def _workflow_source_options(workflow: "WorkflowDefinition") -> List[Dict[str, A
                 ),
             ]
         )
+    elif input_type == "panel_input":
+        options.extend([
+            _option_contract(name="id_col", type="string", description="Panel series identifier column.", default="unique_id"),
+            _option_contract(name="time_col", type="string", description="Panel timestamp column.", default="ds"),
+            _option_contract(name="value_col", type="string", description="Panel target column.", default="y"),
+        ])
     elif input_type == "labeled_stream_input":
         options.extend(
             [
@@ -467,7 +474,77 @@ def _activity_workflow_availability() -> Dict[str, Any]:
     }
 
 
+def _load_panel_workflow_input(args):
+    from ts_agents.cli.input_parsing import load_panel_input
+    return load_panel_input(input_path=args.input, input_json=args.input_json, use_stdin=args.stdin,
+                            id_col=args.id_col, time_col=args.time_col, value_col=args.value_col, freq=args.freq)
+
+
+def _build_panel_runner_kwargs(args):
+    names = ("output_dir", "freq", "horizon", "season_length", "n_windows", "step_size",
+             "n_estimators", "max_steps", "input_size", "num_threads", "accelerator", "seed", "skip_plots")
+    options = {name: getattr(args, name) for name in names}
+    options["methods"] = [method.strip() for method in args.methods.split(",") if method.strip()]
+    options["lags"] = [int(lag.strip()) for lag in args.lags.split(",")] if args.lags is not None else None
+    return options
+
+
+def _panel_workflow_availability():
+    from ts_agents.core.forecasting.panel import METHOD_DEPENDENCIES
+    available = [method for method, modules in METHOD_DEPENDENCIES.items()
+                 if all(_module_available(module) for module in modules)]
+    return {"status": "available" if len(available) == len(METHOD_DEPENDENCIES) else "degraded",
+            "available": True, "available_methods": available,
+            "unavailable_methods": sorted(set(METHOD_DEPENDENCIES) - set(available)),
+            "missing_dependencies": sorted({module for modules in METHOD_DEPENDENCIES.values()
+                                             for module in modules if not _module_available(module)}),
+            "required_extras": [], "optional_features": [],
+            "install_hint": "Install ts-agents[ml] for GBMs and ts-agents[neural] for NHITS."}
+
+
+_PANEL_OPTIONS = [
+    WorkflowOption("output_dir", "string", "Output directory.", default="outputs/panel"),
+    WorkflowOption("freq", "string", "Explicit pandas frequency.", required=True),
+    WorkflowOption("horizon", "integer", "Forecast horizon.", default=24),
+    WorkflowOption("methods", "array", "Requested model backends; unavailable requests fail.", default=["seasonal_naive", "lightgbm"],
+                   choices=["seasonal_naive", "lightgbm", "histgbm", "nhits"]),
+    WorkflowOption("season_length", "integer", "Baseline/MASE seasonal period.", default=24),
+    WorkflowOption("n_windows", "integer", "Rolling-validation origins; each refits models.", default=3),
+    WorkflowOption("step_size", "integer", "Origin spacing; defaults to horizon."),
+    WorkflowOption("lags", "array", "ML lag features; defaults to 1, season, 7*season."),
+    WorkflowOption("n_estimators", "integer", "GBM tree/iteration cap per fit.", default=200),
+    WorkflowOption("max_steps", "integer", "NHITS training-step cap per fit.", default=1000),
+    WorkflowOption("input_size", "integer", "NHITS context; defaults to 2*horizon."),
+    WorkflowOption("num_threads", "integer", "MLForecast/LightGBM threads.", default=2),
+    WorkflowOption("accelerator", "string", "NHITS CPU/GPU selection.", default="cpu", choices=["cpu", "gpu"]),
+    WorkflowOption("seed", "integer", "Estimator random seed.", default=1337),
+    WorkflowOption("skip_plots", "boolean", "Skip comparison plots.", default=False),
+]
+
+
 _WORKFLOWS = {
+    "forecast-panel": WorkflowDefinition(
+        name="forecast-panel", description="Train MLForecast GBMs and NeuralForecast NHITS on regular panels.",
+        runner=run_forecast_panel_workflow, load_input=_load_panel_workflow_input,
+        build_runner_kwargs=_build_panel_runner_kwargs,
+        source_requirement="Exactly one of --input, --input-json, or --stdin; exactly ID/time/target columns.",
+        supported_input_modes=["input_file", "input_json", "stdin"], options=_PANEL_OPTIONS,
+        input_schema={"type": "panel_input", "columns": ["unique_id", "ds", "y"],
+                      "regular_frequency_required": True, "aligned_end_dates_required": True},
+        artifacts=[WorkflowArtifact("metrics.json", "json", "Validation scores, settings and timings."),
+                   WorkflowArtifact("backtest_predictions.csv", "csv", "Keyed predictions at each validation origin."),
+                   WorkflowArtifact("forecast.csv", "csv", "Future forecasts for every requested model."),
+                   WorkflowArtifact("models/*", "model", "Native trained model files and baseline history."),
+                   WorkflowArtifact("report.md", "markdown", "Comparison report."),
+                   WorkflowArtifact("backtest.png", "image", "Validation forecast plot.", required=False,
+                                    condition="Written with matplotlib unless --skip-plots.")],
+        examples=["ts-agents workflow run forecast-panel --input panel.csv --freq h --horizon 24 --methods seasonal_naive,lightgbm,nhits"],
+        capabilities={"supported_methods": ["seasonal_naive", "lightgbm", "histgbm", "nhits"],
+                      "supported_metrics": ["mae", "rmse", "mase"], "panel": True,
+                      "external_covariates": False, "foundation_models": False,
+                      "validation": "rolling chronological; final test must be supplied separately outside input"},
+        availability_fn=_panel_workflow_availability,
+    ),
     "inspect-series": WorkflowDefinition(
         name="inspect-series",
         description="Run quick diagnostics on a series and write summary/report artifacts.",
