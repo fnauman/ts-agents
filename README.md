@@ -27,7 +27,7 @@ It is built around:
 It ships with four first-class workflows:
 - `inspect-series` (quick diagnostics + summary/report artifacts)
 - `forecast-series` (baseline comparison + forecast/report artifacts; optional zero-shot foundation models)
-- `forecast-panel` (unreleased: seasonal baseline, MLForecast GBMs, NeuralForecast NHITS and Darts zero-shot foundation models with rolling validation and saved models)
+- `forecast-panel` (seasonal baseline, MLForecast GBMs, NeuralForecast NHITS and Darts zero-shot foundation models with rolling validation and saved models)
 - `activity-recognition` (labeled-stream window-size selection + evaluation)
 
 It also includes autoresearch loops for repeatable dataset/model/metric
@@ -351,6 +351,19 @@ one release cycle, but they now emit deprecation warnings. Prefer
 
 ## Installation
 
+Version 0.3.0 adds MLForecast GBMs and NeuralForecast NHITS panel forecasting.
+The `foundation` and `all` extras now use Darts 0.47 instead of
+`chronos-forecasting`. Existing environments should be recreated for this
+backend change; the base and recommended profiles retain their dependencies.
+The old `foundation-chronos-smoke` name remains a deprecated alias for
+`foundation-smoke`.
+
+For the GBM/NHITS forecasting and reporting profile:
+
+```bash
+python -m pip install "ts-agents[ml,neural,forecasting,viz]==0.3.0"
+```
+
 Prerequisites:
 - Python 3.11-3.14 for the base CLI; use 3.11-3.13 for the qualified locked
   optional dependency stack. Heavy extras are not release-qualified on 3.14.
@@ -391,9 +404,9 @@ Feature extras:
 Install profiles:
 - `ts-agents`: workflow discovery, `workflow show`, `inspect-series`, and a dependency-light `seasonal_naive` forecast baseline
 - `ts-agents[forecasting]`: unlocks ARIMA, ETS, and Theta for `forecast-series`
-- `ts-agents[ml]`: MLForecast panel models (`lightgbm`, `histgbm`; unreleased, use `uv sync --extra ml`)
-- `ts-agents[neural]`: NeuralForecast panel models (`nhits`; unreleased, use `uv sync --extra neural`)
-- `ts-agents[foundation]`: Darts zero-shot foundation models (`chronos2_small`, `chronos2`, `timesfm2p5`, `patchtst_fm`) for `forecast-series`, `forecast-panel` and `foundation-smoke`; unreleased in this form, use `uv sync --extra foundation`
+- `ts-agents[ml]`: MLForecast panel models (`lightgbm`, `histgbm`; available since 0.3.0)
+- `ts-agents[neural]`: NeuralForecast panel models (`nhits`; available since 0.3.0)
+- `ts-agents[foundation]`: Darts zero-shot foundation models (`chronos2_small`, `chronos2`, `timesfm2p5`, `patchtst_fm`) for `forecast-series`, `forecast-panel` and `foundation-smoke`; Darts backend available since 0.3.0
 - `ts-agents[classification]`: unlocks `activity-recognition`
 - `ts-agents[recommended]`: the main workflow stack used in walkthroughs and demos
 - `source checkout + uv sync`: same base CLI-first profile as `ts-agents`

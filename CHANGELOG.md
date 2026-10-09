@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-09
+
 ### Added
 
 - Optional `ml` (MLForecast/LightGBM and histogram GBM) and `neural`
@@ -24,11 +26,12 @@ All notable changes to this project will be documented in this file.
   weights without network fail as `backend_unavailable` (exit code 5) with the
   remediation in `hint`.
 - `--context-length` on `forecast-series` and `forecast-panel` (default 512,
-  capped per model) and `--accelerator {cpu,gpu}` on `forecast-series`.
+  validated against checkpoint-specific window limits) and
+  `--accelerator {cpu,gpu}` on `forecast-series`.
   Horizon and context limits are validated before any work (exit code 2).
 - Agent tools `forecast_foundation` and `forecast_foundation_with_data`
   (VERY_HIGH cost, `foundation` extra, checkpoint provenance in the payload;
-  loaded weights are released when each call returns),
+  repeated calls reuse a bounded one-model cache),
   and `forecast_panel_from_csv`, which runs the `forecast-panel` workflow with
   `output_dir` defaulting under `TS_AGENTS_TOOL_ARTIFACT_DIR`. They are in the
   `full` and `forecasting` bundles and the forecasting subagent.
@@ -56,9 +59,24 @@ All notable changes to this project will be documented in this file.
 - Apply resource defaults without mutating caller contexts. Foundation inference
   preserves stdout/logger state, retains one model across repeated agent calls,
   and uses one checkpoint for series validation and future forecasts.
+- Reports distinguish requested validation/future horizons from the shared model
+  output chunk.
 - Record the context actually used by autoresearch, validate checkpoint-specific
   window limits, align method schema defaults, and include alias notices in the
   initial manifest rather than an extra rewrite.
+
+- Foundation-model inputs reject multidimensional histories and contexts outside
+  the finite Float32 range before loading weights. `forecast-series` saves the
+  actual validation configuration for nonwinning foundation models and both
+  validation/future configurations for a winning foundation model.
+
+- Large inline JSON inputs no longer fail filesystem filename-length probes.
+- `forecast-panel` reruns and `--resume` replace each `models/<method>/`
+  directory with a staged fit, so NHITS saves no longer fail on existing files and
+  stale model files are never reported as artifacts.
+- `skills validate` now exits non-zero with a `validation_error` envelope when
+  any skill is invalid; the `panel-forecasting` skill gained its missing
+  "When to use" section.
 
 ### Changed
 
@@ -97,21 +115,6 @@ All notable changes to this project will be documented in this file.
 - The `chronos-forecasting` dependency and its chronos-t5 models, the
   `chronos_finetune_config.yaml` gpu-plan artifact and the GluonTS `.arrow`
   adapter requirement.
-
-### Fixed
-
-- Foundation-model inputs reject multidimensional histories and contexts outside
-  the finite Float32 range before loading weights. `forecast-series` saves the
-  actual validation configuration for nonwinning foundation models and both
-  validation/future configurations for a winning foundation model.
-
-- Large inline JSON inputs no longer fail filesystem filename-length probes.
-- `forecast-panel` reruns and `--resume` replace each `models/<method>/`
-  directory atomically, so NHITS saves no longer fail on existing files and
-  stale model files are never reported as artifacts.
-- `skills validate` now exits non-zero with a `validation_error` envelope when
-  any skill is invalid; the `panel-forecasting` skill gained its missing
-  "When to use" section.
 
 ## [0.2.2] - 2026-10-05
 

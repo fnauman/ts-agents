@@ -106,7 +106,7 @@ Notes:
 
 FMs are also available in `forecast-series` once `ts-agents[foundation]` is
 installed. They run zero-shot (nothing is trained) on the last
-`--context-length` points (default 512, capped per model):
+`--context-length` points (default 512; explicit values must fit checkpoint-specific window limits):
 ```bash
 uv run ts-agents workflow run forecast-series \
   --run-id <RUN_ID> --variable <VARIABLE> \
