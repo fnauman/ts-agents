@@ -561,3 +561,23 @@ def test_staged_artifact_bundle_keeps_manifest_and_report_when_models_exceed_tot
     assert len(payload["warnings"]) == 1
     assert "models/nhits/weights.ckpt" in payload["warnings"][0]
     assert "Set TEST_TOTAL_LIMIT to override." in payload["warnings"][0]
+def test_docker_relocation_preserves_model_hierarchy_and_metadata(tmp_path):
+    from ts_agents.workflows.executor import _rewrite_docker_workflow_output_paths
+    root = tmp_path / "sandbox"
+    refs = []
+    for name in ("models/lightgbm/model.pkl", "models/nhits/model.pkl", "run_manifest.json"):
+        path = root / "run" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(name)
+        refs.append({"kind": "file", "path": "/io/artifacts/run/" + name})
+    result = ExecutionResult(status=ExecutionStatus.SUCCESS, result={
+        "artifacts": refs, "data": {"output_dir": "/io/artifacts/run",
+        "manifest_path": "/io/artifacts/run/run_manifest.json"}})
+    _persist_docker_artifacts(result, container_artifact_dir="/io/artifacts", host_artifact_dir=root)
+    shutil.rmtree(root)
+    dest = tmp_path / "output"
+    _rewrite_docker_workflow_output_paths(result, str(dest))
+    assert (dest / "models/lightgbm/model.pkl").read_text() == "models/lightgbm/model.pkl"
+    assert (dest / "models/nhits/model.pkl").read_text() == "models/nhits/model.pkl"
+    assert result.result["data"]["manifest_path"] == str(dest / "run_manifest.json")
+    assert len({ref["path"] for ref in result.result["artifacts"]}) == 3

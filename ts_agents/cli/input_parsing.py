@@ -68,6 +68,9 @@ def load_panel_input(*, input_path=None, input_json=None, use_stdin=False,
     )
     if len({id_col, time_col, value_col}) != 3:
         raise ValueError("Panel ID, time, and value columns must be distinct.")
+    missing = sorted({id_col, time_col, value_col} - set(frame.columns))
+    if missing:
+        raise ValueError(f"Missing requested panel columns: {', '.join(missing)}")
     frame = frame.rename(columns={id_col: "unique_id", time_col: "ds", value_col: "y"})
     frame = normalize_panel(frame, freq)
     frame["ds"] = frame.ds.map(lambda value: value.isoformat())
@@ -96,11 +99,6 @@ def load_json_value(
         raw_text = sys.stdin.read()
         source_type = "stdin_json"
     else:
-        if input_json.lstrip().startswith(("[", "{")):
-            try:
-                return json.loads(input_json), "inline_json"
-            except json.JSONDecodeError:
-                pass  # A real filename may start with a bracket.
         candidate_path = Path(input_json)
         try:
             exists = candidate_path.exists()

@@ -169,3 +169,10 @@ uv run ts-agents workflow run forecast-panel --input panel.csv --freq MS \
 [NHITS documentation](https://nixtlaverse.nixtla.io/neuralforecast/models.nhits.html)
 and the [Darts foundation-model documentation](https://unit8co.github.io/darts/)
 describe the underlying interfaces.
+[MLForecast documentation](https://nixtlaverse.nixtla.io/mlforecast/forecast.html)
+and [NHITS documentation](https://nixtlaverse.nixtla.io/neuralforecast/models.nhits.html)
+describe the underlying training interfaces.
+
+Requested input columns must exist; missing custom names fail even when the default
+columns exist. Default lag offsets are deduplicated for a season length of one.
+Explicit empty method lists are rejected. Sandbox exports preserve model subdirectories.
