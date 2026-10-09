@@ -457,12 +457,12 @@ def _foundation_report_section(
                 f"- {method}: {spec['darts_class']} from "
                 f"{spec['hub_model_name']}@{spec['hub_model_revision']}, "
                 f"context {spec['input_chunk_length'][1]}, licence {spec['license']}; "
-                f"{spec['forecast_phase']} horizon {spec['output_chunk_length']}."
+                f"{spec['forecast_phase']} horizon {spec['forecast_horizon']}."
             )
             if "validation_spec" in spec:
                 validation = spec["validation_spec"]
                 lines.append(
-                    f"  Validation used horizon {validation['output_chunk_length']} "
+                    f"  Validation used horizon {validation['forecast_horizon']} "
                     f"and context {validation['input_chunk_length'][1]}."
                 )
         lines.append("models/<foundation model>/ holds model_spec.json only; weights are not saved.")

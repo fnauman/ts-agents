@@ -2602,3 +2602,18 @@ def test_workflow_run_inspect_series_returns_absolute_paths_for_relative_output_
     assert payload["result"]["data"]["output_dir"] == expected_output_dir
     for artifact in payload["result"]["artifacts"]:
         assert Path(artifact["path"]).is_absolute()
+
+
+@pytest.mark.parametrize("horizon,validation_size", [(6, 4), (4, 6)])
+def test_foundation_report_labels_requested_horizons_not_shared_chunk(monkeypatch, tmp_path, horizon, validation_size):
+    from ts_agents.workflows.forecast import run_forecast_series_workflow
+    _fake_series_foundation(monkeypatch)
+    run_forecast_series_workflow(
+        SeriesInput(series=np.arange(40, dtype=float), source_type="inline_json", label="ramp"),
+        output_dir=str(tmp_path), horizon=horizon, validation_size=validation_size,
+        methods=["chronos2_small"], skip_plots=True)
+    report = (tmp_path / "report.md").read_text()
+    assert f"future horizon {horizon}." in report
+    assert f"Validation used horizon {validation_size} " in report
+    spec = json.loads((tmp_path / "models/chronos2_small/model_spec.json").read_text())
+    assert spec["output_chunk_length"] == max(horizon, validation_size)
