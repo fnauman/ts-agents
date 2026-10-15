@@ -412,7 +412,11 @@ def validate_all_skills(skills_dir: Optional[Path] = None) -> Dict[str, List[str
 
 
 def _place_skill_files(source_dir: Path, target_dir: Path, use_symlinks: bool = False) -> Path:
-    """Export a complete skill, including relative references and assets."""
+    """Update all source files without deleting destination-only content.
+
+    Destinations may contain local edits or additions. Use a fresh destination
+    for an exact snapshot after source files are removed or renamed.
+    """
     source_files = sorted(path for path in source_dir.rglob("*") if path.is_file())
     # Validate the source set before writing anything. A supporting symlink may
     # refer within its skill, but must not export unrelated readable files.

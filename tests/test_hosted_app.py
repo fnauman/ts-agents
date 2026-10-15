@@ -110,6 +110,35 @@ def test_ui_visitors_start_fresh_without_reading_shared_history(monkeypatch, tmp
     restored = state_module.UIState.load(previous.session_id, store=store)
     assert restored.chat_messages[0]["content"] == "another visitor's private message"
 
+    # The comparison callback must preserve undefined secondary metrics instead
+    # of crashing when a valid zero-target forecast produces MAPE=None.
+    import numpy as np
+    from ts_agents.core import comparison as comparison_module
+
+    series = np.zeros(12)
+    comparison = comparison_module.compare_forecasting_methods(
+        series, horizon=4, methods=["seasonal_naive"],
+    )
+    spec = importlib.util.spec_from_file_location(
+        "ts_agents.ui.components.forecasting",
+        Path(__file__).parents[1] / "ts_agents/ui/components/forecasting.py",
+    )
+    forecasting = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(forecasting)
+    monkeypatch.setattr(forecasting, "load_series_data", lambda *_: series)
+    monkeypatch.setattr(comparison_module, "compare_forecasting_methods", lambda *_args, **_kwargs: comparison)
+    monkeypatch.setattr(comparison_module, "plot_forecast_comparison", lambda *_: None)
+    gradio.reset_mock()
+    forecasting.create_forecasting_tab(gradio.State())
+    compare = next(
+        call.args[0] for call in gradio.Button.return_value.click.call_args_list
+        if call.args[0].__name__ == "run_comparison"
+    )
+    _, metrics, _, _, status, _ = compare("run", "value", 4, second)
+    assert status.startswith("Comparison complete")
+    assert metrics.iloc[0]["RMSE"] == "0.0000"
+    assert metrics.iloc[0]["MAPE (%)"] == "N/A (zero validation targets)"
+
 
 def test_hosted_app_env_flag_helper(monkeypatch):
     sys.modules.pop("ts_agents.hosted_app", None)

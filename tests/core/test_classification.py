@@ -246,3 +246,19 @@ class TestCompareClassifiers:
             hivecote_classify(X_train, y_train, X_test, np.zeros(2))
         with pytest.raises(RuntimeError, match="All classifiers failed.*backend failed"):
             compare_classifiers(X_train, y_train, X_test, np.zeros(2), classifiers=["hivecote2"])
+
+        def missing_dependency(*args, **kwargs):
+            raise ModuleNotFoundError("No module named 'sklearn'", name="sklearn")
+
+        monkeypatch.setattr(distance_based, "knn_classify", missing_dependency)
+        monkeypatch.setattr(convolution, "rocket_classify", missing_dependency)
+        with pytest.raises(ImportError, match=r'pip install "ts-agents\[classification\]"'):
+            hivecote_classify(X_train, y_train, X_test, y_test)
+        with pytest.raises(ImportError, match=r'pip install "ts-agents\[classification\]"'):
+            compare_classifiers(X_train, y_train, X_test, y_test, classifiers=["knn_euclidean", "rocket", "hivecote2"])
+        # One genuine model failure must not be mislabeled as missing dependencies.
+        monkeypatch.setattr(convolution, "rocket_classify", fail)
+        with pytest.raises(RuntimeError, match="backend failed"):
+            hivecote_classify(X_train, y_train, X_test, y_test)
+        with pytest.raises(RuntimeError, match="backend failed"):
+            compare_classifiers(X_train, y_train, X_test, y_test, classifiers=["knn_euclidean", "rocket"])

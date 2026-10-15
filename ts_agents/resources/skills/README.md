@@ -36,7 +36,7 @@ Skills are placed in the following agent-specific directories:
 
 ## Placement Commands
 
-To sync skills to agent-specific locations:
+To export skills to agent-specific locations:
 
 ```bash
 # Export and place skills for all agents
@@ -50,6 +50,12 @@ uv run ts-agents skills export --agent github
 # Validate skill format
 uv run ts-agents skills validate
 ```
+
+Export updates all current source files and preserves destination-only files,
+which may be local additions. After deleting or renaming a source file, remove
+the obsolete exported file yourself or export into a fresh destination for an
+exact snapshot. `--symlink` creates a separate link for each current file;
+re-export after adding files.
 
 To generate the aggregate `SKILLS.md` summary:
 

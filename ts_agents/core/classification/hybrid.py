@@ -107,6 +107,7 @@ def _ensemble_fallback(
     results = []
     warnings = [warning_message] if warning_message else []
     actual_methods = []
+    errors = []
 
     # KNN with euclidean
     try:
@@ -115,6 +116,7 @@ def _ensemble_fallback(
         actual_methods.append(knn_result.method)
         warnings.extend(knn_result.warnings)
     except Exception as exc:
+        errors.append(exc)
         warnings.append(f"KNN ensemble member failed: {type(exc).__name__}: {exc}")
 
     # ROCKET (fallback)
@@ -124,10 +126,14 @@ def _ensemble_fallback(
         actual_methods.append(rocket_result.method)
         warnings.extend(rocket_result.warnings)
     except Exception as exc:
+        errors.append(exc)
         warnings.append(f"ROCKET ensemble member failed: {type(exc).__name__}: {exc}")
 
     if not results:
-        raise RuntimeError("All HIVE-COTE fallback classifiers failed: " + "; ".join(warnings))
+        message = "All HIVE-COTE fallback classifiers failed: " + "; ".join(warnings)
+        if errors and all(isinstance(error, ImportError) for error in errors):
+            raise ImportError(message + '. Install with: pip install "ts-agents[classification]"') from errors[-1]
+        raise RuntimeError(message)
     warnings.append("HIVE-COTE replaced by ensemble of: " + ", ".join(actual_methods))
     # Majority voting
     results_array = np.array(results)
@@ -192,6 +198,7 @@ def compare_classifiers(
         classifiers = ['knn_euclidean', 'knn_dtw', 'rocket', 'minirocket']
 
     results = {}
+    errors = []
 
     for clf_name in classifiers:
         try:
@@ -224,6 +231,7 @@ def compare_classifiers(
             }
 
         except Exception as e:
+            errors.append(e)
             results[clf_name] = {
                 'requested_method': clf_name,
                 'actual_method': None,
@@ -236,7 +244,10 @@ def compare_classifiers(
     valid_results = {k: v for k, v in results.items() if v.get('accuracy') is not None}
     if not valid_results:
         failures = "; ".join(f"{name}: {entry['error']}" for name, entry in results.items())
-        raise RuntimeError("All classifiers failed: " + (failures or "no classifiers requested"))
+        message = "All classifiers failed: " + (failures or "no classifiers requested")
+        if errors and all(isinstance(error, ImportError) for error in errors):
+            raise ImportError(message + '. Install with: pip install "ts-agents[classification]"') from errors[-1]
+        raise RuntimeError(message)
     rankings = sorted(valid_results.keys(), key=lambda k: valid_results[k]['accuracy'], reverse=True)
     warnings = []
     for requested, entry in results.items():

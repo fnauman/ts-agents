@@ -22,6 +22,10 @@ All skills live in `skills/<name>/SKILL.md`. Agent export copies the complete
 skill directory, including supporting files such as `forecasting/SKILL-pro.md`.
 The byte-identical mirror in `ts_agents/resources/skills/` supplies installed
 wheels and must be updated separately when canonical files change.
+Exports update current source files and preserve destination-only content,
+including local additions. After removing or renaming a source file, remove
+its obsolete export yourself or use a fresh destination for an exact snapshot.
+`--symlink` links each current file individually; re-export when adding files.
 
 ## Invoking a skill
 
