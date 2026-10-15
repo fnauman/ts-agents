@@ -20,7 +20,11 @@ def holt_winters_decompose(
     """Decompose time series using Holt-Winters exponential smoothing.
 
     Holt-Winters can handle trend and seasonality, with options for
-    additive or multiplicative components.
+    additive or multiplicative models. Returned components are always additive
+    contributions in the original data units: ``series = trend + seasonal + residual``.
+    ``trend`` is the one-step nonseasonal prediction; a multiplicative seasonal
+    factor is converted to its contribution in data units. ``residual`` remains
+    the observed value minus the model's one-step fitted prediction.
 
     Parameters
     ----------
@@ -74,19 +78,18 @@ def holt_winters_decompose(
         )
         fit = model.fit(optimized=True)
 
-        # Extract components
+        # fittedvalues uses seasonal states from one period earlier, not the
+        # current states (which already incorporate the current observation).
+        fitted = np.asarray(fit.fittedvalues)
         if seasonal:
-            seasonal_component = fit.season
+            lagged_season = np.r_[fit.params["initial_seasons"], fit.season[:-period]]
+            trend_component = fitted - lagged_season if seasonal == "add" else fitted / lagged_season
+            seasonal_component = fitted - trend_component
         else:
+            trend_component = fitted
             seasonal_component = np.zeros_like(series)
 
-        if trend:
-            trend_component = fit.level + fit.trend if fit.trend is not None else fit.level
-        else:
-            trend_component = fit.level if hasattr(fit, 'level') else np.full_like(series, np.mean(series))
-
         # Compute residual
-        fitted = fit.fittedvalues
         residual = series - fitted
 
         return DecompositionResult(
@@ -97,7 +100,7 @@ def holt_winters_decompose(
             period=period,
         )
 
-    except Exception as e:
+    except Exception:
         # Fallback: simple decomposition
         return _simple_decompose(series, period)
 
@@ -123,8 +126,6 @@ def _detect_period(series: np.ndarray) -> int:
 
 def _simple_decompose(series: np.ndarray, period: int) -> DecompositionResult:
     """Simple fallback decomposition using moving average."""
-    n = len(series)
-
     # Trend: moving average
     if period > 1:
         kernel = np.ones(period) / period

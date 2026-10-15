@@ -1,12 +1,18 @@
 """Tests for the decomposition module."""
 
 import builtins
+import importlib.util
 import sys
 
 import numpy as np
 import pytest
 
+requires_statsmodels = pytest.mark.skipif(
+    importlib.util.find_spec("statsmodels") is None,
+    reason="statsmodels not installed",
+)
 
+@requires_statsmodels
 class TestSTL:
     """Tests for STL decomposition."""
 
@@ -56,6 +62,7 @@ class TestSTL:
 class TestMSTL:
     """Tests for MSTL decomposition."""
 
+    @requires_statsmodels
     def test_mstl_decompose(self):
         """Test MSTL decomposition."""
         from ts_agents.core.decomposition import mstl_decompose
@@ -97,18 +104,31 @@ class TestMSTL:
             mstl_decompose(x, periods=[100, 700])
 
 
+@requires_statsmodels
 class TestHoltWinters:
     """Tests for Holt-Winters decomposition."""
 
     def test_holt_winters_decompose(self):
-        """Test Holt-Winters decomposition."""
+        """Additive and multiplicative fits return additive contributions in data units."""
         from ts_agents.core.decomposition import holt_winters_decompose
+        from statsmodels.tsa.holtwinters import ExponentialSmoothing
 
-        t = np.linspace(0, 10, 1000)
-        x = 0.5 * t + np.sin(2 * np.pi * t) + 0.1 * np.random.randn(1000)
-
-        result = holt_winters_decompose(x, period=100)
-
-        assert len(result.trend) == 1000
-        assert len(result.seasonal) == 1000
-        assert len(result.residual) == 1000
+        t = np.arange(48)
+        x = 10 + 0.05 * t + np.sin(2 * np.pi * t / 6)
+        for trend, seasonal, damped in (("add", "add", False), ("mul", "mul", True), (None, None, False)):
+            result = holt_winters_decompose(x, period=6, trend=trend, seasonal=seasonal, damped_trend=damped)
+            reference = ExponentialSmoothing(
+                x, seasonal_periods=6, trend=trend, seasonal=seasonal, damped_trend=damped,
+            ).fit(optimized=True)
+            assert result.method == "holt_winters"
+            np.testing.assert_allclose(result.trend + result.seasonal + result.residual, x, atol=1e-12)
+            np.testing.assert_allclose(result.residual, x - reference.fittedvalues, atol=1e-12)
+            if seasonal:
+                lagged_season = np.r_[reference.params["initial_seasons"], reference.season[:-6]]
+                expected_trend = (
+                    reference.fittedvalues - lagged_season if seasonal == "add"
+                    else reference.fittedvalues / lagged_season
+                )
+                np.testing.assert_allclose(result.trend, expected_trend, atol=1e-12)
+            else:
+                np.testing.assert_array_equal(result.seasonal, np.zeros_like(x))

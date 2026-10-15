@@ -8,6 +8,15 @@ ts-agents supports multiple sandbox backends for tool execution:
 - `daytona` (managed cloud sandbox)
 - `modal` (serverless execution)
 
+`local` calls execute in the host process and are serialized across the shared
+backend so temporary working-directory/environment overrides cannot overlap.
+This lock does not isolate unrelated application threads. Local execution does
+not enforce wall-time, memory, disk, or network limits; metadata limits are not
+a substitute for process isolation. Use `subprocess` for an enforced command
+timeout, or Docker for timeout, memory, CPU and network controls. Subprocess
+execution does not itself enforce the metadata memory/disk limits. Remote
+limits also depend on the deployed service configuration.
+
 ## Quick start
 
 ```bash

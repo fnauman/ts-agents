@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Forecast evaluation rejects nonfinite inputs/predictions and invalid primary
+  scores; numeric time coordinates no longer become dates near 1970.
+- Decomposition rankings use the correct direction for residual variance and
+  trend curvature. Holt-Winters components are additive contributions in input
+  units, including for multiplicative models, and reconstruct the observations.
+- Classification comparisons preserve actual algorithm and fallback warnings;
+  complete backend failure no longer fabricates zero predictions. HIVE-COTE's
+  exposed model-fitting budget defaults to one minute.
+- Local execution contexts are serialized, and browser sessions initialize
+  independently without restoring or listing another visitor's stored sessions.
+- JSON output is emitted after requested saving/extraction completes. Skills
+  export includes supporting files and reports partial agent-export failures.
+
 ## [0.3.0] - 2026-10-09
 
 ### Added

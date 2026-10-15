@@ -554,7 +554,12 @@ def _build_forecast_rows(
         season_length=season_length,
         **options,
     )
-    forecast_values = to_jsonable(result.forecast)
+    import numpy as np
+
+    values = np.asarray(result.forecast, dtype=float)
+    if values.shape != (horizon,) or not np.isfinite(values).all():
+        raise ValueError("Forecast must contain one finite value per requested step.")
+    forecast_values = to_jsonable(values)
     future_index = _infer_future_index(series_input=series_input, horizon=horizon)
     rows: List[dict[str, Any]] = []
     for step, forecast_value in enumerate(forecast_values, start=1):
@@ -581,7 +586,7 @@ def _forecast_with_method(
     kwargs = dict(options)
     if season_length is not None:
         kwargs["season_length"] = season_length
-    # The catalog forecaster drops options a method does not accept.
+    # The catalog validates option names and forwards options supported by this method.
     return get_series_forecaster(method)(series, horizon=horizon, **kwargs)
 
 
@@ -594,34 +599,37 @@ def _infer_future_index(
         return None
 
     import pandas as pd
+    import numpy as np
 
     time_index = pd.Index(series_input.time_values)
     if len(time_index) < 2:
         return None
 
+    # Numeric indices are steps, not nanoseconds since the Unix epoch.
     if not pd.api.types.is_datetime64_any_dtype(time_index.dtype):
+        numeric_values = pd.to_numeric(time_index, errors="coerce").to_numpy(dtype=float)
+        if np.isfinite(numeric_values).all():
+            steps = np.diff(numeric_values)
+            step = steps[0]
+            if step <= 0 or not np.allclose(steps, step):
+                return None
+            future_values = numeric_values[-1] + step * np.arange(1, horizon + 1)
+            return future_values.tolist() if np.isfinite(future_values).all() else None
         parsed_time = pd.to_datetime(time_index, errors="coerce")
         if not parsed_time.isna().any():
             time_index = pd.DatetimeIndex(parsed_time)
 
     if pd.api.types.is_datetime64_any_dtype(time_index.dtype):
         datetime_index = pd.DatetimeIndex(time_index)
-        inferred_freq = pd.infer_freq(datetime_index)
+        # Two dates do not identify a calendar frequency reliably.
+        inferred_freq = pd.infer_freq(datetime_index) if len(datetime_index) >= 3 else None
         if inferred_freq:
             start = datetime_index[-1]
             future = pd.date_range(start=start, periods=horizon + 1, freq=inferred_freq)[1:]
             return [value.isoformat() for value in future]
         return None
 
-    try:
-        numeric_values = [float(value) for value in time_index.to_list()]
-    except (TypeError, ValueError):
-        return None
-
-    step = numeric_values[-1] - numeric_values[-2]
-    if step == 0:
-        return None
-    return [numeric_values[-1] + step * offset for offset in range(1, horizon + 1)]
+    return None
 
 
 def _build_report(

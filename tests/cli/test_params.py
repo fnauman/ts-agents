@@ -380,7 +380,7 @@ def test_run_extracts_images_when_saving(monkeypatch, tmp_path):
     assert len(list(images_dir.glob("*.png"))) == 1
 
 
-def test_run_extracts_images_in_json_without_breaking_json(monkeypatch, tmp_path):
+def test_run_extracts_images_in_json_without_breaking_json(monkeypatch, tmp_path, capsys):
     import importlib
 
     cli_main = importlib.import_module("ts_agents.cli.main")
@@ -411,6 +411,18 @@ def test_run_extracts_images_in_json_without_breaking_json(monkeypatch, tmp_path
     assert "[IMAGE_DATA:" not in payload["result"]["message"]
     assert "[IMAGE_FILE:" in payload["result"]["message"]
     assert len(list(images_dir.glob("*.png"))) == 1
+    assert json.loads(capsys.readouterr().out)["ok"] is True
+
+    # An output failure must replace success, rather than concatenate a second
+    # JSON object after an already published successful response.
+    def fail_save(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(cli_main, "write_output", fail_save)
+    assert cli_main.run(["data", "vars", "--json", "--save", str(output_path)]) == 6
+    failure = json.loads(capsys.readouterr().out)
+    assert failure["ok"] is False
+    assert "disk full" in failure["error"]["message"]
 
 
 def test_cli_compare_forecasts_accepts_methods_alias(monkeypatch, capsys):

@@ -54,6 +54,63 @@ def test_hosted_app_reports_missing_gradio(monkeypatch):
         module.get_app()
 
 
+def test_ui_visitors_start_fresh_without_reading_shared_history(monkeypatch, tmp_path):
+    from pathlib import Path
+    from unittest.mock import MagicMock, Mock
+
+    from ts_agents.persistence import SessionState, SessionStore
+    from ts_agents.ui import state as state_module
+
+    store = SessionStore(tmp_path)
+    previous = SessionState()
+    previous.add_chat_message("user", "another visitor's private message")
+    store.save(previous)
+    store.load_latest = Mock(wraps=store.load_latest)
+    store.list_sessions = Mock(side_effect=AssertionError("global session listing"))
+    get_store = Mock(return_value=store)
+    monkeypatch.setattr(state_module, "get_default_store", get_store)
+    monkeypatch.setattr("ts_agents.config.init_persistence", Mock())
+
+    # Exercise app wiring without installing optional Gradio or UI dependencies.
+    gradio = MagicMock()
+    monkeypatch.setitem(sys.modules, "gradio", gradio)
+    monkeypatch.setitem(sys.modules, "ts_agents.ui.components", MagicMock())
+    spec = importlib.util.spec_from_file_location(
+        "ts_agents.ui.gradio_app",
+        Path(__file__).parents[1] / "ts_agents/ui/gradio_app.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "get_default_store", get_store)
+
+    for persist in (False, True):
+        gradio.reset_mock()
+        get_store.reset_mock()
+        module.create_app(enable_agent=False, persist_sessions=persist)
+        factory = gradio.State.call_args.kwargs["value"]
+        assert callable(factory)
+        first, second = factory(), factory()
+        assert len({previous.session_id, first.session.session_id, second.session.session_id}) == 3
+        first.add_chat_message("user", "first visitor only")
+        assert second.chat_messages == []
+        assert first.chat_messages[0]["content"] == "first visitor only"
+        assert get_store.call_count == int(persist)
+        store.load_latest.assert_not_called()
+        gradio.Blocks.return_value.__enter__.return_value.load.assert_not_called()
+        assert gradio.State.return_value.change.call_count == int(persist)
+        refresh = next(
+            call.args[0] for call in gradio.Button.return_value.click.call_args_list
+            if call.args[0].__name__ == "refresh_session_info"
+        )
+        info, history = refresh(second)
+        assert previous.session_id not in info and history == []
+        store.list_sessions.assert_not_called()
+
+    # Trusted local callers retain the explicit restore API.
+    restored = state_module.UIState.load(previous.session_id, store=store)
+    assert restored.chat_messages[0]["content"] == "another visitor's private message"
+
+
 def test_hosted_app_env_flag_helper(monkeypatch):
     sys.modules.pop("ts_agents.hosted_app", None)
     module = importlib.import_module("ts_agents.hosted_app")

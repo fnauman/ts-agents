@@ -16,7 +16,6 @@ Example usage:
 """
 
 import gradio as gr
-from typing import Optional
 
 from .state import UIState, create_initial_state
 from .components import (
@@ -27,7 +26,7 @@ from .components import (
     create_classification_tab,
     create_comparison_tab,
 )
-from ..persistence import SessionStore, get_default_store
+from ..persistence import get_default_store
 
 
 def create_app(
@@ -45,7 +44,8 @@ def create_app(
     agent_type : str
         Default agent type: "simple" or "deep"
     persist_sessions : bool
-        Enable session persistence
+        Save the current visitor's session on change. Browser sessions always
+        start fresh; shared persisted sessions are never restored automatically.
     title : str
         Application title
 
@@ -88,11 +88,12 @@ def create_app(
         detection, classification, and cross-run comparison.
         """)
 
-        # Session state
-        state = gr.State(create_initial_state())
+        # A callable is evaluated on each browser load, giving each visitor a
+        # fresh identity instead of copying one construction-time session ID.
+        state = gr.State(value=create_initial_state)
 
         # Main tabs
-        with gr.Tabs() as main_tabs:
+        with gr.Tabs():
             # Agent Chat Tab
             if enable_agent:
                 with gr.Tab("Agent Chat", id="chat"):
@@ -116,19 +117,10 @@ def create_app(
 
             # Settings/History Tab
             with gr.Tab("Settings & History", id="settings"):
-                _create_settings_tab(state, session_store)
+                _create_settings_tab(state)
 
         # Session persistence callbacks
         if session_store:
-            # Load latest session on app load
-            def load_session():
-                try:
-                    return create_initial_state()
-                except Exception:
-                    return UIState()
-
-            app.load(load_session, outputs=[state])
-
             # Save session on state change
             def save_session(ui_state: UIState):
                 if ui_state is not None and session_store is not None:
@@ -143,7 +135,7 @@ def create_app(
     return app
 
 
-def _create_settings_tab(state: gr.State, session_store: Optional[SessionStore]):
+def _create_settings_tab(state: gr.State):
     """Create the settings and history tab."""
     gr.Markdown("""
     ## Settings & History
@@ -163,14 +155,6 @@ def _create_settings_tab(state: gr.State, session_store: Optional[SessionStore])
                 clear_btn = gr.Button("Clear History")
                 new_session_btn = gr.Button("New Session")
 
-            if session_store:
-                gr.Markdown("### Recent Sessions")
-                sessions_list = gr.Dataframe(
-                    headers=["Session ID", "Updated", "Analyses"],
-                    row_count=5,
-                    interactive=False
-                )
-
         # Right column: Analysis history
         with gr.Column(scale=2):
             gr.Markdown("### Analysis History")
@@ -189,8 +173,6 @@ def _create_settings_tab(state: gr.State, session_store: Optional[SessionStore])
     def refresh_session_info(ui_state: UIState):
         """Refresh session information display."""
         if ui_state is None:
-            if session_store:
-                return "*No session loaded*", [], []
             return "*No session loaded*", []
 
         session = ui_state.session
@@ -216,18 +198,6 @@ def _create_settings_tab(state: gr.State, session_store: Optional[SessionStore])
                 (analysis.get("result_summary", "") or "")[:50],
             ])
 
-        # Sessions list
-        sessions_data = []
-        if session_store:
-            for sess in session_store.list_sessions()[:10]:
-                sessions_data.append([
-                    sess.get("session_id", ""),
-                    sess.get("updated", "")[:19],
-                    str(sess.get("analysis_count", 0)),
-                ])
-
-        if session_store:
-            return info, history_data, sessions_data
         return info, history_data
 
     def clear_history(ui_state: UIState):
@@ -291,7 +261,7 @@ def _create_settings_tab(state: gr.State, session_store: Optional[SessionStore])
     refresh_btn.click(
         refresh_session_info,
         inputs=[state],
-        outputs=[session_info, history_output, sessions_list] if session_store else [session_info, history_output]
+        outputs=[session_info, history_output]
     )
 
     clear_btn.click(
@@ -301,7 +271,7 @@ def _create_settings_tab(state: gr.State, session_store: Optional[SessionStore])
     ).then(
         refresh_session_info,
         inputs=[state],
-        outputs=[session_info, history_output, sessions_list] if session_store else [session_info, history_output]
+        outputs=[session_info, history_output]
     )
 
     new_session_btn.click(
@@ -311,7 +281,7 @@ def _create_settings_tab(state: gr.State, session_store: Optional[SessionStore])
     ).then(
         refresh_session_info,
         inputs=[state],
-        outputs=[session_info, history_output, sessions_list] if session_store else [session_info, history_output]
+        outputs=[session_info, history_output]
     )
 
     export_history_btn.click(
