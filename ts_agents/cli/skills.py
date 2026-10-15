@@ -413,9 +413,14 @@ def validate_all_skills(skills_dir: Optional[Path] = None) -> Dict[str, List[str
 
 def _place_skill_files(source_dir: Path, target_dir: Path, use_symlinks: bool = False) -> Path:
     """Export a complete skill, including relative references and assets."""
-    for source_file in sorted(source_dir.rglob("*")):
-        if not source_file.is_file():
-            continue
+    source_files = sorted(path for path in source_dir.rglob("*") if path.is_file())
+    # Validate the source set before writing anything. A supporting symlink may
+    # refer within its skill, but must not export unrelated readable files.
+    source_root = source_dir.resolve()
+    for source_file in source_files:
+        if not source_file.resolve().is_relative_to(source_root):
+            raise ValueError(f"Skill file escapes its source directory: {source_file}")
+    for source_file in source_files:
         target_file = target_dir / source_file.relative_to(source_dir)
         target_file.parent.mkdir(parents=True, exist_ok=True)
         if not target_file.is_symlink() and source_file.resolve() == target_file.resolve():

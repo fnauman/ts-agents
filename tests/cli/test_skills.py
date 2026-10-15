@@ -2,6 +2,8 @@ import filecmp
 import json
 from pathlib import Path
 
+import pytest
+
 from ts_agents.cli.main import run
 
 
@@ -57,6 +59,17 @@ def test_skills_export_json_writes_structured_catalog(tmp_path, capsys):
 
     exported = export_individual_skill("forecasting", tmp_path / "individual")
     assert (exported.parent / "SKILL-pro.md").is_file()
+
+    source = tmp_path / "source" / "custom"
+    source.mkdir(parents=True)
+    (source / "SKILL.md").write_text("# Custom skill")
+    outside = tmp_path / "private.txt"
+    outside.write_text("private sentinel")
+    (source / "outside.txt").symlink_to(outside)
+    rejected = tmp_path / "rejected"
+    with pytest.raises(ValueError, match="escapes its source"):
+        export_individual_skill("custom", rejected, skills_dir=source.parent)
+    assert not rejected.exists() or not list(rejected.rglob("*"))
 
     partial = tmp_path / "partial"
     (partial / ".claude").mkdir(parents=True)

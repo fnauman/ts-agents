@@ -411,7 +411,7 @@ def test_run_extracts_images_in_json_without_breaking_json(monkeypatch, tmp_path
     assert "[IMAGE_DATA:" not in payload["result"]["message"]
     assert "[IMAGE_FILE:" in payload["result"]["message"]
     assert len(list(images_dir.glob("*.png"))) == 1
-    assert json.loads(capsys.readouterr().out)["ok"] is True
+    assert json.loads(capsys.readouterr().out) == payload
 
     # An output failure must replace success, rather than concatenate a second
     # JSON object after an already published successful response.

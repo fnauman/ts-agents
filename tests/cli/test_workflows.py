@@ -1305,6 +1305,7 @@ def test_workflow_run_forecast_series_writes_expected_files(monkeypatch, capsys,
         ([0, 2, 4], [6.0, 8.0]),
         (["2024-01-01", "2024-01-02"], None),
         ([0, 1, 3], None),
+        ([0.0, 1.0, 2.000001], None),
     ):
         series_input.time_values = times
         assert forecast_workflow._infer_future_index(series_input=series_input, horizon=2) == expected

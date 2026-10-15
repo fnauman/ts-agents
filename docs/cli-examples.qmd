@@ -116,7 +116,8 @@ Forecast evaluation requires finite targets, complete finite predictions, and
 finite MAE/RMSE. An undefined MAPE at zero targets is reported separately and
 does not invalidate those primary metrics. Numeric time coordinates remain
 numeric; calendar forecast timestamps are included only when their frequency
-can be established.
+can be established. Numeric coordinates require exactly equal positive steps;
+floating-point roundoff can conservatively cause timestamps to be omitted.
 
 ## Running tools directly
 

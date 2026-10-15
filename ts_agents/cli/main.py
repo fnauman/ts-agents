@@ -4242,9 +4242,9 @@ def run(argv: Optional[List[str]] = None) -> int:
 
         output_result = _success_envelope(args, result) if args.json else result
         output = render_output(output_result, json_output=args.json, text_output=text)
+        content_to_save = output
 
         if args.save:
-            content_to_save = output
             extracted_paths: List[str] = []
 
             if args.extract_images:
@@ -4269,7 +4269,7 @@ def run(argv: Optional[List[str]] = None) -> int:
 
         # Saving and extraction are part of this command. Publish success only
         # after they finish, so failure still produces exactly one JSON envelope.
-        print(output)
+        print(content_to_save)
         if args.save:
             if not args.json:
                 print(f"Saved output to {path}")

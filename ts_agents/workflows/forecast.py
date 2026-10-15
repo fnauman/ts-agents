@@ -611,7 +611,9 @@ def _infer_future_index(
         if np.isfinite(numeric_values).all():
             steps = np.diff(numeric_values)
             step = steps[0]
-            if step <= 0 or not np.allclose(steps, step):
+            # Be conservative: unequal floating differences may be roundoff or
+            # genuinely irregular observations; neither establishes a frequency.
+            if step <= 0 or not np.all(steps == step):
                 return None
             future_values = numeric_values[-1] + step * np.arange(1, horizon + 1)
             return future_values.tolist() if np.isfinite(future_values).all() else None
