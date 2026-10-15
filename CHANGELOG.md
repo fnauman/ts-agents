@@ -7,7 +7,8 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - Forecast evaluation rejects nonfinite inputs/predictions and invalid primary
-  scores; numeric time coordinates no longer become dates near 1970.
+  scores; numeric time coordinates no longer become dates near 1970. The UI
+  retains failed methods and reports partial comparisons alongside valid scores.
 - Decomposition rankings use the correct direction for residual variance and
   trend curvature. Holt-Winters components are additive contributions in input
   units, including for multiplicative models, and reconstruct the observations.

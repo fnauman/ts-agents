@@ -23,11 +23,12 @@ class ComparisonResult:
     category : str
         Analysis category (e.g., "decomposition", "forecasting")
     methods : List[str]
-        Names of methods compared
+        Names of methods with usable results
     results : Dict[str, AnalysisResult]
         Individual results from each method
-    metrics : Dict[str, Dict[str, float]]
-        Metrics for each method: {method: {metric: value}}
+    metrics : Dict[str, Dict[str, Any]]
+        Metrics or error diagnostics for every attempted method, including
+        methods without usable results. Adapters must retain these failures.
     rankings : Dict[str, List[str]]
         Rankings for each metric: {metric: [best, ..., worst]}
     recommendation : str
@@ -38,7 +39,7 @@ class ComparisonResult:
     category: str
     methods: List[str]
     results: Dict[str, AnalysisResult]
-    metrics: Dict[str, Dict[str, float]]
+    metrics: Dict[str, Dict[str, Any]]
     rankings: Dict[str, List[str]] = field(default_factory=dict)
     recommendation: str = ""
     computation_times: Dict[str, float] = field(default_factory=dict)

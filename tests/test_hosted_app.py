@@ -139,6 +139,15 @@ def test_ui_visitors_start_fresh_without_reading_shared_history(monkeypatch, tmp
     assert metrics.iloc[0]["RMSE"] == "0.0000"
     assert metrics.iloc[0]["MAPE (%)"] == "N/A (zero validation targets)"
 
+    # Failed methods are intentionally absent from comparison.methods/results,
+    # but their metrics errors must remain visible beside the successful rows.
+    comparison.metrics["invalid_forecast"] = {"error": "Forecast must contain finite values."}
+    _, metrics, _, _, status, _ = compare("run", "value", 4, second)
+    assert list(metrics["Method"]) == ["seasonal_naive", "invalid_forecast"]
+    assert list(metrics.iloc[1]) == ["invalid_forecast", "Error", "Forecast must contain finite values.", ""]
+    assert status == "Comparison partially failed. Failed methods: invalid_forecast. Best valid: seasonal_naive"
+    assert second.session.analysis_history[-1]["result_summary"] == status
+
 
 def test_hosted_app_env_flag_helper(monkeypatch):
     sys.modules.pop("ts_agents.hosted_app", None)

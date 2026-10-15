@@ -297,8 +297,8 @@ def create_forecasting_tab(state: gr.State):
 
             # Create metrics dataframe
             metrics_data = []
-            for method in comparison.methods:
-                m = comparison.metrics.get(method, {})
+            failed_methods = []
+            for method, m in comparison.metrics.items():
                 if "error" not in m:
                     mape = m.get("mape")
                     mape_text = f"{mape:.2f}" if mape is not None else "N/A"
@@ -311,7 +311,8 @@ def create_forecasting_tab(state: gr.State):
                         mape_text
                     ])
                 else:
-                    metrics_data.append([method, "Error", m.get("error", "")[:40], ""])
+                    failed_methods.append(method)
+                    metrics_data.append([method, "Error", m.get("error", ""), ""])
 
             metrics_df = pd.DataFrame(
                 metrics_data,
@@ -337,16 +338,21 @@ def create_forecasting_tab(state: gr.State):
                 columns=["Step", "Forecast", "Lower", "Upper"]
             )
 
+            best = comparison.get_overall_best() if comparison.results else "N/A"
+            if failed_methods:
+                outcome = "partially failed" if comparison.results else "failed"
+                status = f"Comparison {outcome}. Failed methods: {', '.join(failed_methods)}. Best valid: {best}"
+            else:
+                status = f"Comparison complete. Best: {best}"
+
             # Update UI state
             if ui_state is not None:
                 ui_state.add_analysis(
                     "forecasting_comparison",
                     {"horizon": horizon, "run_id": run_id, "variable": variable},
-                    f"Best method: {comparison.get_overall_best() if comparison.results else 'N/A'}"
+                    status,
                 )
 
-            best = comparison.get_overall_best() if comparison.results else "N/A"
-            status = f"Comparison complete. Best: {best}"
             return fig, metrics_df, forecast_df, comparison.recommendation, status, ui_state
 
         except Exception as e:
