@@ -90,8 +90,8 @@ metadata:
 
 1. Create or edit the canonical directory under `skills/` and its `SKILL.md`.
 2. Include every supporting file referenced by the skill (for example,
-   `forecasting/SKILL-pro.md`). Export copies the whole skill directory;
-   `--symlink` points to that directory for local development.
+   `forecasting/SKILL-pro.md`). The current agent exporter places only
+   `SKILL.md`; copy referenced supporting files alongside it explicitly.
 3. Copy the changed canonical files to the same paths under
    `ts_agents/resources/skills/`. This packaged mirror, including this README,
    must remain byte-identical for installed wheels; agent export does not
@@ -100,8 +100,8 @@ metadata:
    `uv run --no-sync python -m pytest -q tests/cli/test_skills.py` to check
    format, command discovery, and mirror integrity.
 5. Use `uv run --no-sync ts-agents skills export --all-agents` when agent
-   directories need updating. Inspect the per-agent outcomes: a partial
-   export is an error, not a successful distribution.
+   directories need updating. Check each destination: the current exporter
+   can skip a failed agent without making the command fail.
 
 For demo/report workflows, prefer a Quarto report (`.qmd`) rendered to PDF
 with publication-quality figures.
