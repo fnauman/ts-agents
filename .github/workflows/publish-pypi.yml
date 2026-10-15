@@ -13,6 +13,7 @@ permissions:
 jobs:
   qualify:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
@@ -32,6 +33,7 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       version: ${{ steps.metadata.outputs.version }}
     steps:
@@ -83,6 +85,7 @@ jobs:
   smoke-install:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13", "3.14"]
@@ -113,6 +116,7 @@ jobs:
   publish:
     needs: [qualify, build, smoke-install]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment:
       name: pypi
       url: https://pypi.org/project/ts-agents/

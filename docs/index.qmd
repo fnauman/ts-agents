@@ -4,12 +4,13 @@ title: "ts-agents docs"
 
 `ts-agents` is a CLI toolkit for time-series analysis used by external agents
 and automation. It gives agent runtimes a stable, machine-readable surface
-so a model can bootstrap, discover what's available, execute real work, and
-produce inspectable artifacts — without hand-written glue code per project.
+so a model can discover available methods, run supported analysis workflows,
+and produce inspectable artifacts.
 
 It wraps statistical forecasting methods, sandboxed code execution, and
-LLM-driven agents behind a stable workflow/tool contract so you can go from
-raw data to evaluated artifacts without writing glue code. These docs capture
+LLM-driven agents behind a stable workflow/tool contract. Project-specific
+preparation, custom holdout evaluation, and comprehensive reporting can still
+require code. These docs capture
 the project's durable design choices so interfaces can evolve without
 rewriting the core toolchain.
 

@@ -71,6 +71,10 @@ of requiring a local Docker build before first use.
 
 ## Notes
 
+- Ordinary CI runs on PR revisions and main pushes, with superseded PR runs
+  cancelled and explicit job timeouts. It builds distributions once and shares
+  the verified wheel across the interpreter smoke matrix. Tag pushes use the
+  independent release qualification workflow instead of repeating ordinary CI.
 - CI smoke-tests the base wheel on Python 3.11-3.14 outside the checkout, including
   discovery, skills, workflows, autoresearch, run catalogs, and job completion.
 - CI also runs a narrow `ruff` + `mypy` quality gate over the release/package

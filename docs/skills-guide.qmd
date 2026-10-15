@@ -18,7 +18,9 @@ Each skill is a Markdown file (`SKILL.md`) with YAML frontmatter describing the 
 | **decomposition** | Trend/seasonal/residual decomposition via STL, MSTL, or Holt-Winters |
 | **report-generation** | Convert workflow manifests, plots, JSON, CSV, and Markdown artifacts into stakeholder-facing Markdown, Quarto, HTML, or PDF reports |
 
-All skills live in `skills/<name>/SKILL.md` and are synced to agent-specific directories on export.
+All skills live in `skills/<name>/SKILL.md`.
+The byte-identical mirror in `ts_agents/resources/skills/` supplies installed
+wheels and must be updated separately when canonical files change.
 
 ## Invoking a skill
 
@@ -290,11 +292,17 @@ Edit `skills/<name>/SKILL.md` directly:
 - **Change defaults** — edit parameter values in the workflow steps
 - **Add guardrails** — insert validation steps (e.g., "If the series has fewer than 100 points, warn the user and stop")
 
-After editing, re-export so all agents pick up the change:
+After editing, copy the changed files to the same packaged-mirror paths, run
+the existing integrity check, and re-export when agent directories need it:
 
 ```bash
-uv run ts-agents skills export --all-agents
+uv run --no-sync python -m pytest -q tests/cli/test_skills.py
+uv run --no-sync ts-agents skills export --all-agents
 ```
+
+Check the exported directories explicitly: the current exporter places only
+`SKILL.md` and can omit supporting files or silently skip a failed agent. See
+`skills/README.md` for the canonical authoring procedure.
 
 ## Creating a new skill
 

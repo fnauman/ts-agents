@@ -36,8 +36,8 @@ TARGETS=(
   tests/cli/test_entrypoints.py
 )
 
-uv run ruff check "${TARGETS[@]}"
-uv run mypy \
+uv run --no-sync ruff check "${TARGETS[@]}"
+uv run --no-sync mypy \
   --ignore-missing-imports \
   --follow-imports skip \
   "${TARGETS[@]}"
