@@ -44,9 +44,8 @@ ts-agents data export-panel m4-monthly-mini --split train --out panel.csv --json
 
 ```bash
 ts-agents workflow run forecast-panel --input panel.csv --freq MS \
-  --horizon 18 --season-length 12 --lags 1,12 \
-  --methods seasonal_naive,lightgbm,nhits --n-windows 3 \
-  --n-estimators 200 --max-steps 1000 --accelerator cpu --json
+  --horizon 18 --season-length 12 --methods seasonal_naive \
+  --n-windows 3 --skip-plots --json
 ```
 
 Covariates are unsupported. FMs run zero-shot: nothing is trained, and each
