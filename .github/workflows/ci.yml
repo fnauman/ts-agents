@@ -2,11 +2,18 @@ name: CI
 
 on:
   push:
+    # Branch pushes are covered by PR checks; tags have dedicated release gates.
+    branches: [main]
   pull_request:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,6 +37,7 @@ jobs:
 
   tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
@@ -53,10 +61,43 @@ jobs:
       - name: Run tests
         run: uv run --frozen --python ${{ matrix.python-version }} python -m pytest -q
 
-  # Full tests qualify the locked optional stack on 3.11-3.13. Fresh base
-  # installs exercise the published CLI contract on 3.11-3.14.
-  wheel-smoke:
+  build-distributions:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Verify packaged source and wheel RECORD
+        run: python scripts/verify_release_artifacts.py --dist-dir dist
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-distributions
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  # Full tests qualify the locked optional stack on 3.11-3.13. Fresh base
+  # installs exercise the same built wheel on 3.11-3.14.
+  wheel-smoke:
+    needs: build-distributions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13", "3.14"]
@@ -74,11 +115,11 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Build distributions
-        run: uv build
-
-      - name: Verify packaged source and wheel RECORD
-        run: python scripts/verify_release_artifacts.py --dist-dir dist
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-distributions
+          path: dist/
 
       - name: Smoke test installed base wheel
         shell: bash

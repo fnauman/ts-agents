@@ -1,132 +1,96 @@
 # AGENTS.md
 
-This repo is a CLI-first time-series analysis toolkit with:
-- **Stable CLI entrypoints** (`ts-agents workflow ...`, `ts-agents tool ...`, skills, sandboxes, plus deprecated `run` / `demo` aliases)
-- **Optional Gradio front ends** (`ts-agents-ui`, `ts-agents-hosted`, plus the root wrappers)
-- **Canonical skills + packaged resources** for agent workflows and installed wheels
+`ts-agents` is a CLI-first time-series toolkit. Workflows and tools are the
+stable automation surface; Gradio and agent integrations are optional adapters.
+Setup, install profiles, and verification commands live in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-The goal of this file is to make coding agents effective and safe in this codebase.
+## Scope and execution
 
-## Quick commands (copy/paste)
+1. **Explore:** read the affected code and authoritative documentation; state
+   the current behavior and material uncertainty.
+2. **Plan:** give numbered implementation and validation steps. State intended
+   behavior, compatibility boundaries, exclusions, and a verification budget.
+3. **Implement:** use the smallest complete change. Nearby cleanup and new
+   abstractions require a concrete reason within the task.
+4. **Verify:** run the smallest relevant checks, then broaden only for changed
+   behavior, failures, or unresolved risks.
+5. **Summarize:** distinguish implemented, exercised, and unverified behavior;
+   give exact commands, results, documentation changes, and remaining limits.
 
-### Setup
-```bash
-uv sync
-```
+Proceed autonomously on reversible choices within the user's authorization.
+Clarify before changing public semantics, dependencies, supported platforms,
+numerical assumptions, or compute scope that the task has not authorized.
+Do not repeatedly request permission for already authorized work.
 
-Plain `uv sync` matches the base CLI-first install profile. Add extras as
-needed for optional surfaces:
+Use `gh` when available. Create an issue and branch before nontrivial coding;
+update the issue with progress. If auth/network is blocked, record the reason
+and next action and continue locally. Group related fixes into as few coherent
+PRs as practical; keep numerical/runtime changes separate from CI policy.
+PRs must explain behavior, documentation, validation, test cost,
+manifest/install-profile impacts, and risks.
 
-```bash
-uv sync --extra recommended
-uv sync --extra ui
-uv sync --extra foundation   # Darts zero-shot foundation models (chronos2_small, ...)
-uv sync --all-extras
-```
+## Results must describe what actually ran
 
-### Inspect the CLI
-```bash
-uv run ts-agents --help
-```
+- Preserve requested method, actual backend, fallback reasons, and warnings
+  through core results, comparisons, tools, workflows, and CLI output.
+- Missing results, total backend failure, and invalid primary metrics cannot
+  become successful predictions or recommendations. Undefined secondary
+  metrics need explicit explanations; JSON `null` alone is not a quality flag.
+- Preserve units, timestamp meaning, metric direction, train/test boundaries,
+  reference provenance, and numerical tolerances. Do not change them merely
+  to make a check pass. Explain authorized numerical contract changes.
+- Return one authoritative CLI response after requested output operations
+  finish. Keep errors and degradation visible across execution backends.
+- Keep optional/heavy imports lazy. Base CLI discovery must work without
+  model, UI, or agent dependencies. Dependency versions live in
+  `pyproject.toml` and `uv.lock`; do not add duplicate capability tables.
+- Do not mutate process-global state for concurrent calls without isolation.
+  Visitor state and persisted records must not leak across UI sessions.
 
-### Run the interactive UI
-```bash
-uv sync --extra ui
-uv run ts-agents-ui
-```
+## Verification and maintenance cost
 
-Source-checkout wrapper (same UI entrypoint):
-```bash
-uv run python main.py
-```
+- Extend existing tests first. Retain tests for distinct public contracts,
+  numerical oracles, and reproduced regressions; exploratory probes do not
+  automatically belong in CI. Do not mirror implementation details.
+- Report retained case-count and measured runtime changes. Parametrization
+  reduces source duplication, not test executions. Do not prune existing
+  tests solely by shared coverage or silently weaken assertions.
+- Use the base-contract or affected optional profile in CONTRIBUTING.md.
+  Routine verification must not implicitly download model weights, train
+  substantial models, invoke paid services, or change a compute budget.
+- Mocked adapters do not qualify real models, GPU behavior, or cloud backends.
+  Never claim a check passed unless it actually ran.
+- Keep large arrays, base64 data, and logs out of chat. Save necessary outputs
+  and refer to their paths. Use conversation/PR summaries for task records;
+  do not add standalone plans, reports, or ADRs unless requested.
 
-Common UI options (see `ts-agents-ui --help`):
-```bash
-uv run ts-agents-ui --agent-type deep
-uv run ts-agents-ui --no-agent
-uv run ts-agents-ui --share
-uv run ts-agents-ui --port 8080
-```
+## Documentation ownership
 
-### Run the hosted/manual profile
-```bash
-HOST=0.0.0.0 PORT=7860 uv run ts-agents-hosted
-```
+Update the existing source of user-facing truth with behavior changes:
 
-### Run tests
-```bash
-uv run python -m pytest -q
-```
+| Subject | Authoritative location |
+| --- | --- |
+| Installation and distribution | `README.md`, `docs/distribution.qmd` |
+| Contributor commands and check profiles | `CONTRIBUTING.md` |
+| CLI contracts and run/job lifecycle | `docs/cli-examples.qmd` |
+| Forecasting and panel limits | `docs/panel-forecasting.qmd` |
+| Execution backends and resource limits | `SANDBOX.md` |
+| Skills and exports | `skills/README.md`, `docs/skills-guide.qmd` |
+| UI/hosted settings and limitations | README Hosted Demo Deployment |
+| Evaluation evidence | `docs/evaluation.qmd`, `benchmarks/` |
+| Shipped changes and future scope | `CHANGELOG.md`, `ROADMAP.md` |
 
-### Environment variables
-- `TS_AGENTS_DATA_DIR` (optional): path to the dataset directory (see `ts_agents/config.py`)
-- `TS_AGENTS_SANDBOX_MODE` (optional): default sandbox backend
-- `OPENAI_MODEL` (optional): defaults to `gpt-5-mini` (see `ts_agents/config.py`)
-- `OPENAI_API_KEY` (required for agent chat in many setups)
-- `HF_HOME` (optional): Hugging Face cache for foundation-model weights; add `HF_HUB_OFFLINE=1` to run from a pre-populated cache
-- `TS_AGENTS_RUN_FOUNDATION_TESTS=1` (optional): enables the real, weight-loading tests in `tests/core/test_foundation_real.py` (needs the `foundation` extra and cached or downloadable weights)
-- Hosted profile settings are env-var driven: `HOST`, `PORT`, `GRADIO_SHARE`, `TS_AGENTS_ENABLE_AGENT`, `TS_AGENTS_AGENT_TYPE`, `TS_AGENTS_PERSIST_SESSIONS`, `TS_AGENTS_UI_TITLE`
+Canonical skills live in `skills/`; keep the entire corresponding packaged
+mirror in `ts_agents/resources/skills/` byte-identical, including supporting
+files and the skills README. A PR summary does not replace these updates.
 
-## Repo map (where to look first)
-- `ts_agents/cli/main.py` — argparse CLI for `data`, `tool`, `workflow`, `sandbox`, `agent`, `skills`, and deprecated `run` / `demo` aliases
-- `ts_agents/cli/input_parsing.py` — flexible input handling (CSV, JSON, stdin)
-- `ts_agents/cli/output.py` — structured output rendering and image extraction
-- `ts_agents/contracts.py` — shared data contracts (ArtifactRef, ToolPayload, CLIEnvelope, CLIError)
-- `ts_agents/workflows/` — first-class workflow implementations (inspect, forecast-series, forecast-panel, activity)
-- `ts_agents/tools/` — tool registry + wrappers (LangChain + deep agent tools)
-- `ts_agents/core/` — pure analysis implementations (decomposition, forecasting, patterns, classification, spectral); `core/forecasting/catalog.py` is the stdlib-only method catalog shared by every forecasting surface, and `core/forecasting/foundation.py` is the lazy Darts foundation-model adapter
-- `ts_agents/evals/` — deterministic evaluation harness
-- `ts_agents/agents/` — agent implementations (simple + deep)
-- `ts_agents/persistence/` — session persistence + caching
-- `ts_agents/resources/` — packaged data, demo assets, and skill mirrors used by installed wheels
-- `ts_agents/ui/` — Gradio UI (tabs + chat)
-- `ts_agents/hosted_app.py` — hosted/manual Gradio profile configured through environment variables
-- `main.py` — source-checkout wrapper for `ts-agents-ui`
-- `app.py` — source-checkout wrapper for `ts-agents-hosted`
-- `skills/` — canonical skill definitions
-- `benchmarks/` — checked-in benchmark snapshots and results
-- `demo/` — source-checkout helper scripts, plots, and VHS tapes
-- `docs/` — Quarto docs site source
-- `tests/` — unit tests
+## Code Review Rules
 
-Dependency metadata and locked versions live in `pyproject.toml` + `uv.lock`.
+Prioritize misleading success, numerical errors, backend substitutions,
+session isolation, compatibility, and unsupported claims. Public API changes
+require documentation. Check that tests assert results exist and identify
+what actually ran. Flag new permanent infrastructure or test growth that lacks
+a distinct maintenance benefit.
 
-## Working agreement (always follow)
-
-### GitHub workflow & issue tracking
-- Use the `gh` CLI when auth is available.
-- Create an issue + branch per task before coding.
-- Update the issue with each incremental step.
-- If `gh` auth/network is blocked, document why + next action and continue on a local branch.
-- Large changes: break into smaller issues/PRs.
-- PRs must explain: behavior changes, new tests, manifest/profile impacts, risks.
-
-### Workflow for any non-trivial change
-1) **Explore**: read the relevant files and summarize what you found (file paths + key functions/classes).
-2) **Plan**: list *numbered* steps, including which files you will change and how you will validate each step.
-3) **Implement**: execute the plan mechanically.
-4) **Verify**: run the smallest relevant tests/commands and report the results.
-5) **Summarize**: what changed, why, and any follow-ups.
-
-### If something is ambiguous
-Ask clarifying questions *before* implementing. If you must proceed, list assumptions explicitly.
-
-### No “fake done”
-- Do **not** use placeholder code such as “TODO implement” or “implementation goes here” and claim the task is finished.
-- Do **not** claim tests passed unless you actually ran them.
-
-### Keep LLM context small
-This codebase uses plots and arrays. Do not paste large arrays or base64 blobs into chat unless asked.
-Prefer saving large artifacts (images, tables, logs) to files and returning a reference/path.
-
-## Dependency discipline
-- When introducing optional/heavy dependencies, ensure the app still starts without them:
-  - prefer **lazy imports** inside the tool/function, or
-  - conditionally register tools only if deps are installed.
-- Keep imports fast at module import time (avoid importing heavy libs in global scope unless truly required).
-
-## Definition of Done (DoD)
-A task is “done” only if:
-- The requested behavior is implemented.
-- Tests (or a relevant smoke-check) were run and results reported.
-- Docs/docstrings are updated if behavior or UX changed.
+A task is complete only when the requested behavior, relevant verification,
+and affected documentation are complete, or remaining blockers are stated.

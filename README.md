@@ -6,8 +6,9 @@
 
 `ts-agents` is a CLI toolkit for time-series analysis used by external agents
 and automation. It gives agent runtimes a stable, machine-readable surface
-so a model can bootstrap, discover what's available, execute real work, and
-produce inspectable artifacts — without hand-written glue code per project.
+so a model can discover available methods, run supported analysis workflows,
+and produce inspectable artifacts. Project-specific data preparation, custom
+holdout evaluation, and comprehensive reporting can still require code.
 
 It is not intended to be a broad time-series foundation-model hub.
 Foundation models are reached through [Darts](https://unit8co.github.io/darts/)
@@ -492,7 +493,13 @@ deployments can use the root `app.py` wrapper, which calls the same hosted
 entrypoint as `ts-agents-hosted`. It defaults to:
 - manual analysis mode (`agent` disabled)
 - no session persistence
-- a public-safe configuration that does not require `OPENAI_API_KEY`
+- fresh in-memory state for each visitor, without restoring the latest saved chat
+- no requirement for `OPENAI_API_KEY`
+
+This profile does not provide authentication or tenant isolation. Deploy it
+only with data and tools suitable for the intended visitors. When persistence
+is enabled, records are saved on the server; visitors are not shown a global
+session list or automatically restored into another visitor's session.
 
 Launch it with:
 

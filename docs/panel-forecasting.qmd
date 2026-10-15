@@ -67,13 +67,18 @@ uv run ts-agents workflow run forecast-panel \
   --accelerator cpu --output-dir outputs/electricity-validation --json
 ```
 
+The hourly example needs an hourly panel such as prepared electricity data;
+use the monthly frequency and seasonal settings from the bundled example for
+`m4-monthly-mini`.
+
 Use `--methods lightgbm,histgbm` for the ML profile or `--methods nhits` for
 neural-only runs. LightGBM and histogram GBM receive lag, shifted rolling-mean
 and known calendar features. NHITS trains across the whole panel with a
 training-only internal validation tail for early stopping. `--input-size`
-controls its context. `--accelerator gpu` requests one GPU explicitly; current
-local qualification covers CPU only. Native models retain their backend's
-dependency requirements when reloaded.
+controls its context. `--accelerator gpu` requests one GPU explicitly. Release
+qualification covers CPU; a separate bounded electricity-demand dogfood
+exercised NHITS on one local RTX 5090, not every model/GPU configuration. Native
+models retain their backend's dependency requirements when reloaded.
 
 Every backtest origin fits a fresh model on the preceding history; no model is
 fit on later panel targets. Origins are spaced by `--step-size` (default:
@@ -105,8 +110,12 @@ requested, `options.resolved_context_length` (per model) and
 | `report.md` | Comparison summary, validation boundaries and limitations |
 | `run_manifest.json` | Run identity, input fingerprint, options and artifact paths |
 
-The report-generation skill can assemble a comprehensive report from these
-artifacts without retraining. To reuse models in Python, use
+The report-generation skill guides an agent in assembling a comprehensive
+report from these artifacts without retraining; it is not a general report
+rebuild command. Dataset preparation, daily holdout evaluation with frozen
+models, resource monitoring, and richer report plots required custom code in
+the first electricity dogfood. Keep such workarounds explicit until supported
+interfaces exist. To reuse models in Python, use
 `MLForecast.load(".../models/lightgbm")` or
 `NeuralForecast.load(".../models/nhits")`, then the backend's `predict` method.
 Load only model files you trust: native model formats can deserialize Python

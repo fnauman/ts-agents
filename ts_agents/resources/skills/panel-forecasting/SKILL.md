@@ -43,8 +43,8 @@ ts-agents data export-panel m4-monthly-mini --split train --out panel.csv --json
 ```
 
 ```bash
-ts-agents workflow run forecast-panel --input panel.csv --freq h \
-  --horizon 24 --season-length 168 --lags 1,24,168 \
+ts-agents workflow run forecast-panel --input panel.csv --freq MS \
+  --horizon 18 --season-length 12 --lags 1,12 \
   --methods seasonal_naive,lightgbm,nhits --n-windows 3 \
   --n-estimators 200 --max-steps 1000 --accelerator cpu --json
 ```
