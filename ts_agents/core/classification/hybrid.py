@@ -16,7 +16,7 @@ def hivecote_classify(
     y_train: np.ndarray,
     X_test: np.ndarray,
     y_test: Optional[np.ndarray] = None,
-    time_limit_in_minutes: float = 0,
+    time_limit_in_minutes: float = 1,
 ) -> ClassificationResult:
     """Time series classification using HIVE-COTE 2.
 
@@ -36,7 +36,7 @@ def hivecote_classify(
     y_test : np.ndarray, optional
         Test labels for accuracy computation.
     time_limit_in_minutes : float
-        Time limit for training. 0 means no limit.
+        Training budget in minutes (default: 1). Explicit 0 means no limit.
 
     Returns
     -------
@@ -51,11 +51,16 @@ def hivecote_classify(
     >>> X_test = np.random.randn(10, 1, 100)
     >>> result = hivecote_classify(X_train, y_train, X_test, time_limit_in_minutes=1)
     """
+    if not np.isfinite(time_limit_in_minutes) or time_limit_in_minutes < 0:
+        raise ValueError("time_limit_in_minutes must be finite and nonnegative.")
     try:
         from aeon.classification.hybrid import HIVECOTEV2
-    except ImportError:
+    except ImportError as exc:
         # Fall back to simpler ensemble
-        return _ensemble_fallback(X_train, y_train, X_test, y_test)
+        return _ensemble_fallback(
+            X_train, y_train, X_test, y_test,
+            warning_message=f"HIVE-COTE backend unavailable: {type(exc).__name__}: {exc}",
+        )
 
     # Ensure 3D format
     X_train = ensure_3d(X_train)
@@ -92,6 +97,7 @@ def _ensemble_fallback(
     y_train: np.ndarray,
     X_test: np.ndarray,
     y_test: Optional[np.ndarray] = None,
+    warning_message: Optional[str] = None,
 ) -> ClassificationResult:
     """Simple ensemble fallback when aeon is not available."""
     from .distance_based import knn_classify
@@ -99,33 +105,44 @@ def _ensemble_fallback(
 
     # Get predictions from multiple classifiers
     results = []
+    warnings = [warning_message] if warning_message else []
+    actual_methods = []
+    errors = []
 
     # KNN with euclidean
     try:
         knn_result = knn_classify(X_train, y_train, X_test, distance='euclidean')
         results.append(knn_result.predictions)
-    except Exception:
-        pass
+        actual_methods.append(knn_result.method)
+        warnings.extend(knn_result.warnings)
+    except Exception as exc:
+        errors.append(exc)
+        warnings.append(f"KNN ensemble member failed: {type(exc).__name__}: {exc}")
 
     # ROCKET (fallback)
     try:
         rocket_result = rocket_classify(X_train, y_train, X_test, variant='rocket')
         results.append(rocket_result.predictions)
-    except Exception:
-        pass
+        actual_methods.append(rocket_result.method)
+        warnings.extend(rocket_result.warnings)
+    except Exception as exc:
+        errors.append(exc)
+        warnings.append(f"ROCKET ensemble member failed: {type(exc).__name__}: {exc}")
 
     if not results:
-        # Ultimate fallback
-        predictions = np.zeros(len(ensure_3d(X_test)))
-    else:
-        # Majority voting
-        results_array = np.array(results)
-        predictions = []
-        for i in range(results_array.shape[1]):
-            votes = results_array[:, i]
-            unique, counts = np.unique(votes, return_counts=True)
-            predictions.append(unique[np.argmax(counts)])
-        predictions = np.array(predictions)
+        message = "All HIVE-COTE fallback classifiers failed: " + "; ".join(warnings)
+        if errors and all(isinstance(error, ImportError) for error in errors):
+            raise ImportError(message + '. Install with: pip install "ts-agents[classification]"') from errors[-1]
+        raise RuntimeError(message)
+    warnings.append("HIVE-COTE replaced by ensemble of: " + ", ".join(actual_methods))
+    # Majority voting
+    results_array = np.array(results)
+    predictions = []
+    for i in range(results_array.shape[1]):
+        votes = results_array[:, i]
+        unique, counts = np.unique(votes, return_counts=True)
+        predictions.append(unique[np.argmax(counts)])
+    predictions = np.array(predictions)
 
     accuracy = None
     if y_test is not None:
@@ -137,6 +154,7 @@ def _ensemble_fallback(
         predictions=predictions,
         probabilities=None,
         accuracy=accuracy,
+        warnings=warnings,
     )
 
 
@@ -165,7 +183,7 @@ def compare_classifiers(
     Returns
     -------
     dict
-        Comparison results with accuracy for each classifier.
+        Scores keyed by requested classifier, preserving actual method and fallback warnings.
 
     Examples
     --------
@@ -180,6 +198,7 @@ def compare_classifiers(
         classifiers = ['knn_euclidean', 'knn_dtw', 'rocket', 'minirocket']
 
     results = {}
+    errors = []
 
     for clf_name in classifiers:
         try:
@@ -196,25 +215,52 @@ def compare_classifiers(
             elif clf_name == 'hivecote2':
                 result = hivecote_classify(X_train, y_train, X_test, y_test, time_limit_in_minutes=1)
             else:
-                continue
+                raise ValueError(f"Unknown classifier: {clf_name}")
+
+            if result.predictions.shape != np.asarray(y_test).shape:
+                raise ValueError("Classifier must return one prediction per test label.")
+            if result.accuracy is None or not np.isfinite(result.accuracy):
+                raise ValueError("Classifier accuracy must be finite.")
 
             results[clf_name] = {
+                'requested_method': clf_name,
+                'actual_method': result.method,
+                'warnings': result.warnings,
                 'accuracy': result.accuracy,
                 'predictions': result.predictions,
             }
 
         except Exception as e:
+            errors.append(e)
             results[clf_name] = {
+                'requested_method': clf_name,
+                'actual_method': None,
+                'warnings': [],
                 'accuracy': None,
                 'error': str(e),
             }
 
     # Rank by accuracy
     valid_results = {k: v for k, v in results.items() if v.get('accuracy') is not None}
+    if not valid_results:
+        failures = "; ".join(f"{name}: {entry['error']}" for name, entry in results.items())
+        message = "All classifiers failed: " + (failures or "no classifiers requested")
+        if errors and all(isinstance(error, ImportError) for error in errors):
+            raise ImportError(message + '. Install with: pip install "ts-agents[classification]"') from errors[-1]
+        raise RuntimeError(message)
     rankings = sorted(valid_results.keys(), key=lambda k: valid_results[k]['accuracy'], reverse=True)
+    warnings = []
+    for requested, entry in results.items():
+        warnings.extend(f"{requested}: {warning}" for warning in entry['warnings'])
+        if entry.get('error'):
+            warnings.append(f"{requested} failed: {entry['error']}")
+        elif entry['actual_method'] != requested and not entry['warnings']:
+            warnings.append(f"{requested} ran as {entry['actual_method']}")
 
     return {
         'results': results,
         'rankings': rankings,
-        'best': rankings[0] if rankings else None,
+        'best': rankings[0],
+        'status': 'degraded' if warnings else 'ok',
+        'warnings': warnings,
     }

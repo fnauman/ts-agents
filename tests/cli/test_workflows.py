@@ -1297,6 +1297,25 @@ def test_workflow_run_forecast_series_writes_expected_files(monkeypatch, capsys,
     assert str(output_dir / "forecast.csv") in artifact_paths
     assert str(output_dir / "report.md") in artifact_paths
     assert str(output_dir / "run_manifest.json") in artifact_paths
+    rows = json.loads((output_dir / "forecast.json").read_text())
+    assert [row["time"] for row in rows] == ["2024-01-05T00:00:00", "2024-01-06T00:00:00"]
+
+    series_input = SeriesInput(series=np.array([1.0, 2.0]), source_type="test", label="test")
+    for times, expected in (
+        ([0, 2, 4], [6.0, 8.0]),
+        (["2024-01-01", "2024-01-02"], None),
+        ([0, 1, 3], None),
+        ([0.0, 1.0, 2.000001], None),
+    ):
+        series_input.time_values = times
+        assert forecast_workflow._infer_future_index(series_input=series_input, horizon=2) == expected
+    for invalid_forecast in ([1.0], [1.0, float("inf")]):
+        monkeypatch.setattr(
+            forecast_workflow, "_forecast_with_method",
+            lambda *args, **kwargs: SimpleNamespace(forecast=np.array(invalid_forecast)),
+        )
+        with pytest.raises(ValueError, match="one finite value per requested step"):
+            forecast_workflow._build_forecast_rows(series_input=series_input, method="theta", horizon=2)
 
 
 def _fake_series_foundation(monkeypatch):

@@ -36,7 +36,7 @@ Skills are placed in the following agent-specific directories:
 
 ## Placement Commands
 
-To sync skills to agent-specific locations:
+To export skills to agent-specific locations:
 
 ```bash
 # Export and place skills for all agents
@@ -50,6 +50,12 @@ uv run ts-agents skills export --agent github
 # Validate skill format
 uv run ts-agents skills validate
 ```
+
+Export updates all current source files and preserves destination-only files,
+which may be local additions. After deleting or renaming a source file, remove
+the obsolete exported file yourself or export into a fresh destination for an
+exact snapshot. `--symlink` creates a separate link for each current file;
+re-export after adding files.
 
 To generate the aggregate `SKILLS.md` summary:
 
@@ -90,8 +96,8 @@ metadata:
 
 1. Create or edit the canonical directory under `skills/` and its `SKILL.md`.
 2. Include every supporting file referenced by the skill (for example,
-   `forecasting/SKILL-pro.md`). The current agent exporter places only
-   `SKILL.md`; copy referenced supporting files alongside it explicitly.
+   `forecasting/SKILL-pro.md`). Export copies the whole skill directory;
+   `--symlink` links those files for local development.
 3. Copy the changed canonical files to the same paths under
    `ts_agents/resources/skills/`. This packaged mirror, including this README,
    must remain byte-identical for installed wheels; agent export does not
@@ -100,8 +106,8 @@ metadata:
    `uv run --no-sync python -m pytest -q tests/cli/test_skills.py` to check
    format, command discovery, and mirror integrity.
 5. Use `uv run --no-sync ts-agents skills export --all-agents` when agent
-   directories need updating. Check each destination: the current exporter
-   can skip a failed agent without making the command fail.
+   directories need updating. Inspect the per-agent outcomes: a partial
+   export is an error, not a successful distribution.
 
 For demo/report workflows, prefer a Quarto report (`.qmd`) rendered to PDF
 with publication-quality figures.

@@ -112,10 +112,24 @@ If you omit `--output-dir`, workflows create a unique run directory under
 `outputs/<workflow>/` and write `run_manifest.json` plus the generated
 artifacts there.
 
+Forecast evaluation requires finite targets, complete finite predictions, and
+finite MAE/RMSE. An undefined MAPE at zero targets is reported separately and
+does not invalidate those primary metrics. Numeric time coordinates remain
+numeric; calendar forecast timestamps are included only when their frequency
+can be established. Numeric coordinates require exactly equal positive steps;
+floating-point roundoff can conservatively cause timestamps to be omitted.
+
 ## Running tools directly
 
 Use `ts-agents tool run <tool>` to call any individual tool from the command
 line.
+
+Classification comparisons retain the requested and actual method plus fallback
+warnings. A missing optional classifier can use a documented fallback, but its
+score is not evidence that the requested classifier ran. If no classifier can
+produce predictions, the call fails. `hivecote_classify` exposes
+`time_limit_in_minutes` (default: 1); set it explicitly with `--param` when a
+different model-fitting budget is authorized.
 
 ```bash
 # STL decomposition
@@ -166,6 +180,10 @@ Key flags:
 | `--approve` | Approve very-high-cost tools |
 
 ## Saving output and legacy image extraction
+
+`--json` emits one response envelope. Requested saving and image extraction must
+finish before success is printed; if either fails, the command returns only the
+error envelope and a nonzero exit code.
 
 Workflow commands already write artifact files under `--output-dir`, or to an
 auto-generated run directory when you omit that flag. Read `run_manifest.json`

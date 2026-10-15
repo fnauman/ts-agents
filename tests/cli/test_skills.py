@@ -2,6 +2,8 @@ import filecmp
 import json
 from pathlib import Path
 
+import pytest
+
 from ts_agents.cli.main import run
 
 
@@ -21,7 +23,7 @@ def test_skills_show_json_returns_structured_metadata(capsys):
     assert not any(command.endswith("\\") for command in payload["result"]["commands"])
 
 
-def test_skills_export_json_writes_structured_catalog(tmp_path):
+def test_skills_export_json_writes_structured_catalog(tmp_path, capsys):
     output_path = tmp_path / "skills_export.json"
 
     code = run(
@@ -41,6 +43,43 @@ def test_skills_export_json_writes_structured_catalog(tmp_path):
     skill_names = [skill["name"] for skill in payload["skills"]]
     assert "forecasting" in skill_names
     assert "report-generation" in skill_names
+    capsys.readouterr()
+
+    # Agent exports must remain usable after placement: the forecasting skill
+    # links to a companion file in the same directory.
+    from ts_agents.cli.skills import export_individual_skill
+
+    for symlink in (False, True):
+        destination = tmp_path / ("links" if symlink else "copies")
+        options = ["--symlink"] if symlink else []
+        assert run(["skills", "export", "--agent", "codex", "--out", str(destination), "--json", *options]) == 0
+        assert json.loads(capsys.readouterr().out)["ok"] is True
+        companion = destination / ".codex/skills/forecasting/SKILL-pro.md"
+        assert companion.is_file() and companion.is_symlink() is symlink
+
+    exported = export_individual_skill("forecasting", tmp_path / "individual")
+    assert (exported.parent / "SKILL-pro.md").is_file()
+
+    source = tmp_path / "source" / "custom"
+    source.mkdir(parents=True)
+    (source / "SKILL.md").write_text("# Custom skill")
+    outside = tmp_path / "private.txt"
+    outside.write_text("private sentinel")
+    (source / "outside.txt").symlink_to(outside)
+    rejected = tmp_path / "rejected"
+    with pytest.raises(ValueError, match="escapes its source"):
+        export_individual_skill("custom", rejected, skills_dir=source.parent)
+    assert not rejected.exists() or not list(rejected.rglob("*"))
+
+    partial = tmp_path / "partial"
+    (partial / ".claude").mkdir(parents=True)
+    (partial / ".claude/skills").write_text("blocked destination")
+    assert run(["skills", "export", "--all-agents", "--out", str(partial), "--json"]) != 0
+    failure = json.loads(capsys.readouterr().out)
+    assert failure["ok"] is False
+    assert "claude" in failure["error"]["details"]["failed_agents"]
+    assert "codex" in failure["error"]["details"]["exported_agents"]
+    assert (partial / ".codex/skills/forecasting/SKILL-pro.md").is_file()
 
 
 def test_skills_validate_fails_for_invalid_skill(tmp_path, capsys):

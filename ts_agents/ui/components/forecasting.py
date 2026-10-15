@@ -10,7 +10,7 @@ This component provides time series forecasting with:
 import gradio as gr
 import numpy as np
 import pandas as pd
-from typing import Optional, Any, Tuple
+from typing import Any, Tuple
 
 from ...config import AVAILABLE_RUNS, REAL_VARIABLES
 from ..state import UIState, load_series_data
@@ -125,7 +125,7 @@ def create_forecasting_tab(state: gr.State):
         # Load data
         series = load_series_data(run_id, variable)
         if series is None:
-            return None, pd.DataFrame(), pd.DataFrame(), "", f"Failed to load data", ui_state
+            return None, pd.DataFrame(), pd.DataFrame(), "", "Failed to load data", ui_state
 
         # Split data if validation is enabled
         if validation_split > 0:
@@ -278,12 +278,10 @@ def create_forecasting_tab(state: gr.State):
         ui_state: UIState
     ) -> Tuple[Any, pd.DataFrame, pd.DataFrame, str, str, UIState]:
         """Compare all forecasting methods."""
-        import matplotlib.pyplot as plt
-
         # Load data
         series = load_series_data(run_id, variable)
         if series is None:
-            return None, pd.DataFrame(), pd.DataFrame(), "", f"Failed to load data", ui_state
+            return None, pd.DataFrame(), pd.DataFrame(), "", "Failed to load data", ui_state
 
         # Use comparison module
         from ...core.comparison import (
@@ -299,17 +297,22 @@ def create_forecasting_tab(state: gr.State):
 
             # Create metrics dataframe
             metrics_data = []
-            for method in comparison.methods:
-                m = comparison.metrics.get(method, {})
+            failed_methods = []
+            for method, m in comparison.metrics.items():
                 if "error" not in m:
+                    mape = m.get("mape")
+                    mape_text = f"{mape:.2f}" if mape is not None else "N/A"
+                    if mape is None and m.get("mape_unavailable_reason"):
+                        mape_text += f" ({m['mape_unavailable_reason']})"
                     metrics_data.append([
                         method,
                         f"{m.get('mae', 0):.4f}",
                         f"{m.get('rmse', 0):.4f}",
-                        f"{m.get('mape', 0):.2f}"
+                        mape_text
                     ])
                 else:
-                    metrics_data.append([method, "Error", m.get("error", "")[:40], ""])
+                    failed_methods.append(method)
+                    metrics_data.append([method, "Error", m.get("error", ""), ""])
 
             metrics_df = pd.DataFrame(
                 metrics_data,
@@ -335,16 +338,21 @@ def create_forecasting_tab(state: gr.State):
                 columns=["Step", "Forecast", "Lower", "Upper"]
             )
 
+            best = comparison.get_overall_best() if comparison.results else "N/A"
+            if failed_methods:
+                outcome = "partially failed" if comparison.results else "failed"
+                status = f"Comparison {outcome}. Failed methods: {', '.join(failed_methods)}. Best valid: {best}"
+            else:
+                status = f"Comparison complete. Best: {best}"
+
             # Update UI state
             if ui_state is not None:
                 ui_state.add_analysis(
                     "forecasting_comparison",
                     {"horizon": horizon, "run_id": run_id, "variable": variable},
-                    f"Best method: {comparison.get_overall_best() if comparison.results else 'N/A'}"
+                    status,
                 )
 
-            best = comparison.get_overall_best() if comparison.results else "N/A"
-            status = f"Comparison complete. Best: {best}"
             return fig, metrics_df, forecast_df, comparison.recommendation, status, ui_state
 
         except Exception as e:

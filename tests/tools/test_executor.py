@@ -204,6 +204,69 @@ def test_local_backend_formats_tool_payload_with_artifacts():
     assert "/tmp/peaks.png" in result.formatted_output
 
 
+def test_local_backend_isolates_context_across_threads(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    import os
+    import threading
+
+    key = "TS_AGENTS_TEST_LOCAL_CONTEXT"
+    monkeypatch.setenv(key, "original")
+    original_cwd = os.getcwd()
+    first_dir, second_dir = tmp_path / "first", tmp_path / "second"
+    first_dir.mkdir()
+    second_dir.mkdir()
+
+    # Separate backend instances must coordinate, including contextless calls.
+    for second_context, expected in [
+        (ExecutionContext(working_dir=str(second_dir), environment={key: "second"}),
+         ("second", str(second_dir))),
+        (ExecutionContext(), ("original", original_cwd)),
+    ]:
+        first_entered, second_attempting = threading.Event(), threading.Event()
+        second_entered, release_first = threading.Event(), threading.Event()
+
+        def first_tool():
+            first_entered.set()
+            assert release_first.wait(5)
+            return os.environ[key], os.getcwd()
+
+        def second_tool():
+            second_entered.set()
+            return os.environ[key], os.getcwd()
+
+        def second_call():
+            second_attempting.set()
+            return LocalBackend().execute("second", second_tool, {}, second_context)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(
+                LocalBackend().execute, "first", first_tool, {},
+                ExecutionContext(working_dir=str(first_dir), environment={key: "first"}),
+            )
+            try:
+                assert first_entered.wait(5)
+                second = pool.submit(second_call)
+                assert second_attempting.wait(5)
+                assert not second_entered.wait(0.05)
+            finally:
+                release_first.set()
+            first_result, second_result = first.result(), second.result()
+        assert first_result.success and second_result.success
+        assert first_result.result == ("first", str(first_dir))
+        assert second_result.result == expected
+        assert (os.environ[key], os.getcwd()) == ("original", original_cwd)
+
+    def failing_tool():
+        raise RuntimeError("expected failure")
+
+    failed = LocalBackend().execute(
+        "failing", failing_tool, {},
+        ExecutionContext(working_dir=str(first_dir), environment={key: "temporary"}),
+    )
+    assert not failed.success
+    assert (os.environ[key], os.getcwd()) == ("original", original_cwd)
+
+
 def test_describe_sandbox_backend_docker_reports_missing_image(monkeypatch):
     import ts_agents.tools.executor as executor_mod
 

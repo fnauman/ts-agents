@@ -57,7 +57,6 @@ def build_skills_markdown() -> str:
         MINIMAL_BUNDLE,
         STANDARD_BUNDLE,
         FULL_BUNDLE,
-        ORCHESTRATOR_BUNDLE,
     )
 
     lines: List[str] = [
@@ -335,15 +334,6 @@ def validate_skill(skill_dir: Path) -> List[str]:
         if field not in frontmatter:
             errors.append(f"{skill_dir.name}: Missing required field '{field}'")
 
-    # Validate name matches directory
-    if "name" in frontmatter:
-        expected_name = skill_dir.name
-        actual_name = frontmatter["name"]
-        # Allow time-series- prefix variations
-        normalized_expected = expected_name.replace("time-series-", "")
-        normalized_actual = actual_name.replace("time-series-", "")
-        # This is just a warning, not an error
-
     # Check metadata structure
     if "metadata" in frontmatter:
         metadata = frontmatter["metadata"]
@@ -421,6 +411,33 @@ def validate_all_skills(skills_dir: Optional[Path] = None) -> Dict[str, List[str
     return all_errors
 
 
+def _place_skill_files(source_dir: Path, target_dir: Path, use_symlinks: bool = False) -> Path:
+    """Update all source files without deleting destination-only content.
+
+    Destinations may contain local edits or additions. Use a fresh destination
+    for an exact snapshot after source files are removed or renamed.
+    """
+    source_files = sorted(path for path in source_dir.rglob("*") if path.is_file())
+    # Validate the source set before writing anything. A supporting symlink may
+    # refer within its skill, but must not export unrelated readable files.
+    source_root = source_dir.resolve()
+    for source_file in source_files:
+        if not source_file.resolve().is_relative_to(source_root):
+            raise ValueError(f"Skill file escapes its source directory: {source_file}")
+    for source_file in source_files:
+        target_file = target_dir / source_file.relative_to(source_dir)
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+        if not target_file.is_symlink() and source_file.resolve() == target_file.resolve():
+            continue
+        if target_file.exists() or target_file.is_symlink():
+            target_file.unlink()
+        if use_symlinks:
+            target_file.symlink_to(os.path.relpath(source_file, start=target_file.parent))
+        else:
+            shutil.copy2(source_file, target_file)
+    return target_dir / "SKILL.md"
+
+
 def place_skills_for_agent(
     agent: str,
     skills_dir: Optional[Path] = None,
@@ -458,8 +475,6 @@ def place_skills_for_agent(
 
     for skill_dir in skill_dirs:
         skill_name = skill_dir.name
-        source_file = skill_dir / "SKILL.md"
-
         # Determine target directory name based on agent conventions
         if agent == "claude":
             # Claude uses longer names with time-series- prefix
@@ -472,23 +487,7 @@ def place_skills_for_agent(
             target_dir_name = skill_name
 
         target_dir = agent_path / target_dir_name
-        target_file = target_dir / "SKILL.md"
-
-        # Create target directory
-        target_dir.mkdir(parents=True, exist_ok=True)
-
-        # Remove existing file/symlink
-        if target_file.exists() or target_file.is_symlink():
-            target_file.unlink()
-
-        if use_symlinks:
-            # Create relative symlink
-            relative_source = Path(os.path.relpath(source_file, start=target_dir))
-            target_file.symlink_to(relative_source)
-        else:
-            # Copy file
-            shutil.copy2(source_file, target_file)
-
+        target_file = _place_skill_files(skill_dir, target_dir, use_symlinks)
         placed_files.append(target_file)
 
     return placed_files
@@ -516,6 +515,7 @@ def place_skills_all_agents(
         Mapping of agent name to list of placed files
     """
     result: Dict[str, List[Path]] = {}
+    failures: Dict[str, str] = {}
 
     for agent in AGENT_SKILL_PATHS.keys():
         try:
@@ -527,7 +527,17 @@ def place_skills_all_agents(
             )
             result[agent] = placed
         except Exception as e:
-            result[agent] = []  # Log error but continue
+            failures[agent] = str(e)
+
+    if failures:
+        from ts_agents.tools.executor import ToolError, ToolErrorCode
+
+        raise ToolError(
+            code=ToolErrorCode.DATA_ERROR,
+            message=f"Skill export failed for: {', '.join(failures)}.",
+            details={"exported_agents": list(result), "failed_agents": failures},
+            hint="Successful exports were retained. Fix the failed destinations and retry.",
+        )
 
     return result
 
@@ -564,11 +574,7 @@ def export_individual_skill(
         raise ValueError(f"SKILL.md not found in {skill_dir}")
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    target_file = output_dir / skill_name / "SKILL.md"
-    target_file.parent.mkdir(parents=True, exist_ok=True)
-
-    shutil.copy2(source_file, target_file)
-    return target_file
+    return _place_skill_files(skill_dir, output_dir / skill_name)
 
 
 def export_skills(
@@ -664,7 +670,6 @@ def add_agent_metadata(
     metadata : Dict[str, str]
         Metadata fields to add
     """
-    content = skill_path.read_text()
     frontmatter, body = parse_skill_frontmatter(skill_path)
 
     # Add agent-specific fields

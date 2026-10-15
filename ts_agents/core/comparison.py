@@ -8,10 +8,10 @@ This module provides utilities for:
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Any, Optional, Callable, Tuple
+from typing import Dict, List, Any, Optional, Tuple
 import numpy as np
 
-from .base import AnalysisResult, AnalysisCategory
+from .base import AnalysisResult
 
 
 @dataclass
@@ -23,11 +23,12 @@ class ComparisonResult:
     category : str
         Analysis category (e.g., "decomposition", "forecasting")
     methods : List[str]
-        Names of methods compared
+        Names of methods with usable results
     results : Dict[str, AnalysisResult]
         Individual results from each method
-    metrics : Dict[str, Dict[str, float]]
-        Metrics for each method: {method: {metric: value}}
+    metrics : Dict[str, Dict[str, Any]]
+        Metrics or error diagnostics for every attempted method, including
+        methods without usable results. Adapters must retain these failures.
     rankings : Dict[str, List[str]]
         Rankings for each metric: {metric: [best, ..., worst]}
     recommendation : str
@@ -38,7 +39,7 @@ class ComparisonResult:
     category: str
     methods: List[str]
     results: Dict[str, AnalysisResult]
-    metrics: Dict[str, Dict[str, float]]
+    metrics: Dict[str, Dict[str, Any]]
     rankings: Dict[str, List[str]] = field(default_factory=dict)
     recommendation: str = ""
     computation_times: Dict[str, float] = field(default_factory=dict)
@@ -88,8 +89,14 @@ class ComparisonResult:
         # Get all metric names
         all_metrics = set()
         for method_metrics in self.metrics.values():
-            all_metrics.update(method_metrics.keys())
+            all_metrics.update(
+                key for key, value in method_metrics.items()
+                if key not in {"error", "error_type"}
+                and (value is None or isinstance(value, (int, float, np.integer, np.floating)))
+            )
         all_metrics = sorted(all_metrics)
+        if not all_metrics:
+            return "No metrics available for comparison."
 
         # Build header
         lines = ["| Method | " + " | ".join(all_metrics) + " |"]
@@ -100,7 +107,7 @@ class ComparisonResult:
             values = []
             for metric in all_metrics:
                 val = self.metrics.get(method, {}).get(metric, float('nan'))
-                if np.isnan(val):
+                if not isinstance(val, (int, float, np.integer, np.floating)) or not np.isfinite(val):
                     values.append("N/A")
                 else:
                     values.append(f"{val:.4f}")
@@ -201,7 +208,9 @@ def compare_decomposition_methods(
             metrics[method] = {"error": str(e)}
 
     # Compute rankings
-    rankings = _compute_rankings(metrics)
+    rankings = _compute_rankings(
+        metrics, lower_is_better=["residual_variance", "trend_smoothness"]
+    )
 
     # Generate recommendation
     recommendation = _generate_decomposition_recommendation(results, metrics, rankings)
@@ -261,6 +270,18 @@ def compare_forecasting_methods(
     if validation_size is None:
         validation_size = horizon
 
+    series = np.asarray(series, dtype=np.float64)
+    if series.ndim != 1 or not np.isfinite(series).all():
+        raise ValueError("Forecasting requires a one-dimensional series of finite values.")
+    if isinstance(horizon, bool) or not isinstance(horizon, (int, np.integer)) or horizon < 1:
+        raise ValueError("horizon must be a positive integer.")
+    if (
+        isinstance(validation_size, bool)
+        or not isinstance(validation_size, (int, np.integer))
+        or not 1 <= validation_size < len(series)
+    ):
+        raise ValueError("validation_size must leave nonempty training and validation data.")
+
     # Split data for validation
     train = series[:-validation_size]
     actual = series[-validation_size:]
@@ -285,19 +306,28 @@ def compare_forecasting_methods(
             # Forecast on training data
             result = forecaster(train, horizon=validation_size, **kwargs)
             computation_times[method] = time.time() - start_time
-            results[method] = result
-
             # Compute error metrics
-            forecast = result.forecast[:len(actual)]
-            mae = np.mean(np.abs(forecast - actual))
-            rmse = np.sqrt(np.mean((forecast - actual) ** 2))
-            mape = np.mean(np.abs((forecast - actual) / actual)) * 100 if np.all(actual != 0) else np.nan
+            forecast = np.asarray(result.forecast, dtype=np.float64)
+            if forecast.shape != actual.shape or not np.isfinite(forecast).all():
+                raise ValueError("Forecast must contain one finite value per validation observation.")
+            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                error = forecast - actual
+                mae = float(np.mean(np.abs(error)))
+                rmse = float(np.sqrt(np.mean(error ** 2)))
+                mape = float(np.mean(np.abs(error / actual)) * 100) if np.all(actual != 0) else None
+            if not np.isfinite(mae) or not np.isfinite(rmse):
+                raise ValueError("Forecast MAE and RMSE must be finite.")
 
             metrics[method] = {
                 "mae": mae,
                 "rmse": rmse,
-                "mape": mape,
+                "mape": mape if mape is not None and np.isfinite(mape) else None,
             }
+            if metrics[method]["mape"] is None:
+                metrics[method]["mape_unavailable_reason"] = (
+                    "zero validation targets" if np.any(actual == 0) else "nonfinite percentage error"
+                )
+            results[method] = result
 
         except Exception as e:
             metrics[method] = {
@@ -410,7 +440,7 @@ def _compute_rankings(
             value = method_metrics.get(metric)
             if not isinstance(value, (int, float, np.integer, np.floating)):
                 continue
-            if not np.isnan(value):
+            if np.isfinite(value):
                 values.append((method, value))
 
         if not values:
@@ -491,10 +521,15 @@ def _generate_forecasting_recommendation(
         if method in metrics:
             m = metrics[method]
             if "error" not in m:
+                mape = m.get("mape")
+                mape_text = (
+                    f"{mape:.1f}%" if mape is not None
+                    else f"unavailable ({m.get('mape_unavailable_reason', 'undefined')})"
+                )
                 parts.append(
                     f"- **{method}**: MAE={m.get('mae', float('nan')):.4f}, "
                     f"RMSE={m.get('rmse', float('nan')):.4f}, "
-                    f"MAPE={m.get('mape', float('nan')):.1f}%"
+                    f"MAPE={mape_text}"
                 )
 
     # Add method notes

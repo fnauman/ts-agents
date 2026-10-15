@@ -5,7 +5,6 @@ This module provides state management that integrates with the persistence layer
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
-from datetime import datetime
 
 from ..persistence import SessionState, SessionStore, get_default_store
 
@@ -120,11 +119,12 @@ class UIState:
 
 
 def create_initial_state() -> UIState:
-    """Create initial UI state, optionally restoring from persistence."""
-    try:
-        return UIState.load_latest()
-    except Exception:
-        return UIState()
+    """Create a fresh visitor session without reading shared persistence.
+
+    Explicit ``UIState.load``/``load_latest`` remain available to trusted local
+    callers; the browser UI must not restore another visitor's session.
+    """
+    return UIState()
 
 
 def save_state_on_change(state: UIState, store: Optional[SessionStore] = None):
@@ -153,8 +153,6 @@ def load_series_data(run_id: str, variable: str) -> Optional[Any]:
     np.ndarray or None
         The time series data, or None if loading failed
     """
-    import numpy as np
-
     try:
         from ..data_access import get_series
 

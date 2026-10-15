@@ -1,10 +1,16 @@
 """Tests for the classification module."""
 
+import importlib.util
 import sys
 import types
 
 import numpy as np
 import pytest
+
+requires_aeon = pytest.mark.skipif(
+    importlib.util.find_spec("aeon") is None,
+    reason="aeon not installed",
+)
 
 
 def create_synthetic_data(n_samples=50, n_timepoints=100, n_classes=2):
@@ -37,6 +43,7 @@ def create_synthetic_data(n_samples=50, n_timepoints=100, n_classes=2):
 class TestKNNClassification:
     """Tests for KNN classification."""
 
+    @requires_aeon
     def test_knn_classify_euclidean(self):
         """Test KNN with Euclidean distance."""
         from ts_agents.core.classification import knn_classify
@@ -47,10 +54,12 @@ class TestKNNClassification:
 
         result = knn_classify(X_train, y_train, X_test, y_test, distance='euclidean')
 
+        assert result.method == "knn_euclidean"
         assert len(result.predictions) == 10
         assert result.accuracy is not None
         assert result.accuracy >= 0.5  # Should do better than random
 
+    @requires_aeon
     def test_knn_classify_dtw(self):
         """Test KNN with DTW distance."""
         from ts_agents.core.classification import knn_classify
@@ -61,6 +70,7 @@ class TestKNNClassification:
 
         result = knn_classify(X_train, y_train, X_test, y_test, distance='dtw')
 
+        assert result.method == "knn_dtw"
         assert len(result.predictions) == 10
         assert result.accuracy >= 0.5
 
@@ -79,6 +89,7 @@ class TestKNNClassification:
 
     def test_knn_classify_falls_back_when_aeon_runtime_breaks(self, monkeypatch):
         from ts_agents.core.classification import knn_classify
+        pytest.importorskip("sklearn")
 
         broken_module = types.ModuleType("aeon.classification.distance_based")
 
@@ -106,6 +117,7 @@ class TestKNNClassification:
 class TestROCKETClassification:
     """Tests for ROCKET classification."""
 
+    @requires_aeon
     def test_rocket_classify(self):
         """Test ROCKET classification."""
         from ts_agents.core.classification import rocket_classify
@@ -116,11 +128,13 @@ class TestROCKETClassification:
 
         result = rocket_classify(X_train, y_train, X_test, y_test, variant='rocket')
 
+        assert result.method == "rocket"
         assert len(result.predictions) == 10
         assert result.accuracy is not None
 
     def test_rocket_classify_falls_back_when_aeon_runtime_breaks(self, monkeypatch):
         from ts_agents.core.classification import rocket_classify
+        pytest.importorskip("sklearn")
 
         broken_module = types.ModuleType("aeon.classification.convolution_based")
 
@@ -184,19 +198,67 @@ class TestEnsure3D:
 class TestCompareClassifiers:
     """Tests for classifier comparison."""
 
-    def test_compare_classifiers(self):
-        """Test classifier comparison."""
-        from ts_agents.core.classification import compare_classifiers
+    def test_compare_classifiers(self, monkeypatch):
+        """Comparison preserves fallback identity and cannot fabricate successful predictions."""
+        from ts_agents.core.base import ClassificationResult
+        from ts_agents.core.classification import compare_classifiers, hivecote_classify
+        from ts_agents.core.classification import convolution, distance_based
 
-        X, y = create_synthetic_data(n_samples=40)
-        X_train, y_train = X[:30], y[:30]
-        X_test, y_test = X[30:], y[30:]
+        X = np.arange(8.0).reshape(4, 1, 2)
+        y = np.array([0, 1, 0, 1])
+        X_train, y_train, X_test, y_test = X[:2], y[:2], X[2:], y[2:]
+        monkeypatch.setitem(sys.modules, "aeon.classification.hybrid", None)
+        monkeypatch.setattr(
+            distance_based, "knn_classify", lambda *args, **kwargs: ClassificationResult(
+                method="knn_euclidean_fallback", predictions=y_test.copy(), accuracy=1.0,
+                warnings=["KNN backend fallback activated"],
+            ),
+        )
+        monkeypatch.setattr(
+            convolution, "rocket_classify", lambda *args, **kwargs: ClassificationResult(
+                method="rocket_fallback", predictions=y_test.copy(), accuracy=1.0,
+                warnings=["ROCKET backend fallback activated"],
+            ),
+        )
 
         results = compare_classifiers(
             X_train, y_train, X_test, y_test,
-            classifiers=['knn_euclidean', 'rocket']
+            classifiers=['knn_euclidean', 'rocket', 'hivecote2', 'unknown']
         )
 
-        assert 'results' in results
-        assert 'rankings' in results
-        assert len(results['results']) >= 1
+        assert results['rankings'] == ['knn_euclidean', 'rocket', 'hivecote2']
+        assert results['status'] == 'degraded'
+        assert results['warnings']
+        assert "Unknown classifier" in results['results']['unknown']['error']
+        for requested, actual in (("knn_euclidean", "knn_euclidean_fallback"), ("rocket", "rocket_fallback"), ("hivecote2", "ensemble_fallback")):
+            entry = results['results'][requested]
+            assert entry['requested_method'] == requested
+            assert entry['actual_method'] == actual
+            assert entry['warnings']
+        assert any("knn_euclidean_fallback, rocket_fallback" in warning for warning in results['results']['hivecote2']['warnings'])
+
+        def fail(*args, **kwargs):
+            raise RuntimeError("backend failed")
+
+        monkeypatch.setattr(distance_based, "knn_classify", fail)
+        monkeypatch.setattr(convolution, "rocket_classify", fail)
+        with pytest.raises(RuntimeError, match="All HIVE-COTE fallback classifiers failed"):
+            hivecote_classify(X_train, y_train, X_test, np.zeros(2))
+        with pytest.raises(RuntimeError, match="All classifiers failed.*backend failed"):
+            compare_classifiers(X_train, y_train, X_test, np.zeros(2), classifiers=["hivecote2"])
+
+        def missing_dependency(*args, **kwargs):
+            raise ModuleNotFoundError("No module named 'sklearn'", name="sklearn")
+
+        monkeypatch.setattr(distance_based, "knn_classify", missing_dependency)
+        monkeypatch.setattr(convolution, "rocket_classify", missing_dependency)
+        with pytest.raises(ImportError, match=r'pip install "ts-agents\[classification\]"'):
+            hivecote_classify(X_train, y_train, X_test, y_test)
+        with pytest.raises(ImportError, match=r'pip install "ts-agents\[classification\]"'):
+            compare_classifiers(X_train, y_train, X_test, y_test, classifiers=["knn_euclidean", "rocket", "hivecote2"])
+        # One genuine model failure must not be mislabeled as missing dependencies.
+        monkeypatch.setattr(convolution, "rocket_classify", fail)
+        with pytest.raises(RuntimeError, match="backend failed"):
+            hivecote_classify(X_train, y_train, X_test, y_test)
+        with pytest.raises(RuntimeError, match="backend failed"):
+            compare_classifiers(X_train, y_train, X_test, y_test, classifiers=["knn_euclidean", "rocket"])

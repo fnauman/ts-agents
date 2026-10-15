@@ -1620,6 +1620,11 @@ def _register_default_tools() -> None:
             ToolParameter("y_train", "np.ndarray", "Training labels"),
             ToolParameter("X_test", "np.ndarray", "Test data"),
             ToolParameter("y_test", "np.ndarray", "Test labels", optional=True),
+            ToolParameter(
+                "time_limit_in_minutes", "float",
+                "Training budget in minutes; explicit 0 disables the algorithm budget",
+                optional=True, default=1,
+            ),
         ],
         examples=["State-of-the-art classification"],
         returns="ClassificationResult with predictions and accuracy",

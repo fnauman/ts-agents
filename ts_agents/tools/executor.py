@@ -43,6 +43,9 @@ from .results import format_result, serialize_result
 logger = logging.getLogger(__name__)
 _TOOL_ARTIFACT_DIR_ENV = "TS_AGENTS_TOOL_ARTIFACT_DIR"
 _PERSISTENT_ARTIFACT_ROOT: Optional[Path] = None
+# cwd and os.environ are process-wide. Every local call participates, including
+# calls without overrides, so none can observe another tool's temporary context.
+_LOCAL_EXECUTION_LOCK = threading.RLock()
 
 
 class SandboxMode(Enum):
@@ -765,7 +768,12 @@ class ExecutorBackend(ABC):
 
 
 class LocalBackend(ExecutorBackend):
-    """Local direct execution backend (no sandboxing)."""
+    """Serialized in-process execution; resource limits are not enforced.
+
+    Serialization protects temporary cwd/environment overrides between local
+    tools. It does not isolate unrelated application threads; use subprocess
+    execution when process isolation or an enforceable timeout is required.
+    """
 
     def execute(
         self,
@@ -774,7 +782,18 @@ class LocalBackend(ExecutorBackend):
         params: Dict[str, Any],
         context: ExecutionContext,
     ) -> ExecutionResult:
-        """Execute a tool function locally."""
+        """Execute locally without overlapping another tool's process context."""
+        with _LOCAL_EXECUTION_LOCK:
+            return self._execute_with_context(tool_name, func, params, context)
+
+    def _execute_with_context(
+        self,
+        tool_name: str,
+        func: Callable,
+        params: Dict[str, Any],
+        context: ExecutionContext,
+    ) -> ExecutionResult:
+        """Execute with the caller holding the process-wide local execution lock."""
         start_time = time.time()
 
         # Apply working directory + environment variables (best-effort).
