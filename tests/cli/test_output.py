@@ -160,3 +160,24 @@ def test_format_human_tool_payload_includes_artifacts():
     assert "/tmp/peaks.png" in output
     assert "Data:" in output
     assert "- count: 2" in output
+
+
+def test_fallback_quality_requires_review():
+    import argparse
+    from ts_agents.cli.main import _success_envelope
+    from ts_agents.tools.executor import ExecutionResult, ExecutionStatus, ToolError
+
+    args = argparse.Namespace(command="tool", tool_command="run", tool="describe_series",
+        _ts_execution_result=ExecutionResult(status=ExecutionStatus.SUCCESS,
+            metadata={"backend_requested": "docker", "backend_actual": "local", "fallback_used": True}))
+    payload = ToolPayload(kind="statistics", summary="computed")
+    args._ts_execution_result.result = payload
+    args._ts_execution_result.flag_backend_fallback()
+    args._ts_execution_result.flag_backend_fallback()  # Nested dispatch stays idempotent.
+    assert payload.status == "degraded"
+    assert payload.data["quality_flags"] == ["backend_fallback"]
+    assert "docker" in payload.warnings[0] and "local" in payload.warnings[0]
+    envelope = _success_envelope(args, payload)
+    assert envelope.requires_review is True
+    assert envelope.quality_status in {"review", "degraded"}
+    assert ToolError.from_exception(ValueError("bad input")).recoverable is False

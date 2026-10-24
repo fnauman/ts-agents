@@ -8,12 +8,9 @@ cd "$ROOT"
 # Keep this quality scope focused on the packaged/release-facing surface until
 # broader repo-wide lint/type debt is addressed separately.
 TARGETS=(
-  app.py
-  main.py
   ts_agents/__init__.py
   ts_agents/config.py
   ts_agents/runtime_paths.py
-  ts_agents/hosted_app.py
   ts_agents/cli/runs.py
   ts_agents/cli/jobs.py
   ts_agents/cli/jobs_worker.py
@@ -32,7 +29,6 @@ TARGETS=(
   tests/cli/test_runs.py
   tests/cli/test_jobs.py
   tests/test_package_metadata.py
-  tests/test_hosted_app.py
   tests/cli/test_entrypoints.py
 )
 

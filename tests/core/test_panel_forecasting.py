@@ -140,13 +140,19 @@ def test_train_only_mase_and_prediction_coverage():
     frame = panel_frame(30)
     train = frame.groupby("unique_id").head(27)
     actual = frame.groupby("unique_id").tail(3)
-    predicted = actual.rename(columns={"y": "model"}).copy()
-    predicted["model"] += 1
-    scored = score_predictions(actual, predicted, "model", train, 7)
+    predicted = actual.rename(columns={"y": "analytic"}).copy()
+    predicted["analytic"] += 1
+    scored = score_predictions(actual, predicted, "analytic", train, 7)
     assert scored.mase_scale.to_numpy() == pytest.approx(np.full(6, 0.7))
+    from ts_agents.workflows.panel import _metrics
+    scored.loc[scored.index[::2], "prediction"] -= 3
+    metrics = _metrics(scored, ["model"])[0]
+    assert metrics["mae"] == pytest.approx(1.5)
+    assert metrics["rmse"] == pytest.approx(np.sqrt(2.5))
+    assert metrics["mase"] == pytest.approx(1.5 / 0.7)
     for broken in (predicted.iloc[1:], pd.concat([predicted, predicted.iloc[:1]])):
         with pytest.raises(ValueError):
-            score_predictions(actual, broken, "model", train, 7)
+            score_predictions(actual, broken, "analytic", train, 7)
 
 
 def test_zero_scale_is_reported_without_nan_json(tmp_path):

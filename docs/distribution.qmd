@@ -45,8 +45,9 @@ Recommended release steps:
 The base install is qualified on Python 3.11-3.14. Full tests use the locked
 optional dependency stack on 3.11-3.13. Background jobs require POSIX
 (Linux/macOS or WSL); Linux is the CI qualification platform. Remote sandbox
-termination, native Windows background jobs, real LLM adapters, and browser UI
-behavior are outside this release qualification.
+termination, native Windows background jobs, and external agent interactions
+are outside this release qualification. Version 0.4.0 ships only the `ts-agents`
+console entrypoint; UI/hosted apps and built-in agents have been removed.
 
 ## Sandbox Container Image
 

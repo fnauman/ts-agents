@@ -242,8 +242,8 @@ class TestToolRegistry:
             "darts_backend": ["foundation"],
         }
 
-    def test_registry_and_agent_prompts_do_not_import_foundation_stacks(self):
-        """Registry, bundles and agent prompts must not import darts/torch/huggingface_hub."""
+    def test_registry_and_bundles_do_not_import_foundation_stacks(self):
+        """Registry and external tool bundles must not import darts/torch/huggingface_hub."""
         import json
         import subprocess
 
@@ -251,8 +251,6 @@ class TestToolRegistry:
             "import json, sys\n"
             "from ts_agents.tools.registry import ToolRegistry, tool_availability\n"
             "from ts_agents.tools.bundles import get_bundle, get_subagent_bundle\n"
-            "import ts_agents.agents.deep.subagents.forecasting\n"
-            "import ts_agents.agents.simple.prompts\n"
             "for tool in ToolRegistry.list_all():\n"
             "    tool_availability(tool)\n"
             "get_bundle('full'); get_subagent_bundle('forecasting')\n"

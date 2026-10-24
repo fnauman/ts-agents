@@ -8,7 +8,7 @@ from typing import Any, Iterable, List, Optional
 import warnings
 
 from ts_agents.cli.input_parsing import SeriesInput
-from ts_agents.cli.output import dump_json, to_jsonable
+from ts_agents.cli.output import to_jsonable
 from ts_agents.contracts import ToolPayload
 from ts_agents.core.forecasting.catalog import foundation_methods, methods_for
 
@@ -48,6 +48,8 @@ def run_forecast_series_workflow(
     Foundation-model methods (for example ``chronos2_small``) run zero-shot and use
     ``context_length`` and ``accelerator``; statistical methods ignore both.
     """
+    if report_mode != "scripted":
+        raise ValueError("Built-in LLM reporting was removed; use scripted artifacts with an external agent.")
     workflow_name = "forecast-series"
     selected_methods = _normalize_methods(methods)
     foundation_requested = [method for method in selected_methods if method in _FOUNDATION_METHODS]
@@ -276,14 +278,6 @@ def _run_forecast_series(
         season_length=season_length,
         comparison_payload=comparison_payload,
     )
-    if report_mode == "llm":
-        report = _render_report_with_llm(
-            model_name=model_name,
-            source_label=series_input.label,
-            horizon=horizon,
-            methods=selected_methods,
-            comparison_payload=comparison_payload,
-        )
     if foundation_requested:
         report += "\n\n" + _foundation_report_section(foundation_specs, foundation_failed)
     artifacts.append(
@@ -682,40 +676,6 @@ def _build_report(
     )
 
 
-def _render_report_with_llm(
-    *,
-    model_name: Optional[str],
-    source_label: str,
-    horizon: int,
-    methods: List[str],
-    comparison_payload: dict[str, Any],
-) -> str:
-    from langchain_openai import ChatOpenAI
-    from ts_agents.config import get_openai_model
-
-    llm = ChatOpenAI(model=model_name or get_openai_model(), temperature=0)
-    prompt = (
-        "Write a concise markdown report for a forecasting workflow.\n"
-        "Use <= 14 lines and include: source, horizon, compared methods, "
-        "best method by RMSE (if available), key metrics, and one caveat.\n\n"
-        f"source: {source_label}\n"
-        f"horizon: {horizon}\n"
-        f"methods: {methods}\n"
-        f"comparison_json: {dump_json(comparison_payload, indent=None)}"
-    )
-    response = llm.invoke(prompt)
-    content = response.content
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: List[str] = []
-        for item in content:
-            if isinstance(item, dict) and item.get("type") == "text":
-                parts.append(item.get("text", ""))
-            else:
-                parts.append(str(item))
-        return "\n".join(part for part in parts if part)
-    return str(content)
 
 
 def _format_metric(value: Any) -> str:

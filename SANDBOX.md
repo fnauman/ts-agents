@@ -261,3 +261,8 @@ uv run ts-agents tool run stl_decompose_with_data \
   --var bx001_real \
   --sandbox modal
 ```
+
+Backend fallback, when explicitly allowed, sets `requires_review` in CLI envelopes
+and a `backend_fallback` flag in structured results; warnings identify the
+requested and actual backend. Execution success does not certify equivalent
+isolation.

@@ -1,4 +1,5 @@
 import io
+import json
 import sys
 
 import numpy as np
@@ -195,3 +196,25 @@ def test_load_labeled_stream_input_segment_labels_support_non_identifier_column_
 
     assert stream_input.labels.tolist() == ["idle", "idle", "walk", "walk"]
     assert stream_input.provenance["stream_ref"]["preparation"]["mode"] == "segment_index_labels"
+
+
+def test_single_series_chronology_and_identity(tmp_path):
+    from ts_agents.cli.input_parsing import load_series_input
+
+    records = [{"unique_id": "a", "ds": f"2024-01-{day:02d}", "y": day}
+               for day in (3, 1, 2)]
+    path = tmp_path / "series.csv"
+    pd.DataFrame(records).to_csv(path, index=False)
+    ordered = load_series_input(input_path=str(path), time_col="ds", value_col="y")
+    assert ordered.series.tolist() == [1, 2, 3]
+    assert ordered.time_values == ["2024-01-01", "2024-01-02", "2024-01-03"]
+    ordered = load_series_input(input_json='{"series":[30,10,20],"time":[3,1,2]}')
+    assert ordered.series.tolist() == [10, 20, 30]
+    assert ordered.time_values == [1, 2, 3]
+    for invalid in (
+        [{**row, "unique_id": str(i)} for i, row in enumerate(records)],
+        [records[0], records[0]],
+        [{**row, "ds": "invalid"} for row in records],
+    ):
+        with pytest.raises(ValueError):
+            load_series_input(input_json=json.dumps(invalid), time_col="ds", value_col="y")

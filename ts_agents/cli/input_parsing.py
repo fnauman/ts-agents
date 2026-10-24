@@ -796,11 +796,10 @@ def _series_input_from_json_payload(
     if isinstance(payload, dict) and "series" in payload:
         time_values = payload.get(time_col) if time_col and time_col in payload else None
         if time_values is None:
-            time_values = payload.get("time") or payload.get("index")
+            time_values = payload["time"] if "time" in payload else payload.get("index")
         label = payload.get("name") or payload.get("label") or "series"
         series = _coerce_series(payload["series"])
-        if time_values is not None and len(time_values) != len(series):
-            raise ValueError("Time values must have the same length as the series.")
+        series, time_values = _order_series(series, time_values)
         provenance = {
             "series_ref": {
                 "source_type": source_type,
@@ -901,8 +900,12 @@ def _series_input_from_dataframe(
             f"Time column '{time_col}' not found. Available: {list(df.columns)}"
         )
 
+    for id_column in ("unique_id", "series_id", "id"):
+        if (id_column in df and id_column not in {resolved_value_col, time_col}
+                and df[id_column].nunique(dropna=False) != 1):
+            raise ValueError("Single-series input contains multiple IDs; select one series or use forecast-panel.")
     series = _coerce_series(df[resolved_value_col].tolist())
-    time_values = df[time_col].tolist() if time_col else None
+    series, time_values = _order_series(series, df[time_col].tolist() if time_col else None)
     return SeriesInput(
         series=series,
         source_type=source_type,
@@ -920,6 +923,32 @@ def _series_input_from_dataframe(
         time_column=time_col,
         value_column=resolved_value_col,
     )
+
+
+def _order_series(series, time_values):
+    """Order paired values without interpreting numeric time coordinates as dates."""
+    if time_values is None:
+        return series, None
+    if len(time_values) != len(series):
+        raise ValueError("Time values must have the same length as the series.")
+    import pandas as pd
+
+    coordinates = pd.Series(time_values)
+    if coordinates.isna().any():
+        raise ValueError("Time coordinates must not contain missing values.")
+    try:
+        if pd.api.types.is_numeric_dtype(coordinates):
+            if not np.isfinite(coordinates).all():
+                raise ValueError("Time coordinates must be finite.")
+            axis = coordinates
+        else:
+            axis = pd.to_datetime(coordinates, errors="raise", format="mixed")
+        if axis.duplicated().any():
+            raise ValueError("Duplicate time coordinates are ambiguous for a single series.")
+        order = np.asarray(axis.argsort())
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"Invalid single-series time coordinates: {exc}") from exc
+    return series[order], [time_values[index] for index in order]
 
 
 def _labeled_stream_input_from_dataframe(
@@ -1061,6 +1090,8 @@ def _coerce_series(values: Any) -> np.ndarray:
 
     if series.size == 0:
         raise ValueError("Series input cannot be empty.")
+    if not np.isfinite(series).all():
+        raise ValueError("Series input must contain only finite values.")
     return series
 
 

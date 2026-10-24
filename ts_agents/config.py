@@ -70,115 +70,11 @@ def get_default_use_test_data() -> bool:
     load_user_env()
     return os.environ.get("TS_AGENTS_USE_TEST_DATA", "true").lower() == "true"
 
-# =============================================================================
-# Agent Configuration
-# =============================================================================
-
-def get_openai_model() -> str:
-    """Return the configured OpenAI model name."""
-    load_user_env()
-    return os.environ.get("OPENAI_MODEL", "gpt-5-mini")
-
-# =============================================================================
-# Persistence Configuration
-# =============================================================================
-
-def get_persistence_dir() -> Path:
-    """Return the base directory for persistence, resolved at access time."""
-    load_user_env()
-    return Path(os.environ.get("TS_AGENTS_PERSISTENCE_DIR", str(Path.cwd())))
-
-def get_results_cache_dir() -> Path:
-    return get_persistence_dir() / "results"
-
-
-def get_results_cache_enabled() -> bool:
-    load_user_env()
-    return os.environ.get("TS_AGENTS_CACHE_ENABLED", "true").lower() == "true"
-
-
-def get_results_cache_max_age_days() -> int:
-    load_user_env()
-    return int(os.environ.get("TS_AGENTS_CACHE_MAX_AGE_DAYS", "30"))
-
-def get_sessions_dir() -> Path:
-    return get_persistence_dir() / "sessions"
-
-
-def get_sessions_max_count() -> int:
-    load_user_env()
-    return int(os.environ.get("TS_AGENTS_SESSIONS_MAX", "100"))
-
-
-def get_sessions_timeout_hours() -> int:
-    load_user_env()
-    return int(os.environ.get("TS_AGENTS_SESSIONS_TIMEOUT_HOURS", "168"))
-
-def get_experiments_dir() -> Path:
-    return get_persistence_dir() / "experiments"
-
-
-def get_experiments_max_runs() -> int:
-    load_user_env()
-    return int(os.environ.get("TS_AGENTS_EXPERIMENTS_MAX_RUNS", "1000"))
-
-
-def init_persistence():
-    """Initialize the persistence layer with configured settings.
-
-    This function initializes all persistence components (cache, sessions, experiments)
-    with the settings defined in this config module.
-
-    Returns
-    -------
-    tuple
-        (ResultsCache, SessionStore, ExperimentLog) instances
-    """
-    from .persistence import init_cache, init_session_store, init_experiment_log
-
-    results_cache_dir = get_results_cache_dir()
-    results_cache_enabled = get_results_cache_enabled()
-    results_cache_max_age_days = get_results_cache_max_age_days()
-    sessions_dir = get_sessions_dir()
-    sessions_max_count = get_sessions_max_count()
-    sessions_timeout_hours = get_sessions_timeout_hours()
-    experiments_dir = get_experiments_dir()
-    experiments_max_runs = get_experiments_max_runs()
-
-    cache = init_cache(
-        root_dir=results_cache_dir,
-        enabled=results_cache_enabled,
-        max_age_days=results_cache_max_age_days if results_cache_max_age_days > 0 else None,
-    )
-
-    session_store = init_session_store(
-        root_dir=sessions_dir,
-        max_sessions=sessions_max_count,
-        session_timeout_hours=sessions_timeout_hours,
-    )
-
-    experiment_log = init_experiment_log(
-        root_dir=experiments_dir,
-        max_runs=experiments_max_runs,
-    )
-
-    return cache, session_store, experiment_log
-
-
 _DYNAMIC_ATTRS = {
     "DATA_DIR": get_data_dir,
     "TEST_DATA_FILE": get_test_data_file,
     "DEFAULT_USE_TEST_DATA": get_default_use_test_data,
-    "OPENAI_MODEL": get_openai_model,
-    "PERSISTENCE_DIR": get_persistence_dir,
-    "RESULTS_CACHE_DIR": get_results_cache_dir,
-    "RESULTS_CACHE_ENABLED": get_results_cache_enabled,
-    "RESULTS_CACHE_MAX_AGE_DAYS": get_results_cache_max_age_days,
-    "SESSIONS_DIR": get_sessions_dir,
-    "SESSIONS_MAX_COUNT": get_sessions_max_count,
-    "SESSIONS_TIMEOUT_HOURS": get_sessions_timeout_hours,
-    "EXPERIMENTS_DIR": get_experiments_dir,
-    "EXPERIMENTS_MAX_RUNS": get_experiments_max_runs,
+
 }
 
 

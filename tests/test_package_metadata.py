@@ -34,7 +34,7 @@ def test_project_metadata_defines_dependency_extras():
     extras = project["optional-dependencies"]
     dependencies = set(project["dependencies"])
 
-    assert "ui" in extras
+    assert "ui" not in extras
     assert "agents" in extras
     assert "forecasting" in extras
     assert "ml" in extras
@@ -61,4 +61,6 @@ def test_project_metadata_defines_dependency_extras():
     assert set(extras["neural"]).issubset(set(extras["all"]))
     assert not any(dep.startswith(("mlforecast", "neuralforecast", "lightgbm")) for dep in dependencies)
     assert not any(dep.startswith(("mlforecast", "neuralforecast", "lightgbm")) for dep in extras["recommended"])
-    assert project["scripts"]["ts-agents-ui"] == "ts_agents.ui.entrypoint:main"
+    assert set(project["scripts"]) == {"ts-agents"}
+    assert extras["agents"] == ["langchain-core>=1.0"]
+    assert not any(dep.startswith(("gradio", "langchain>=", "langchain-openai")) for dep in all_requirements)

@@ -363,6 +363,7 @@ class WorkflowExecutor:
         elif result.success and actual_backend in {SandboxMode.DAYTONA, SandboxMode.MODAL}:
             _materialize_remote_workflow_output_paths(result, requested_output_dir)
 
+        result.flag_backend_fallback()
         if result.success:
             _synchronize_restored_manifest(result)
         return result
@@ -383,7 +384,10 @@ def _synchronize_restored_manifest(result: ExecutionResult) -> None:
     if not isinstance(manifest, dict):
         return
     updated = {**manifest, "output_dir": data.get("output_dir"), "manifest_path": str(path),
-               "artifacts": payload.get("artifacts", [])}
+               "artifacts": payload.get("artifacts", []),
+               "status": payload.get("status", manifest.get("status")),
+               "warnings": payload.get("warnings", []),
+               "quality_flags": data.get("quality_flags", [])}
     if updated != manifest:
         from ts_agents.workflows.lifecycle import write_manifest
         write_manifest(path, updated)

@@ -30,7 +30,6 @@ A *30–60 second terminal walkthrough* showing:
 From an installed package or source checkout:
 
 ```bash
-export OPENAI_API_KEY=your-key
 ts-agents demo window-classification
 ```
 
@@ -106,9 +105,10 @@ Outputs (under `outputs/demo/` by default):
 
 ---
 
-## Demo tool bundles (for agent runs)
+## Demo tool bundles (for external runtimes)
 
-Use these with `ts-agents agent run --tool-bundle ...`:
+Inspect these with `ts-agents tool list --bundle <name>` or use the optional
+external framework wrappers:
 
 - `demo`: meta-bundle (windowing + forecasting demos)
 - `demo_windowing`: focused activity-recognition/window-size workflow

@@ -207,8 +207,8 @@ def _run_forecast_daytona(**kwargs: Any) -> dict[str, Any]:
     warnings.extend(_forecast_ranking_warnings(trials))
     best_config = ranking[0] if ranking else {}
     status = (
-        "degraded"
-        if warnings or any(row.get("status") == "failed" for row in trials)
+        "planned" if dry_run else "failed" if not ranking else
+        "degraded" if warnings or any(row.get("status") == "failed" for row in trials)
         else "ok"
     )
     plot_artifacts = _write_optional_plot(
@@ -339,8 +339,8 @@ def _run_classify_daytona(**kwargs: Any) -> dict[str, Any]:
     ranking = _rank_classification_trials(trials)
     best_config = ranking[0] if ranking else {}
     status = (
-        "degraded"
-        if warnings or any(row.get("status") == "failed" for row in trials)
+        "planned" if dry_run else "failed" if not ranking else
+        "degraded" if warnings or any(row.get("status") == "failed" for row in trials)
         else "ok"
     )
     plot_artifacts = _write_optional_plot(
@@ -597,8 +597,8 @@ def _run_foundation_smoke(**kwargs: Any) -> dict[str, Any]:
     warnings.extend(_forecast_ranking_warnings(trials))
     best_config = ranking[0] if ranking else {}
     status = (
-        "degraded"
-        if warnings or any(row.get("status") == "failed" for row in trials)
+        "planned" if dry_run else "failed" if not ranking else
+        "degraded" if warnings or any(row.get("status") == "failed" for row in trials)
         else "ok"
     )
     plot_artifacts = _write_optional_plot(
@@ -858,8 +858,8 @@ def _evaluate_forecast_trial_with_runner(
             model,
             np.asarray(spec["train"], dtype=float),
             horizon=horizon,
-        )[: len(actual)]
-        metrics = _forecast_metrics(actual, forecast)
+        )
+        metrics = _forecast_metrics(actual, np.asarray(forecast))
         row.update(metrics)
         row["status"] = "ok"
     except Exception as exc:
@@ -895,7 +895,10 @@ def _forecast_with_foundation(model: str, series: np.ndarray, *, horizon: int,
     )
 
 
-def _forecast_metrics(actual: np.ndarray, forecast: np.ndarray) -> dict[str, float]:
+def _forecast_metrics(actual: np.ndarray, forecast: np.ndarray) -> dict[str, Any]:
+    if (actual.ndim != 1 or forecast.shape != actual.shape or actual.size == 0
+            or not np.isfinite(actual).all() or not np.isfinite(forecast).all()):
+        raise ValueError("Forecast trials require complete, finite, one-dimensional targets and predictions.")
     errors = actual - forecast
     denominator = np.abs(actual) + np.abs(forecast)
     smape_values = np.divide(
@@ -910,11 +913,17 @@ def _forecast_metrics(actual: np.ndarray, forecast: np.ndarray) -> dict[str, flo
         if np.any(nonzero)
         else float("nan")
     )
+    primary = [float(np.mean(smape_values)), float(np.mean(np.abs(errors))),
+               float(np.sqrt(np.mean(errors ** 2)))]
+    if not np.isfinite(primary).all():
+        raise ValueError("Forecast trial primary metrics overflowed; rescale the inputs.")
     return {
-        "smape": float(np.mean(smape_values)),
-        "mae": float(np.mean(np.abs(errors))),
-        "rmse": float(np.sqrt(np.mean(errors ** 2))),
-        "mape": mape,
+        "smape": primary[0],
+        "mae": primary[1],
+        "rmse": primary[2],
+        "mape": mape if np.isfinite(mape) else None,
+        **({"mape_unavailable_reason": "zero validation targets or percentage overflow"}
+           if not np.isfinite(mape) else {}),
     }
 
 
@@ -1015,6 +1024,8 @@ def _evaluate_classifier_trial(
         )
         best_window_size = int(selection.best_window_size)
         score = _as_optional_float(selection.scores_by_window.get(best_window_size))
+        if score is None:
+            raise ValueError("Classification trial has no finite primary score.")
         row.update(
             {
                 "status": "ok",
@@ -1053,7 +1064,8 @@ def _as_optional_float(value: Any) -> Optional[float]:
 
 
 def _rank_forecast_trials(trials: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    ok = [row for row in trials if row.get("status") == "ok"]
+    ok = [row for row in trials if row.get("status") == "ok"
+          and all(_as_optional_float(row.get(key)) is not None for key in ("smape", "mae", "rmse"))]
     by_model: dict[str, list[dict[str, Any]]] = {}
     for row in ok:
         by_model.setdefault(str(row["model"]), []).append(row)
@@ -1106,7 +1118,8 @@ def _forecast_ranking_warnings(trials: list[dict[str, Any]]) -> list[str]:
 
 
 def _rank_classification_trials(trials: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    ok = [row for row in trials if row.get("status") == "ok"]
+    ok = [row for row in trials if row.get("status") == "ok"
+          and _as_optional_float(row.get("balanced_accuracy")) is not None]
     ranking = [
         {
             "model": row["model"],
@@ -1298,6 +1311,19 @@ def _result_payload(
     started_at: str,
     data_extra: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
+    if status == "failed":
+        from ts_agents.tools.executor import ToolError, ToolErrorCode
+
+        weights_unavailable = bool(trials) and all(
+            row.get("error_type") == "FoundationModelUnavailableError" for row in trials)
+        reason = next((row["error"] for row in trials if row.get("error")), "No trials completed.")
+        raise ToolError(code=ToolErrorCode.BACKEND_UNAVAILABLE if weights_unavailable else ToolErrorCode.COMPUTATION_ERROR,
+                        message=f"{loop_name}: no trials produced valid primary scores. {reason}",
+                        recoverable=weights_unavailable,
+                        hint="Pre-populate HF_HOME or explicitly enable network access." if weights_unavailable else None,
+                        details={"output_dir": str(output_path), "manifest_path": str(output_path / WORKFLOW_MANIFEST_FILENAME)})
+    if status == "planned":
+        summary = f"{loop_name} plan only: {len(trials)} trials; no models fitted or scored."
     data = {
         "loop": loop_name,
         "run_id": run_id,

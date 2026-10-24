@@ -44,7 +44,6 @@ cd "$VENV"
 
 "$VENV/bin/ts-agents" --help >/dev/null
 "$VENV/bin/ts-agents" tool list --bundle demo >/dev/null
-"$VENV/bin/ts-agents-ui" --help >/dev/null
 # -I keeps the repo checkout off sys.path so the installed wheel is what
 # actually gets imported and asserted against.
 "$VENV/bin/python" -I - <<'PY'
@@ -58,21 +57,11 @@ import tempfile
 import time
 
 import ts_agents
-import ts_agents.hosted_app as hosted
 from ts_agents.runtime_paths import resolve_default_data_dir, resolve_default_skills_dir
 
 assert ts_agents.__version__ == version("ts-agents")
 assert resolve_default_data_dir().exists()
 assert resolve_default_skills_dir().exists()
-
-# The base wheel has no gradio; the hosted app must fail with an actionable
-# extras hint rather than a bare ModuleNotFoundError.
-try:
-    hosted.app
-except ImportError as exc:
-    assert "ts-agents[ui]" in str(exc), exc
-else:
-    raise AssertionError("hosted.app should require the ui extra in a base install")
 
 with tempfile.TemporaryDirectory(prefix="wheel-cli-", dir=Path.cwd()) as directory:
     workdir = Path(directory)

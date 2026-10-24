@@ -379,6 +379,7 @@ class AutoresearchExecutor:
             SandboxMode.MODAL,
         }:
             _materialize_remote_autoresearch_output(result, requested_output_dir)
+        result.flag_backend_fallback()
         return result
 
 
