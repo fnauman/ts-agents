@@ -263,6 +263,7 @@ uv run ts-agents tool run stl_decompose_with_data \
 ```
 
 Backend fallback, when explicitly allowed, sets `requires_review` in CLI envelopes
-and a `backend_fallback` flag in structured results; warnings identify the
+and a `backend_fallback` flag in `ToolPayload` results. Raw algorithm results
+retain their shape and carry fallback in execution metadata; warnings identify the
 requested and actual backend. Execution success does not certify equivalent
 isolation.

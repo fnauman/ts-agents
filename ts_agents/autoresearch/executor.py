@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import json
 from dataclasses import replace
 from importlib.util import find_spec
 import os
@@ -380,6 +381,14 @@ class AutoresearchExecutor:
         }:
             _materialize_remote_autoresearch_output(result, requested_output_dir)
         result.flag_backend_fallback()
+        # Transport the completed failure payload first so sandbox diagnostics
+        # survive cleanup; then expose the analysis failure to every caller.
+        if result.success and isinstance(result.result, dict) and result.result.get("status") == "failed":
+            payload = result.result
+            result.error = ToolError.from_dict(payload["error"])
+            for key in ("output_dir", "manifest_path"):
+                result.error.details[key] = payload["data"][key]
+            result.status = ExecutionStatus.FAILED
         return result
 
 
@@ -553,6 +562,15 @@ def _rewrite_payload_paths(
     best_config = data.get("best_config")
     if best_config is not None:
         data["best_config"] = to_jsonable(best_config)
+
+    manifest_path = data.get("manifest_path")
+    if isinstance(manifest_path, str) and Path(manifest_path).is_file():
+        from ts_agents.workflows.lifecycle import write_manifest
+
+        manifest = json.loads(Path(manifest_path).read_text())
+        manifest.update(output_dir=str(destination_dir), manifest_path=manifest_path,
+                        artifacts=payload.get("artifacts", []))
+        write_manifest(manifest_path, manifest)
 
 
 _DEFAULT_EXECUTOR: Optional[AutoresearchExecutor] = None

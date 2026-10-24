@@ -1283,3 +1283,39 @@ def test_deprecated_alias_writes_notice_with_initial_manifest(monkeypatch, tmp_p
     assert writes[0]["warnings"] == result["warnings"]
     assert "deprecated" in writes[0]["warnings"][0].lower()
     assert result["status"] == "planned"
+
+
+@pytest.mark.parametrize("mode", ["docker", "daytona", "modal"])
+def test_failed_autoresearch_restores_sandbox_diagnostics(monkeypatch, tmp_path, mode):
+    from ts_agents.autoresearch import executor, runner
+    from ts_agents.core.forecasting.foundation import FoundationModelUnavailableError
+    from ts_agents.tools.executor import ExecutionContext, LocalBackend, SandboxMode
+
+    class Sandbox:
+        def is_available(self):
+            return True
+
+        def execute(self, **kwargs):
+            kwargs["params"] = {**kwargs["params"], "sandbox_artifact_dir": str(tmp_path / "remote")}
+            from ts_agents.tools.results import serialize_result
+            response = LocalBackend().execute(**kwargs)
+            response.result = serialize_result(response.result)
+            return response
+
+    def unavailable(*args, **kwargs):
+        raise FoundationModelUnavailableError("weights are not cached")
+
+    monkeypatch.setattr(runner, "_forecast_with_foundation", unavailable)
+    monkeypatch.setattr(executor, "describe_sandbox_backend", lambda *args, **kwargs: {"available": True})
+    engine = executor.AutoresearchExecutor()
+    engine.backends[SandboxMode(mode)] = Sandbox()
+    destination = tmp_path / "host"
+    result = engine.execute("foundation-smoke", {"output_dir": str(destination), "skip_plots": True},
+                            context=ExecutionContext(sandbox_mode=mode))
+    assert not result.success
+    assert (destination / "trials.jsonl").is_file()
+    manifest = json.loads((destination / "run_manifest.json").read_text())
+    assert manifest["status"] == "failed"
+    assert manifest["output_dir"] == str(destination)
+    assert result.error.details["manifest_path"] == str(destination / "run_manifest.json")
+    assert all(Path(item["path"]).is_file() for item in result.result["artifacts"])

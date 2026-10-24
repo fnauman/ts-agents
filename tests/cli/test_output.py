@@ -181,3 +181,7 @@ def test_fallback_quality_requires_review():
     assert envelope.requires_review is True
     assert envelope.quality_status in {"review", "degraded"}
     assert ToolError.from_exception(ValueError("bad input")).recoverable is False
+    raw = {"mean": 2.5}  # Raw results keep their API shape; execution metadata carries fallback.
+    envelope = _success_envelope(args, raw)
+    assert envelope.result == raw and envelope.requires_review is True
+    assert envelope.execution.metadata["fallback_used"] is True

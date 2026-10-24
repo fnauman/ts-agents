@@ -1311,17 +1311,18 @@ def _result_payload(
     started_at: str,
     data_extra: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
+    failure = None
     if status == "failed":
         from ts_agents.tools.executor import ToolError, ToolErrorCode
 
         weights_unavailable = bool(trials) and all(
             row.get("error_type") == "FoundationModelUnavailableError" for row in trials)
         reason = next((row["error"] for row in trials if row.get("error")), "No trials completed.")
-        raise ToolError(code=ToolErrorCode.BACKEND_UNAVAILABLE if weights_unavailable else ToolErrorCode.COMPUTATION_ERROR,
+        failure = ToolError(code=ToolErrorCode.BACKEND_UNAVAILABLE if weights_unavailable else ToolErrorCode.COMPUTATION_ERROR,
                         message=f"{loop_name}: no trials produced valid primary scores. {reason}",
                         recoverable=weights_unavailable,
                         hint="Pre-populate HF_HOME or explicitly enable network access." if weights_unavailable else None,
-                        details={"output_dir": str(output_path), "manifest_path": str(output_path / WORKFLOW_MANIFEST_FILENAME)})
+                        details={"output_dir": str(output_path), "manifest_path": str(output_path / WORKFLOW_MANIFEST_FILENAME)}).to_dict()
     if status == "planned":
         summary = f"{loop_name} plan only: {len(trials)} trials; no models fitted or scored."
     data = {
@@ -1338,6 +1339,7 @@ def _result_payload(
         data.update(data_extra)
     return {
         "kind": "autoresearch",
+        **({"error": failure} if failure else {}),
         "summary": summary,
         "status": status,
         "data": data,

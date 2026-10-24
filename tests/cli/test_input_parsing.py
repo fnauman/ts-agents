@@ -215,6 +215,7 @@ def test_single_series_chronology_and_identity(tmp_path):
         [{**row, "unique_id": str(i)} for i, row in enumerate(records)],
         [records[0], records[0]],
         [{**row, "ds": "invalid"} for row in records],
+        [{**records[0], "ds": "NaT"}, records[1]],
     ):
         with pytest.raises(ValueError):
             load_series_input(input_json=json.dumps(invalid), time_col="ds", value_col="y")

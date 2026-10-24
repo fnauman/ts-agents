@@ -2400,12 +2400,12 @@ def _handle_autoresearch_command(args: argparse.Namespace) -> Tuple[Any, Optiona
     with lock_run_output(Path(output_dir).expanduser()):
         execution = execute_autoresearch(args.loop_name, options, context=context)
         args._ts_execution_result = execution
+        _synchronize_autoresearch_manifest(execution.result, execution)
         if not execution.success:
             if execution.error:
                 raise execution.error
             raise RuntimeError(execution.formatted_output or "Autoresearch execution failed")
 
-        _synchronize_autoresearch_manifest(execution.result, execution)
     return execution.result, execution.formatted_output or None
 
 def _handle_data_export_panel(args: argparse.Namespace) -> Tuple[Any, str]:

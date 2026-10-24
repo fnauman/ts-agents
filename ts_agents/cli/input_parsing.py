@@ -943,6 +943,8 @@ def _order_series(series, time_values):
             axis = coordinates
         else:
             axis = pd.to_datetime(coordinates, errors="raise", format="mixed")
+        if axis.isna().any():
+            raise ValueError("Time coordinates must not parse as missing timestamps.")
         if axis.duplicated().any():
             raise ValueError("Duplicate time coordinates are ambiguous for a single series.")
         order = np.asarray(axis.argsort())

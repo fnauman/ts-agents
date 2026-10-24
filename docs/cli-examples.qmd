@@ -223,7 +223,9 @@ ranking. If no trials succeed, the command fails and retains trial artifacts and
 a failed manifest. Undefined secondary MAPE includes an explanation.
 
 Opted-in backend fallback records requested/actual backends and sets
-`requires_review`; structured payloads carry a `backend_fallback` quality flag.
+`requires_review`; `ToolPayload` results carry a `backend_fallback` quality flag.
+Raw algorithm results retain their original shape; their `CLIEnvelope.execution`
+or Python `ExecutionResult.metadata` carries `fallback_used` and backend names.
 Deterministic validation errors are not retryable with unchanged inputs.
 
 Built-in `agent run`, UI/hosted entrypoints, and LLM report generation were

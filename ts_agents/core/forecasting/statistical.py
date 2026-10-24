@@ -389,11 +389,13 @@ def forecast_ensemble(
             horizon=horizon,
             season_length=season_length,
         )
-        return MultiForecastResult(
+        result = MultiForecastResult(
             method="ensemble",
             forecasts={"seasonal_naive": seasonal_naive_forecast.forecast},
             horizon=horizon,
         )
+        result.get_ensemble()
+        return result
 
     StatsForecast, AutoARIMA, AutoETS, AutoTheta, SeasonalNaive = _get_statsforecast_components()
     series = np.asarray(series, dtype=np.float64).flatten()
@@ -444,11 +446,13 @@ def forecast_ensemble(
     if set(forecasts) != set(models):
         raise ValueError("Requested ensemble models did not all return forecasts.")
 
-    return MultiForecastResult(
+    result = MultiForecastResult(
         method="ensemble",
         forecasts=forecasts,
         horizon=horizon,
     )
+    result.get_ensemble()
+    return result
 
 
 def compare_forecasts(
