@@ -113,6 +113,12 @@ class TestMatrixProfile:
         members = [index for motif in result.motifs for index in (motif.index, motif.neighbor_index)]
         assert sum(abs(index - 300) < 50 for index in members) == 1
 
+        # A third occurrence can still point to an already excluded neighbor.
+        from ts_agents.core.patterns.matrix_profile import _top_motifs
+        profile = np.array([[0., 3], [9., 6], [9., 6], [0., 0], [9., 0], [9., 0], [1., 0]])
+        motifs = _top_motifs(np.arange(9), profile, 2, 3, 1, False)
+        assert len(motifs) == 1
+
     def test_find_discords(self):
         """Test discord (anomaly) detection."""
         from ts_agents.core.patterns import find_discords

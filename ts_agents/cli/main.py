@@ -777,8 +777,8 @@ def _success_envelope(args: argparse.Namespace, result: Any) -> CLIEnvelope:
             quality_status, degraded, requires_review = "ok", False, False
         if (getattr(args, "_ts_input_payload", {}) or {}).get("warnings"):
             requires_review = True
-            if quality_status == "ok":
-                quality_status = "review"
+        if requires_review and quality_status == "ok":
+            quality_status = "review"
     if execution and (execution.metadata or {}).get("fallback_used"):
         requires_review = True
         quality_status = "degraded" if degraded else "review"
@@ -2741,7 +2741,21 @@ def _describe_params(value: Any) -> Any:
             array = np.asarray(value)
         except (TypeError, ValueError):
             array = None
-        if array is None or array.dtype == object or array.size <= _ECHO_ARRAY_LIMIT:
+        if array is None or array.dtype == object:
+            items = list(value) if not isinstance(value, np.ndarray) else value.tolist()
+            if len(items) <= _ECHO_ARRAY_LIMIT:
+                return [_describe_params(item) for item in items]
+            digest = hashlib.sha256()
+            encoder = json.JSONEncoder(sort_keys=True, separators=(",", ":"))
+            for chunk in encoder.iterencode(to_jsonable(value)):
+                digest.update(chunk.encode("utf-8"))
+            return {
+                "summary": "sequence", "length": len(items),
+                "sha256": digest.hexdigest(),
+                "head": [_describe_params(item) for item in items[:3]],
+                "tail": [_describe_params(item) for item in items[-3:]],
+            }
+        if array.size <= _ECHO_ARRAY_LIMIT:
             return to_jsonable(value)
         contiguous = np.ascontiguousarray(array)
         flat = contiguous.reshape(-1)

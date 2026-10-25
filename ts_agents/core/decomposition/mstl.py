@@ -67,7 +67,7 @@ def mstl_decompose(
         result = mstl.fit()
 
         # Combine all seasonal components
-        seasonal = result.seasonal.sum(axis=1).values if hasattr(result.seasonal, 'sum') else result.seasonal.values
+        seasonal = result.seasonal.sum(axis=1).values if result.seasonal.ndim == 2 else result.seasonal.values
 
         return DecompositionResult(
             method="mstl",

@@ -1,3 +1,4 @@
+import pytest
 import numpy as np
 import warnings
 import json
@@ -229,12 +230,29 @@ def test_windows_never_span_groups_and_holdout_keeps_whole_groups():
     _, _, _, spans = window_selection._extract_windows_from_segments(
         series, segments, window_size=16, stride=4, labeling="majority", labels=labels, group_ids=group_ids
     )
-    assert all(groups[start] == groups[end - 1] for start, end in spans)
+    assert all(len(set(groups[start:end])) == 1 for start, end in spans)
+
+    # Returning to subject A must not make an A-B-A window valid.
+    repeated_groups = np.array(["a"] * 8 + ["b"] * 4 + ["a"] * 8)
+    repeated_ids = window_selection._as_group_ids(repeated_groups, 20)
+    repeated_labels = np.array(["x"] * 20)
+    _, _, _, repeated_spans = window_selection._extract_windows_from_segments(
+        np.arange(20)[:, None], window_selection._compute_segments(repeated_labels, repeated_ids),
+        window_size=16, stride=1, labeling="majority", labels=repeated_labels, group_ids=repeated_ids,
+    )
+    assert len(repeated_spans) == 0
 
     mask = window_selection.split_holdout_units(labels, groups=groups, test_size=0.3, seed=1)
     held = set(groups[mask])
     assert len(held) == 1
     assert all(mask[groups == group].all() for group in held)
+
+    # The requested fraction can be reached before the second required class.
+    for fraction in (0.1, 0.25):
+        stream_labels = np.repeat(["a", "b", "a", "b"], 40)
+        mask = window_selection.split_holdout_units(stream_labels, test_size=fraction)
+        assert set(stream_labels[mask]) == {"a", "b"}
+        assert set(stream_labels[~mask]) == {"a", "b"}
 
 
 def test_select_window_size_prefers_windows_keeping_every_class(monkeypatch):
@@ -263,3 +281,26 @@ def test_select_window_size_prefers_windows_keeping_every_class(monkeypatch):
     assert result.scores_by_window[30] > result.scores_by_window[8]
     assert result.best_window_size == 8
     assert result.details["selection_rule"] == "best_score_with_all_classes"
+
+
+@pytest.mark.parametrize("balance", ["segment_cap", "undersample"])
+def test_final_holdout_balances_training_only(monkeypatch, balance):
+    labels = np.repeat(["a", "b", "a", "b"], [80, 40, 80, 40])
+    mask = np.arange(len(labels)) >= 120
+    calls = []
+
+    def classify(**kwargs):
+        calls.append(kwargs)
+        return kwargs["y_test"], ClassificationResult(method="fake", predictions=kwargs["y_test"])
+
+    monkeypatch.setattr(window_selection, "_run_window_classifier", classify)
+    result = window_selection.evaluate_windowed_classifier_holdout(
+        np.arange(len(labels)), labels, holdout_mask=mask, window_size=8, stride=4,
+        balance=balance, max_windows_per_segment=3,
+    )
+    train = calls[0]["y_train"]
+    assert np.sum(train == "a") == np.sum(train == "b") == (3 if balance == "segment_cap" else 9)
+    assert len(calls[0]["y_test"]) == 28
+    assert result.details["n_train_windows"] == len(train)
+    assert result.details["n_holdout_windows"] == 28
+    assert result.n_windows == len(train) + 28

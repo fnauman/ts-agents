@@ -72,6 +72,9 @@ class TestPSD:
         t = np.arange(1000)
         trended = 0.02 * t + np.sin(2 * np.pi * t / 24) + 0.3 * rng.standard_normal(1000)
         assert detect_periodicity(trended).dominant_period == pytest.approx(24, rel=0.01)
+        assert detect_periodicity(1e-18 * trended).dominant_period == pytest.approx(24, rel=0.01)
+        from ts_agents.core.spectral.psd import _bonferroni_p
+        assert _bonferroni_p(np.log(20), 3) == pytest.approx(0.15)
 
         seconds = np.arange(1000) / 50.0
         five_hz = np.sin(2 * np.pi * 5.0 * seconds) + 0.2 * rng.standard_normal(1000)

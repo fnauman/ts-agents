@@ -300,6 +300,8 @@ class PeriodicityResult(AnalysisResult):
     ``sample_rate`` is 1). ``dominant_period`` and ``dominant_frequency`` are
     ``None`` when no peak is significant against a red-noise background;
     ``candidate_period`` still reports the strongest peak in that case.
+    ``assessed`` is False when detrending leaves a constant or too few bins
+    satisfy the requested cycle count.
     ``confidence`` is the peak's share of total (detrended) spectral power,
     not a probability.
     """
@@ -309,6 +311,7 @@ class PeriodicityResult(AnalysisResult):
 
     top_periods: List[float] = field(default_factory=list)
     detected: bool = False
+    assessed: bool = True
     p_value: Optional[float] = None
     alpha: float = 0.01
     candidate_period: Optional[float] = None

@@ -84,8 +84,10 @@ The script calls `select_window_size_from_csv` and
 - `eval.json`
 - `confusion_matrix.png`
 
-The script does not pass a subject column, so its held-out windows come from
-the same two subjects it trains on. For a leave-subject-out score plus
+The script reuses the data and split used for window selection, so its score
+is exploratory and can be optimistic. It also does not pass a subject column,
+so test windows come from the same two subjects it trains on.
+For an untouched leave-subject-out score plus
 `report.md` and `run_manifest.json`, use the workflow with `--group-col`:
 
 ```bash

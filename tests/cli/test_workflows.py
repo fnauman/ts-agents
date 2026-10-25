@@ -172,7 +172,7 @@ def test_workflow_run_inspect_series_accepts_stdin_json(monkeypatch, capsys, tmp
     assert payload["result"]["data"]["autocorrelation"]["requested_max_lag"] == 16
 
 
-def test_workflow_run_inspect_series_flags_gaps_and_finds_no_period_in_random_walk(capsys, tmp_path):
+def test_workflow_run_inspect_series_flags_gaps_and_finds_no_period_in_random_walk(capsys, tmp_path, monkeypatch):
     rng = np.random.default_rng(3)
     walk = np.cumsum(rng.standard_normal(500))
     keep = np.r_[0:200, 260:500]
@@ -195,6 +195,27 @@ def test_workflow_run_inspect_series_flags_gaps_and_finds_no_period_in_random_wa
     assert data["periodicity"]["dominant_period"] is None
     assert "seasonality_detected" in data["forecast_recommendation"]["preconditions_missing"]
     assert data["regime_screen"]["ran"] is True
+
+    # Verify propagation separately from the already exercised regime detector.
+    import ts_agents.workflows.inspect as inspect_mod
+    regime_warning = "Regime screen uses a reduced candidate grid."
+    monkeypatch.setattr(inspect_mod, "_regime_screen", lambda series: {
+        "ran": True, "method": "changepoint_pelt", "changepoints": [],
+        "settings": {}, "warnings": [regime_warning],
+    })
+    # A pure trend cannot be assessed after detrending; warnings reach all artifacts.
+    assert run(["workflow", "run", "inspect-series", "--input-json",
+                json.dumps({"series": list(range(64))}), "--output-dir", str(tmp_path / "trend"),
+                "--skip-plots", "--json"]) == 0
+    trend_payload = json.loads(capsys.readouterr().out)
+    assert trend_payload["quality_status"] == "degraded"
+    assert trend_payload["result"]["data"]["periodicity"]["assessed"] is False
+    assert "constant after detrending" in " ".join(trend_payload["result"]["warnings"])
+    assert "constant after detrending" in (tmp_path / "trend" / "report.md").read_text()
+    assert json.loads((tmp_path / "trend" / "summary.json").read_text())["warnings"]
+
+    assert regime_warning in trend_payload["result"]["warnings"]
+    assert regime_warning in (tmp_path / "trend" / "report.md").read_text()
 
 
 def test_workflow_run_manifest_sync_write_failure_is_reported(monkeypatch, capsys, tmp_path):
@@ -644,14 +665,18 @@ def test_host_finalizes_manifest_when_remote_manifest_was_not_staged(tmp_path, c
     assert manifest["status"] == "ok" and manifest["resume_identity"]
 
 
-@pytest.mark.parametrize("field", ["time_values", "labels", "provenance"])
-def test_resume_fingerprint_preserves_nonfinite_distinctions(field):
+@pytest.mark.parametrize("field", ["time_values", "labels", "provenance", "group_values", "group_column"])
+def test_resume_fingerprint_preserves_input_distinctions(field):
     from ts_agents.workflows.lifecycle import resume_identity
 
     digests = []
-    for value in (None, float("nan"), float("inf"), float("-inf")):
+    values = {
+        "group_values": (["a", "a", "b"], ["a", "b", "a"], ["b", "a", "a"], ["a", "b", "c"]),
+        "group_column": ("subject", "session", "machine", "unit"),
+    }.get(field, (None, float("nan"), float("inf"), float("-inf")))
+    for value in values:
         source = SimpleNamespace(series=np.array([1., 2., 3.]))
-        setattr(source, field, {"value": value} if field == "provenance" else [value])
+        setattr(source, field, {"value": value} if field == "provenance" else value if field.startswith("group_") else [value])
         digests.append(resume_identity("inspect-series", source, {})["input_sha256"])
     assert len(set(digests)) == 4
 

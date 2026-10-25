@@ -24,7 +24,7 @@ Key features
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Literal, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -179,7 +179,7 @@ def _extract_windows_from_segments(
     min_purity: float = 0.8,
     labels: Optional[np.ndarray] = None,
     group_ids: Optional[np.ndarray] = None,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Extract windows from within segments.
 
     Returns
@@ -207,10 +207,13 @@ def _extract_windows_from_segments(
                 f"labels length ({len(labels)}) must match series length ({series_2d.shape[0]})"
             )
         segment_ids = _segment_ids_from_segments(segments, len(labels))
+        group_blocks = None
+        if group_ids is not None:
+            group_blocks = np.r_[0, np.cumsum(group_ids[1:] != group_ids[:-1])]
 
         for s in range(0, len(labels) - window_size + 1, stride):
             e = s + window_size
-            if group_ids is not None and group_ids[s] != group_ids[e - 1]:
+            if group_blocks is not None and group_blocks[s] != group_blocks[e - 1]:
                 continue  # never mix subjects/sessions inside one window
             window_labels = labels[s:e]
             if window_labels.size == 0:
@@ -927,15 +930,17 @@ def split_holdout_units(
         chosen: List[int] = []
         held = 0
         for unit in rng.permutation(units):
-            if held >= target or len(chosen) == units.size - 1:
+            if len(chosen) == units.size - 1:
                 break
             chosen.append(int(unit))
             held += int(np.sum(unit_ids == unit))
-        mask = np.isin(unit_ids, chosen)
-        held_classes = set(np.unique(labels_1d[mask]).tolist())
-        pool_classes = set(np.unique(labels_1d[~mask]).tolist())
-        if len(held_classes) >= 2 and held_classes <= pool_classes:
-            return mask
+            if held < target:
+                continue
+            mask = np.isin(unit_ids, chosen)
+            held_classes = set(np.unique(labels_1d[mask]).tolist())
+            pool_classes = set(np.unique(labels_1d[~mask]).tolist())
+            if len(held_classes) >= 2 and held_classes <= pool_classes:
+                return mask
     raise ValueError(
         "Could not find a held-out split with at least two classes whose classes all appear "
         "in the remaining data; add more groups/segments or lower test_size."
@@ -967,13 +972,16 @@ def evaluate_windowed_classifier_holdout(
     classifier: ClassifierName = "minirocket",
     metric: MetricName = "balanced_accuracy",
     labeling: LabelingStrategy = "strict",
+    balance: BalanceStrategy = "segment_cap",
+    max_windows_per_segment: Optional[int] = 25,
     seed: int = 1337,
     rocket_n_kernels: int = 2000,
     min_label_purity: float = 0.8,
 ) -> WindowedClassificationEvaluation:
     """Train on non-held-out windows and score once on held-out windows.
 
-    Windows never span holdout boundaries or ``groups``, so the score is
+    Windows never span holdout boundaries or ``groups``.
+    Balancing applies only to training windows. The score is
     independent of any data used to choose the window size (when selection
     only saw the non-held-out rows).
     """
@@ -986,7 +994,7 @@ def evaluate_windowed_classifier_holdout(
     segments = _compute_segments(labels1d, block_ids)
     original_classes = np.unique(labels1d)
     stride_value = stride if stride is not None else max(1, window_size // 2)
-    X, y, _, spans = _extract_windows_from_segments(
+    X, y, segment_ids, spans = _extract_windows_from_segments(
         series2d,
         segments,
         window_size=window_size,
@@ -1003,13 +1011,18 @@ def evaluate_windowed_classifier_holdout(
             f"Window size {window_size} leaves {train_idx.size} training and {test_idx.size} held-out windows; "
             "use a smaller window or a larger holdout."
         )
-    if np.unique(y[train_idx]).size < 2:
+    cap = max_windows_per_segment if max_windows_per_segment is not None else 25
+    X_train, y_train, _, _ = _apply_balance_strategy(
+        X[train_idx], y[train_idx], segment_ids[train_idx], spans[train_idx],
+        strategy=balance, max_windows_per_segment=cap, rng=np.random.default_rng(seed),
+    )
+    if np.unique(y_train).size < 2:
         raise ValueError("Training windows contain fewer than two classes.")
 
     y_pred, clf_res = _run_window_classifier(
         classifier=classifier,
-        X_train=X[train_idx],
-        y_train=y[train_idx],
+        X_train=X_train,
+        y_train=y_train,
         X_test=X[test_idx],
         y_test=y[test_idx],
         rocket_n_kernels=rocket_n_kernels,
@@ -1019,7 +1032,8 @@ def evaluate_windowed_classifier_holdout(
     score = _score_metric(metric, y_true, y_pred)
     labels_order = np.unique(np.concatenate([y_true, y_pred]))
     accuracy_score, f1_score, confusion_matrix, _ = _get_sklearn_windowing_tools()
-    retention = _class_retention_summary(original_classes, y)
+    used_labels = np.concatenate([y_train, y_true])
+    retention = _class_retention_summary(original_classes, used_labels)
     classification = {
         "method": str(getattr(clf_res, "method", classifier)),
         "predictions": np.asarray(y_pred).tolist(),
@@ -1039,8 +1053,8 @@ def evaluate_windowed_classifier_holdout(
         classifier=str(classifier),
         metric=str(metric),
         score=float(score),
-        n_windows=int(X.shape[0]),
-        class_counts=_class_count_dict(y),
+        n_windows=int(len(used_labels)),
+        class_counts=_class_count_dict(used_labels),
         classification=classification,
         n_splits=1,
         split_scores=[float(score)],
@@ -1049,7 +1063,10 @@ def evaluate_windowed_classifier_holdout(
         details={
             "evaluation": "holdout",
             "labeling": labeling,
-            "n_train_windows": int(train_idx.size),
+            "balance": balance,
+            "max_windows_per_segment": cap,
+            "n_train_windows_before_balance": int(train_idx.size),
+            "n_train_windows": int(len(y_train)),
             "n_holdout_windows": int(test_idx.size),
             "holdout_fraction_of_timepoints": float(mask.mean()),
             "test_class_counts": test_counts,

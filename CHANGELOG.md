@@ -25,7 +25,7 @@ misleading results.
   bins. Trends, random walks, and level shifts now report `detected: false` and
   `dominant_period: null` instead of the record length. New fields: `detected`,
   `p_value`, `alpha`, `candidate_period`, `sample_rate`, `detrend`,
-  `min_cycles`. `confidence` remains the peak's power share.
+  `min_cycles`, `assessed`. `confidence` remains the peak's power share.
 - STL/MSTL/Holt-Winters auto-period use that test, round instead of truncating,
   and raise `ValueError` when no significant period exists. MSTL no longer
   falls back to STL silently. Results carry `period_source`.
@@ -65,6 +65,19 @@ misleading results.
 
 ### Fixed
 
+- Activity holdout selection continues past the requested fraction until its
+  class constraints hold. Majority windows cannot cross returning groups
+  (A–B–A). Final fitting honors training balance/caps without balancing the
+  holdout; resume fingerprints include group assignments and column names.
+- Inspection preserves periodicity/regime warnings in its quality status and
+  artifacts, and distinguishes unassessable detrended constants. Tool warnings
+  and quality flags promote otherwise `ok` results to `review`.
+- Periodicity uses the stated Bonferroni formula and preserves detections when
+  amplitudes are rescaled to small physical units. MSTL handles a single
+  explicit or auto-detected seasonal component.
+- Time-axis diagnostics subtract large integer coordinates before float
+  conversion. Motif pairs cannot reuse excluded neighbors, and parameter
+  echoes bound ragged/object sequences as well as numeric arrays.
 - Change-point, FLUSS, periodicity, autocorrelation, PSD, peaks, recurrence,
   matrix-profile, and coherence tools no longer return `ok` with empty or
   wrong answers on errors, too-short input, non-finite values, or multichannel

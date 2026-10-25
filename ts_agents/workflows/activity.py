@@ -103,6 +103,8 @@ def run_activity_recognition_workflow(
         classifier=selected_classifier,
         labeling=selected_labeling,
         stride=stride,
+        balance=selected_balance,
+        max_windows_per_segment=max_windows_per_segment,
         seed=seed,
     )
     holdout_summary = {

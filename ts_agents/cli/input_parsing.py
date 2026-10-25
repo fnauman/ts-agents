@@ -969,8 +969,13 @@ def describe_time_axis(time_values: Optional[list[Any]], *, reordered: bool = Fa
         return summary
 
     if kind == "numeric":
-        values = coordinates.to_numpy(dtype=np.float64)
-        steps = np.diff(values)
+        # Subtract integers before conversion: epoch-like coordinates can
+        # differ by less than float64 precision. Object arithmetic also avoids
+        # signed overflow and unsigned wraparound during subtraction.
+        if pd.api.types.is_integer_dtype(coordinates):
+            steps = np.asarray(np.diff(coordinates.to_numpy(dtype=object)), dtype=float)
+        else:
+            steps = np.diff(coordinates.to_numpy(dtype=np.float64))
         unit = "time column units"
         frequency = None
     else:

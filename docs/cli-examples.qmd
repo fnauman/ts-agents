@@ -123,14 +123,20 @@ uv run ts-agents workflow run activity-recognition \
 `inspect-series` reports `result.data.time_axis` (median step, `regular`,
 `gap_count`, `reordered`) and sets `quality_flags` such as `irregular_sampling`
 and `periodicity_not_assessed`. A series with fewer than 16 samples is
-`degraded` because periodicity cannot be assessed. `periodicity.detected` is
-false for trends, random walks, and level shifts; `dominant_period` is then
-null and `candidate_period` shows the strongest non-significant peak.
+`degraded` because periodicity cannot be assessed. A constant after detrending
+(such as a pure linear ramp) also has `periodicity.assessed: false` and a
+warning. Diagnostic warnings reach the CLI, summary, and report.
+`periodicity.detected` is false when no period passes the test;
+`candidate_period` shows the strongest candidate when one was assessed.
 
 `activity-recognition` holds out whole `--group-col` groups (or, without it,
 whole label segments) before selecting the window size on the remaining data,
 and reports the held-out score. `eval.json` includes
-`details.chance_balanced_accuracy`. Windows never span groups, and with
+`details.chance_balanced_accuracy`. The held-out fraction may exceed
+`--test-size` to retain at least two test classes with training support.
+`--balance` and `--max-windows-per-segment` apply to final training windows;
+the held-out windows retain their original distribution. Changing group
+assignments or the group column invalidates `--resume`. Windows never span groups, and with
 `--labeling majority` training windows that share samples with test windows
 are purged. `forecast-series` flags `irregular_sampling` when the time column
 has gaps.
@@ -165,8 +171,11 @@ line. For tools with a `series` parameter, `--input` loads it from a file:
   return an empty answer for a failed computation.
 - `quality_status` is always set for tool runs: `ok`, or `review` when
   `result.warnings` or `input.warnings` are present.
-- Arrays longer than 16 values are echoed in `input.params` as
-  `{summary, shape, dtype, sha256, head, tail}` instead of raw values.
+- Numeric arrays longer than 16 values are echoed in `input.params` as
+  `{summary, shape, dtype, sha256, head, tail}` instead of raw values. Ragged
+  or object sequences are summarized recursively; long sequences use
+  `{summary, length, sha256, head, tail}`. These summaries describe inputs;
+  the tool still receives their full values.
 
 Method-specific contracts:
 

@@ -198,7 +198,8 @@ def detect_periodicity(
     )
 
     sig = signal.detrend(series, type=detrend)
-    if np.allclose(sig, 0.0, atol=1e-12 * max(1.0, float(np.max(np.abs(series))))):
+    if np.allclose(sig, 0.0, atol=1e-12 * float(np.max(np.abs(series)))):
+        base.assessed = False
         base.warnings.append("Series is constant after detrending; no periodicity can be assessed.")
         return base
 
@@ -211,6 +212,7 @@ def detect_periodicity(
     duration = n / sample_rate
     candidate_idx = np.flatnonzero((freqs >= min_cycles / duration) & (freqs < sample_rate / 2))
     if candidate_idx.size < 3:
+        base.assessed = False
         base.warnings.append(
             f"Only {candidate_idx.size} frequency bins satisfy min_cycles={min_cycles}; "
             "the series is too short to assess periodicity."
@@ -273,8 +275,7 @@ _MAX_REJECTED_CANDIDATES = 8
 
 
 def _bonferroni_p(ratio: float, n_tests: int) -> float:
-    p_single = min(float(np.exp(-ratio)), 1.0 - 1e-16)
-    return float(-np.expm1(n_tests * np.log1p(-p_single)))
+    return min(1.0, n_tests * float(np.exp(-ratio)))
 
 
 def _autocorrelation(sig: np.ndarray) -> np.ndarray:

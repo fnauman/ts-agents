@@ -827,3 +827,27 @@ def test_tool_run_parse_failure_with_json_returns_typed_envelope(capsys):
         "--badflag",
         "--json",
     ]
+
+
+def test_time_axis_preserves_large_integer_steps_and_gaps():
+    from ts_agents.cli.input_parsing import describe_time_axis
+
+    origin = 10**18
+    regular = describe_time_axis([origin, origin + 1, origin + 2])
+    assert regular["median_step"] == 1
+    assert regular["sample_rate"] == 1
+    gapped = describe_time_axis([origin + x for x in (0, 1, 2, 12)])
+    assert gapped["regular"] is False and gapped["gap_count"] == 1
+
+
+def test_parameter_echo_bounds_ragged_and_object_arrays():
+    from ts_agents.cli.main import _describe_params
+
+    ragged = [list(range(n)) for n in range(100)]
+    description = _describe_params(ragged)
+    assert len(json.dumps(description)) < 2500
+    assert description["sha256"] != _describe_params(ragged + [[1]])["sha256"]
+    import numpy as np
+    objects = np.empty(2, dtype=object)
+    objects[:] = [list(range(1000)), list(range(500))]
+    assert len(json.dumps(_describe_params(objects))) < 2500

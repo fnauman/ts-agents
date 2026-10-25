@@ -93,12 +93,16 @@ def _top_motifs(
     mp_values = mp[:, 0].astype(np.float64).copy()
     mp_indices = mp[:, 1].astype(int)
     motifs: List[MotifResult] = []
-    for _ in range(max_motifs):
+    excluded = np.zeros(len(mp_values), dtype=bool)
+    while len(motifs) < max_motifs:
         idx = int(np.argmin(mp_values))
         val = float(mp_values[idx])
         if not np.isfinite(val):
             break
         neighbor_idx = int(mp_indices[idx])
+        if neighbor_idx < 0 or neighbor_idx >= len(mp_values) or excluded[neighbor_idx]:
+            mp_values[idx] = np.inf
+            continue
         motif = MotifResult(index=idx, neighbor_index=neighbor_idx, distance=val)
         if include_subsequences:
             motif.subsequence = series[idx : idx + m].copy()
@@ -108,6 +112,7 @@ def _top_motifs(
             start = max(0, center - exclusion_zone)
             end = min(len(mp_values), center + exclusion_zone + 1)
             mp_values[start:end] = np.inf
+            excluded[start:end] = True
     return motifs
 
 

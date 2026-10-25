@@ -60,6 +60,9 @@ def run_inspect_series_workflow(
     periodicity = None
     if n >= MIN_PERIODICITY_SAMPLES and stats.std > 0:
         periodicity = detect_periodicity(series, top_n=3)
+        warnings.extend(w for w in periodicity.warnings if w not in warnings)
+        if not periodicity.assessed:
+            quality_flags.append("periodicity_not_assessed")
     else:
         reason = "constant" if stats.std == 0 else f"shorter than {MIN_PERIODICITY_SAMPLES} samples"
         warnings.append(f"Periodicity not assessed: series is {reason}.")
@@ -70,6 +73,7 @@ def run_inspect_series_workflow(
     if stats.std > 0 and n >= 2:
         acf = compute_autocorrelation(series, max_lag=resolved_max_lag)
     regime_screen = _regime_screen(series)
+    warnings.extend(w for w in regime_screen.get("warnings", []) if w not in warnings)
     forecast_recommendation = recommend_forecasting_method(
         stats=stats,
         periodicity=periodicity,
@@ -92,7 +96,6 @@ def run_inspect_series_workflow(
         "assessed": False,
     }
     if periodicity is not None:
-        periodicity_payload["assessed"] = True
         periodicity_payload["period_unit"] = "samples"
         sample_rate = (time_axis or {}).get("sample_rate")
         if sample_rate and periodicity.dominant_period:
@@ -118,6 +121,7 @@ def run_inspect_series_workflow(
         },
         "regime_screen": regime_screen,
         "quality_flags": quality_flags,
+        "warnings": warnings,
         "recommended_next_steps": recommended_next_steps,
         "forecast_recommendation": to_jsonable(forecast_recommendation),
         "output_dir": str(output_path),
