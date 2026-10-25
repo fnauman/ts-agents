@@ -4,13 +4,26 @@
 [![Python](https://img.shields.io/badge/python-3.11--3.14-3776AB)](#installation)
 [![License](https://img.shields.io/badge/license-MIT-2EA44F)](https://github.com/fnauman/ts-agents/blob/main/LICENSE)
 
-`ts-agents` is a CLI toolkit for time-series analysis used by external agents
-and automation. It gives agent runtimes a stable, machine-readable surface
-so a model can discover available methods, run supported analysis workflows,
-and produce inspectable artifacts. Project-specific data preparation, custom
-holdout evaluation, and comprehensive reporting can still require code.
+`ts-agents` is a general-purpose, CLI-first time-series toolkit for external
+agents (Claude Code, Codex, and similar runtimes) and automation. It gives
+agents a stable, machine-readable surface to discover methods, run analyses on
+their own data files, and produce inspectable artifacts across task families:
 
-It is not intended to be a broad time-series foundation-model hub.
+| Task family | Start with | Skill |
+| --- | --- | --- |
+| First look, data quality, periodicity | `workflow run inspect-series` | `diagnostics` |
+| Anomalies, outliers, unusual events | `tool run find_discords --input ...` | `anomaly-detection` |
+| Change-points and regimes | `tool run segment_changepoint --input ...` | `segmentation` |
+| Spectra, frequencies, coherence | `tool run compute_psd --input ... --time-col t` | `spectral-analysis` |
+| Trend and seasonality | `tool run stl_decompose --input ...` | `decomposition` |
+| Activity recognition (labeled sensor streams) | `workflow run activity-recognition` | `activity-recognition` |
+| Classification of labeled series | `tool run compare_classifiers` | `classification` |
+| Forecasting (single series / panels) | `workflow run forecast-series` / `forecast-panel` | `forecasting` / `panel-forecasting` |
+
+`ts-agents tool search <task words> --json` finds tools by task (for example
+`anomaly`, `regime`, `spectrum`). Project-specific data preparation, custom
+evaluation, and comprehensive reporting can still require code.
+
 Foundation models are reached through [Darts](https://unit8co.github.io/darts/)
 as an interoperability layer: a small catalog of pinned zero-shot checkpoints
 (Chronos-2, TimesFM 2.5, PatchTST-FM) behind the optional `foundation` extra,
@@ -26,10 +39,10 @@ It is built around:
 - optional tool wrappers for external agent frameworks; the package runs no built-in agents or UI
 
 It ships with four first-class workflows:
-- `inspect-series` (quick diagnostics + summary/report artifacts)
+- `inspect-series` (task-neutral diagnostics: sampling/gap checks, significance-tested periodicity, regime screen, next steps across task families)
 - `forecast-series` (baseline comparison + forecast/report artifacts; optional zero-shot foundation models)
 - `forecast-panel` (seasonal baseline, MLForecast GBMs, NeuralForecast NHITS and Darts zero-shot foundation models with rolling validation and saved models)
-- `activity-recognition` (labeled-stream window-size selection + evaluation)
+- `activity-recognition` (labeled-stream window-size selection + held-out evaluation, with `--group-col` for leave-subject-out scoring)
 
 It also includes autoresearch loops for repeatable dataset/model/metric
 experiments:
@@ -37,9 +50,6 @@ experiments:
 - `classify-daytona` (windowed activity classification under constrained resources)
 - `foundation-smoke` (optional Darts zero-shot foundation-model smoke run on M4 mini; `--models` selects checkpoints)
 - `foundation-gpu-plan` (plan-only Darts Chronos-2 fine-tuning recipe with TimesFM/PatchTST-FM comparators and external MOMENT classification)
-
-Legacy compatibility aliases for `ts-agents demo ...` remain available for one
-release cycle and emit deprecation warnings.
 
 Source-checkout-only datasets such as `data/wisdm_subset.csv` are documented
 separately and are not part of the published wheel.
@@ -113,18 +123,29 @@ intentionally plan-only and reports no trained-model metrics; it writes a
 `darts_finetune_config.yaml` and labels MOMENT as external (plan-only, needs
 `momentfm`).
 
-### 3. Use the low-level CLI on bundled or custom data
+### 3. Run individual analysis tools on your own files
 
-Use the low-level tool registry when you want direct access to individual
-analysis functions.
+Use the tool registry for direct access to individual analysis functions.
+`--input` loads the `series` parameter from CSV, TSV, parquet, JSON, or JSONL;
+`--time-col` orders rows, checks sampling (gaps, irregular steps), and — for a
+regular numeric time column — sets `sample_rate` so periods and frequencies
+come back in time units. `data/synthetic_signals.csv` (source checkout) is a
+50 Hz table with known answers.
 
 ```bash
-ts-agents tool list --bundle demo
-ts-agents tool show forecast_theta_with_data
+ts-agents tool search anomaly --json
+ts-agents tool show find_discords --json
+ts-agents tool run detect_periodicity --input data/synthetic_signals.csv --time-col t --value-col periodic --json
+ts-agents tool run segment_changepoint --input data/synthetic_signals.csv --value-col regime --json
+ts-agents tool run find_discords --input data/synthetic_signals.csv --value-col anomaly --param m=100 --json
 ts-agents tool run describe_series --input-json '{"series":[1,2,3,4]}'
-ts-agents sandbox list
-ts-agents skills show forecasting
 ```
+
+Every tool run reports `quality_status` (`ok`, or `review` when
+`result.warnings` or `input.warnings` exist). Invalid, too-short, non-finite,
+or multichannel input to a univariate tool fails with `ok: false` instead of
+returning an empty answer. Arrays longer than 16 values are echoed in
+`input.params` as length/hash summaries.
 
 ## For Autonomous Agents
 
@@ -146,7 +167,7 @@ status-contract guidance. Use this as the first call of any new agent session.
 
 ```bash
 ts-agents workflow show forecast-series --json
-ts-agents tool show forecast_theta_with_data --json
+ts-agents tool show segment_changepoint --json
 ```
 
 Both `show` commands return `cli_templates`, `source_options`, `global_options`,
@@ -299,6 +320,12 @@ uv sync --extra recommended
 uv run ts-agents workflow run forecast-series --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' --horizon 3 --methods seasonal_naive,arima,theta
 uv run python data/make_synthetic_labeled_stream.py --scenario gait --seconds 40 --seed 1337 --out data/demo_labeled_stream.csv
 uv run ts-agents workflow run activity-recognition --input data/demo_labeled_stream.csv --label-col label --value-cols x,y,z
+# Leave-subject-out activity evaluation on the vendored WISDM subset
+uv run ts-agents workflow run activity-recognition --input data/wisdm_subset.csv --label-col label --group-col subject_id
+
+# Non-forecasting analyses on a known-answer table (needs the patterns extra)
+uv sync --extra recommended --extra patterns
+uv run ts-agents tool run segment_changepoint --input data/synthetic_signals.csv --value-col regime --json
 ```
 
 If you pass `--output-dir`, workflow artifacts are written there. If you omit
@@ -306,20 +333,14 @@ it, each workflow run creates a unique run directory such as
 `outputs/<workflow>/<run-id>/` with `run_manifest.json`, JSON/CSV outputs, and
 any generated plots or reports.
 
-Compatibility note: `ts-agents run ...` and `ts-agents demo ...` remain available in
-0.4.0 and emit deprecation warnings. Prefer
-`ts-agents tool run ...` and `ts-agents workflow run ...`.
-
 ## Installation
 
-Version 0.4.0 removes the Gradio UI, hosted app, built-in simple/deep agents,
-and `ts-agents agent run`. Use an external agent with the CLI and skills;
-`agents` now installs only optional LangChain tool wrappers. `ui` is removed,
-and `recommended` no longer installs UI or agent framework dependencies.
-Legacy demos always run scripted; `--no-llm` remains a compatibility flag,
-and built-in LLM report generation is removed. Activity recognition,
-classification, anomaly/pattern detection, forecasting, decomposition, and
-spectral analysis remain supported.
+Version 0.5.0 (unreleased) removes the `ts-agents run ...` and `ts-agents demo ...`
+aliases and the 24 `*_with_data` tools that read the bundled demo dataset; use
+`ts-agents tool run <tool> --input <file>` and `ts-agents workflow run ...`.
+See the [changelog](CHANGELOG.md) for migration notes. Version 0.4.0 removed
+the Gradio UI, hosted app, and built-in agents; `agents` installs only optional
+LangChain tool wrappers.
 
 For the GBM/NHITS forecasting and reporting profile:
 
@@ -354,7 +375,7 @@ Feature extras:
 - `agents`: optional LangChain tool wrappers for external runtimes; no built-in agents
 - `decomposition`: STL, MSTL, Holt-Winters
 - `forecasting`: statistical forecasting tools
-- `patterns`: matrix profile and changepoint tooling
+- `patterns`: matrix profile (motifs, discords, FLUSS) and changepoint tooling
 - `classification`: aeon/scikit-learn classification workflows
 - `ml`: MLForecast LightGBM and histogram GBM panel models
 - `neural`: NeuralForecast NHITS panel models
@@ -423,9 +444,9 @@ All optional. Set them via `export` or in `~/.env`.
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `TS_AGENTS_DATA_DIR` | Full dataset path | bundled package data (or repo `./data`) |
-| `TS_AGENTS_USE_TEST_DATA` | Use bundled test data | `true` |
-| `TS_AGENTS_TEST_DATA_FILE` | Override test dataset filename | `short_real.csv` |
+| `TS_AGENTS_DATA_DIR` | Directory for `--run-id/--variable` bundled workflow inputs | bundled package data (or repo `./data`) |
+| `TS_AGENTS_USE_TEST_DATA` | Use the bundled 5-point-per-run smoke fixture for `--run-id/--variable` | `true` |
+| `TS_AGENTS_TEST_DATA_FILE` | Override the bundled fixture filename | `short_real.csv` |
 | `TS_AGENTS_SANDBOX_MODE` | Default sandbox backend | `local` |
 | `HF_HOME` | Hugging Face cache for foundation-model weights (`foundation` extra); set `HF_HUB_OFFLINE=1` to use a pre-populated cache without network | `~/.cache/huggingface` |
 
@@ -442,13 +463,13 @@ streaming, and log files) are documented in `SANDBOX.md`.
 
 ## CLI Usage
 
-### Discover data and tools
+### Discover tools
 
 ```bash
-ts-agents data list
-ts-agents data vars
-ts-agents tool list
-ts-agents tool list --bundle demo
+ts-agents capabilities --json
+ts-agents tool search changepoint --json
+ts-agents tool list --category patterns
+ts-agents tool list --bundle minimal
 ```
 
 ### Run workflows
@@ -479,33 +500,14 @@ artifacts there.
 ### Run tools directly
 
 ```bash
-ts-agents tool run stl_decompose_with_data --run Re200Rm200 --var bx001_real
-ts-agents tool run forecast_theta_with_data --run Re200Rm200 --var bx001_real --param horizon=30 --json
+ts-agents tool run stl_decompose --input data.csv --value-col y --param period=12 --json
+ts-agents tool run forecast_theta --input data.csv --value-col y --param horizon=30 --json
+ts-agents tool run compute_psd --input signal.csv --time-col t --value-col u --json --save outputs/psd.json
 ```
 
-### Save output and inspect tool artifacts
-
-```bash
-ts-agents tool run stl_decompose_with_data \
-  --run Re200Rm200 \
-  --var bx001_real \
-  --json \
-  --save outputs/Re200Rm200/stl.json
-```
-
-Current low-level plot-producing tools expose PNG paths under
-`result.artifacts[*].path` in the saved JSON payload. `--extract-images` remains
-available only for legacy saved outputs that still contain embedded
-`[IMAGE_DATA:...]` tokens. Forecasting `forecast_*_with_data` tools are now
-data-only; use `ts-agents workflow run forecast-series --output-dir ...` when
-you want forecast plots, CSVs, and reports written as artifacts. If you omit
-`--output-dir`, the workflow creates a unique run directory automatically.
-
-### Compatibility aliases
-
-`ts-agents run ...` and `ts-agents demo ...` remain available in 0.4.0
-for existing automation; both surfaces emit deprecation
-warnings and are intentionally omitted from the recommended examples below.
+Tools return data, not plots; use workflows (`--output-dir`) when you want
+plots, CSVs, and reports written as artifacts. `--save` writes the exact
+envelope that was printed.
 
 Note: the WISDM example under `data/wisdm_subset.csv` is a source-checkout
 workflow and is not bundled into the published wheel.

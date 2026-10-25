@@ -1,0 +1,117 @@
+{
+  "schema_version": "1.0",
+  "workflow": "activity-recognition",
+  "run_id": "20261025T133734Z-357c907f",
+  "status": "degraded",
+  "summary": "Activity-recognition workflow completed for activity_fixture.csv. Best window size: 8; balanced_accuracy: 1.0000.",
+  "output_dir": "/home/nauman/repos/private/ts-agents/benchmarks/results/latest/artifacts/skills_workflows/activity_windowing_workflow",
+  "manifest_path": "/home/nauman/repos/private/ts-agents/benchmarks/results/latest/artifacts/skills_workflows/activity_windowing_workflow/run_manifest.json",
+  "created_at": "2026-10-25T13:37:34.491211Z",
+  "resumed": false,
+  "output_dir_mode": "explicit",
+  "source": {
+    "source_type": "csv",
+    "path": "benchmarks/results/latest/workspace/activity_fixture.csv",
+    "time_column": null,
+    "value_columns": [
+      "x",
+      "y",
+      "z"
+    ],
+    "label_column": "label"
+  },
+  "options": {
+    "window_sizes": [
+      8,
+      16
+    ],
+    "metric": "balanced_accuracy",
+    "classifier": "knn",
+    "labeling": "strict",
+    "balance": "segment_cap",
+    "max_windows_per_segment": 25,
+    "stride": null,
+    "n_splits": 3,
+    "test_size": 0.25,
+    "seed": 1337,
+    "group_col": null,
+    "skip_plots": true
+  },
+  "warnings": [],
+  "quality_flags": [
+    "fewer_valid_splits_than_requested",
+    "perfect_metrics"
+  ],
+  "artifacts": [
+    {
+      "kind": "json",
+      "path": "/home/nauman/repos/private/ts-agents/benchmarks/results/latest/artifacts/skills_workflows/activity_windowing_workflow/window_selection.json",
+      "mime_type": "application/json",
+      "description": "Window-size selection metrics.",
+      "created_by": "activity-recognition"
+    },
+    {
+      "kind": "json",
+      "path": "/home/nauman/repos/private/ts-agents/benchmarks/results/latest/artifacts/skills_workflows/activity_windowing_workflow/eval.json",
+      "mime_type": "application/json",
+      "description": "Windowed classifier evaluation.",
+      "created_by": "activity-recognition"
+    },
+    {
+      "kind": "markdown",
+      "path": "/home/nauman/repos/private/ts-agents/benchmarks/results/latest/artifacts/skills_workflows/activity_windowing_workflow/report.md",
+      "mime_type": "text/markdown",
+      "description": "Activity-recognition workflow markdown report.",
+      "created_by": "activity-recognition"
+    },
+    {
+      "kind": "json",
+      "path": "/home/nauman/repos/private/ts-agents/benchmarks/results/latest/artifacts/skills_workflows/activity_windowing_workflow/run_manifest.json",
+      "mime_type": "application/json",
+      "description": "Workflow run manifest.",
+      "created_by": "activity-recognition"
+    }
+  ],
+  "provenance": {
+    "stream_ref": {
+      "source_type": "csv",
+      "path": "benchmarks/results/latest/workspace/activity_fixture.csv",
+      "time_column": null,
+      "value_columns": [
+        "x",
+        "y",
+        "z"
+      ],
+      "label_column": "label"
+    }
+  },
+  "execution": {
+    "backend_requested": "local",
+    "backend_actual": "local",
+    "fallback_allowed": false,
+    "fallback_used": false
+  },
+  "resume_identity": {
+    "version": "1",
+    "workflow": "activity-recognition",
+    "input_sha256": "be31e477534c71075e0cf6f0125353e5ae6a6ace43a44c0994a3c532599323ee",
+    "options_sha256": "c111a6f378876d79c554bb5d9f757fafa1dc50bd9bb72c11732cb1d6b9b5f4df",
+    "options": {
+      "window_sizes": [
+        8,
+        16
+      ],
+      "metric": "balanced_accuracy",
+      "classifier": "knn",
+      "labeling": "strict",
+      "balance": "segment_cap",
+      "max_windows_per_segment": 25,
+      "test_size": 0.25,
+      "stride": null,
+      "n_splits": 3,
+      "seed": 1337,
+      "skip_plots": true
+    }
+  },
+  "updated_at": "2026-10-25T13:37:34.587860Z"
+}

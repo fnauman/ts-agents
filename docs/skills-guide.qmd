@@ -6,16 +6,19 @@ Skills are reusable workflow definitions that tell an AI agent *how* to use
 `ts-agents` workflows and tools for a specific task.
 Each skill is a Markdown file (`SKILL.md`) with YAML frontmatter describing the workflow, required tools, and step-by-step instructions.
 
-## The 7 canonical skills
+## The 10 canonical skills
 
 | Skill | Description |
 |-------|-------------|
-| **activity-recognition** | End-to-end labeled-stream activity recognition: generate data, select window size, evaluate classifier, produce plots and report |
+| **diagnostics** | First look at any series: sampling and gaps, descriptive stats, significance-tested periodicity, autocorrelation, a regime screen, and next steps |
+| **anomaly-detection** | Unusual subsequences and outliers with matrix-profile discords (judged by `robust_z`), peaks, and decomposition residuals |
+| **segmentation** | Change-points and regimes: mean/variance shifts (`segment_changepoint`) and shape changes (`segment_fluss`) |
+| **spectral-analysis** | Power spectral density, dominant frequencies, spectral slopes, significance-tested periodicity, and coherence |
+| **decomposition** | Trend/seasonal/residual decomposition via STL, MSTL, or Holt-Winters |
+| **activity-recognition** | Labeled-stream activity recognition: window-size selection on training data and a held-out (optionally leave-subject-out) score |
+| **classification** | Supervised time-series classification with KNN/DTW, ROCKET, or HIVE-COTE |
 | **forecasting** | Forecast future values, choose baselines, compare methods (ARIMA, ETS, Theta, optional zero-shot foundation models) |
 | **panel-forecasting** | Compare a seasonal baseline, global LightGBM/histogram GBM, NHITS and Darts zero-shot foundation models on long-format panels with rolling validation |
-| **classification** | Supervised time-series classification with KNN/DTW, ROCKET, or HIVE-COTE |
-| **diagnostics** | Quick EDA: descriptive stats, autocorrelation, periodicity, and spectral density |
-| **decomposition** | Trend/seasonal/residual decomposition via STL, MSTL, or Holt-Winters |
 | **report-generation** | Convert workflow manifests, plots, JSON, CSV, and Markdown artifacts into stakeholder-facing Markdown, Quarto, HTML, or PDF reports |
 
 All skills live in `skills/<name>/SKILL.md`. Agent export copies the complete
@@ -51,240 +54,162 @@ The agent reads the `SKILL.md`, discovers the required tools, and executes the w
 
 Prefer first-class workflows when the goal is an artifact bundle:
 
-- `workflow run inspect-series` for summary/report artifacts
+- `workflow run inspect-series` for a task-neutral first look (sampling, periodicity, regime screen, next steps)
 - `workflow run forecast-series` for forecast plots, CSVs, and Markdown reports
 - `workflow run forecast-panel` for panel backtests, forecasts, model specs, and reports
 - `workflow run activity-recognition` for window-size and evaluation artifacts
 
-Use `tool run` when you need one targeted analysis function, a compatibility
-wrapper, or a saved JSON payload from a specific low-level tool. That split is
-especially important for forecasting: the workflow is artifact-first, while the
-`forecast_*_with_data` wrappers are compatibility/data surfaces.
+Use `tool run` when you need one targeted analysis function and its saved
+JSON payload. Tools take data directly: `--input` loads the tool's `series`
+parameter from a CSV, TSV, parquet, JSON, or JSONL file. Use `--input-json` or
+`--param` for inline values and for tools without a `series` parameter.
 
-### Low-level plot-producing tools
+### Loading data into tools
 
-First-class workflows write artifact files directly under `--output-dir`, or
-into an auto-generated run directory when `--output-dir` is omitted; that is
-the canonical machine-facing contract. The lower-level `*_with_data` tools
-below expose artifact refs for targeted plotting tasks. Save them with `--json`
-when you want a machine-readable record of the tool output and artifact paths.
-`--extract-images` remains available only for legacy text outputs that still
-contain embedded `[IMAGE_DATA:...]` tokens.
+`--value-col` selects the series column. With `--time-col`, rows are ordered by
+time and sampling is checked; gaps or irregular steps are reported in
+`input.warnings`. A regular numeric time column also sets `sample_rate` for
+tools that accept one (`input.series.sample_rate_source: time_column`).
+Datetime axes keep results in samples. Every tool response has
+`quality_status` `ok`, or `review` when the result or the input carries
+warnings. Invalid, too-short, non-finite, or multichannel input to a
+univariate tool fails with `ok: false`.
+
+A source checkout includes `data/synthetic_signals.csv`, a 50 Hz table with
+known answers (see `data/README.md`), so the results of these commands can be
+checked:
 
 ```bash
-uv run ts-agents tool run stl_decompose_with_data \
-  --run Re200Rm200 --var bx001_real \
-  --json \
-  --save outputs/stl.json
+# Significance-tested period: about 0.5 s on the 2 Hz column
+ts-agents tool run detect_periodicity \
+  --input data/synthetic_signals.csv --time-col t --value-col periodic \
+  --json --save outputs/periodicity.json
+
+# Mean shift near sample 1000 and variance change near sample 2000
+ts-agents tool run segment_changepoint \
+  --input data/synthetic_signals.csv --value-col regime \
+  --json --save outputs/changepoints.json
+
+# Flatlined oscillation at samples 1500-1529: top discord with a large robust_z
+ts-agents tool run find_discords \
+  --input data/synthetic_signals.csv --value-col anomaly --param m=100 \
+  --json --save outputs/discords.json
+
+# Your own file
+ts-agents tool run stl_decompose --input data.csv --value-col y \
+  --param period=12 --json --save outputs/stl.json
 ```
 
-The table below lists every tool that produces a plot, organized by analysis phase:
+On 3000 samples, `segment_changepoint` resolves change-points to a coarse
+`jump` grid and returns `quality_status: review` with a warning; pass
+`--param jump=1` for full resolution.
 
-| Phase | Tool | Plot description |
-|-------|------|------------------|
-| **Diagnostics** | `compute_autocorrelation_with_data` | ACF bar chart by lag |
-| **Spectral** | `compute_psd_with_data` | Log-log power spectral density |
-| **Spectral** | `compute_coherence_with_data` | Coherence vs frequency |
-| **Decomposition** | `stl_decompose_with_data` | 4-panel: original, trend, seasonal, residual |
-| **Decomposition** | `mstl_decompose_with_data` | 4-panel: original, trend, seasonal, residual |
-| **Decomposition** | `holt_winters_decompose_with_data` | 4-panel: original, trend, seasonal, residual |
-| **Patterns** | `detect_peaks_with_data` | Series with peak markers |
-| **Patterns** | `segment_changepoint_with_data` | Series with changepoint lines |
-| **Patterns** | `analyze_matrix_profile_with_data` | 2-panel: series + matrix profile distances |
-| **Patterns** | `find_motifs_with_data` | Series with highlighted top motif |
-| **Patterns** | `find_discords_with_data` | Series with highlighted anomaly |
-| **Patterns** | `segment_fluss_with_data` | Series with segment boundaries |
-| **Patterns** | `analyze_recurrence_with_data` | 2D recurrence plot |
-
-Forecasting `forecast_arima_with_data`, `forecast_ets_with_data`,
-`forecast_theta_with_data`, `forecast_seasonal_naive_with_data`,
-`forecast_ensemble_with_data`, and `compare_forecasts_with_data` are now
-data-only compatibility wrappers. Treat them as structured forecast summaries,
-not plot-producing tools. Use `workflow run forecast-series --output-dir ...`
-when you want forecast plots, CSVs, and Markdown reports as artifacts.
+Tools return data, not plots. Workflows write plots, CSVs, and Markdown reports
+under `--output-dir` (or an auto-generated run directory) and list them in
+`run_manifest.json`. `--extract-images` applies only to saved legacy outputs
+that still contain embedded `[IMAGE_DATA:...]` tokens.
 
 ### PDF reports via a mixed workflow/tool skill
 
-A skill can orchestrate many plot-producing tools, save their structured output,
-compose a Quarto document, and render to PDF — all in one workflow. Here is a
-complete `SKILL.md` example:
+A skill can combine workflows (for plots) with targeted tools (for structured
+results), compose a Quarto document, and render it to PDF. Here is a complete
+`SKILL.md` example; `ts-agents skills validate` accepts it:
 
 ````markdown
 ---
 name: comprehensive-report
-description: Full diagnostic, decomposition, pattern, and forecast analysis rendered as a PDF report
-tasks: [report, pdf, comprehensive]
-workflows:
-  - forecast-series
-tools:
-  - describe_series_with_data
-  - compute_autocorrelation_with_data
-  - compute_psd_with_data
-  - stl_decompose_with_data
-  - detect_peaks_with_data
-  - segment_changepoint_with_data
-  - analyze_matrix_profile_with_data
-  - forecast_theta_with_data
-  - forecast_ets_with_data
-  - forecast_arima_with_data
+description: Diagnostic, spectral, decomposition, pattern, and forecast analysis of one series rendered as a PDF report
+metadata:
+  domain: time-series
+  tasks: [report, pdf, comprehensive]
+  ts_agents:
+    preferred_workflow: inspect-series
+    preferred_tools: [describe_series, compute_psd, stl_decompose, find_discords, segment_changepoint]
+    artifact_checklist: [summary.json, autocorrelation.png, forecast_comparison.png, report.pdf]
 ---
 
-## Objective
+# Comprehensive report
 
-Produce a single PDF report with diagnostic/decomposition/pattern plots plus
-saved forecast summaries. If you need forecast plots, CSVs, or a generated
-forecast report, call `workflow run forecast-series` separately and attach
-those artifacts instead of expecting them from the compatibility wrappers. The
-`workflows:` frontmatter above is the explicit signal that this skill also uses
-the public workflow surface in addition to the listed low-level tools.
+## When to use
+
+Use when the user wants one PDF that covers diagnostics, spectral content,
+decomposition, anomalies, change-points, and a forecast comparison for a
+single series in a CSV, parquet, or JSON file.
 
 ## Workflow
 
-For the given `--run` and `--var`, execute each phase below.
-Save each tool response as JSON so you can read both the structured data and
-any `result.artifacts[*].path` entries. Save the forecasting tool outputs as JSON and
-summarize them in the report instead of expecting forecast PNGs from the
-compatibility wrappers.
+Inputs: `$DATA` (file), `$TIME` (time column), `$COL` (value column), and
+`$OUT` (output directory). Save every response as JSON and check its `ok` and
+`quality_status` fields before using it.
 
-### 1. Diagnostics
+### 1. Diagnose with the workflow
 
 ```bash
-uv run ts-agents tool run describe_series_with_data \
-  --run $RUN --var $VAR \
-  --json \
-  --save outputs/$RUN/describe.json
-
-uv run ts-agents tool run compute_autocorrelation_with_data \
-  --run $RUN --var $VAR \
-  --json \
-  --save outputs/$RUN/acf.json
-
-uv run ts-agents tool run compute_psd_with_data \
-  --run $RUN --var $VAR \
-  --json \
-  --save outputs/$RUN/psd.json
+ts-agents workflow run inspect-series --input $DATA --time-col $TIME --value-col $COL --output-dir $OUT/inspect --json --save $OUT/inspect.json
 ```
 
-### 2. Decomposition
+Read `result.data.periodicity` in `inspect.json`. When `detected` is true, set
+`$P` to `dominant_period` rounded to whole samples. When it is false, do not
+invent a period: skip STL and choose the discord length `m` from the domain.
+
+### 2. Targeted tools (structured data, no plots)
 
 ```bash
-uv run ts-agents tool run stl_decompose_with_data \
-  --run $RUN --var $VAR \
-  --json \
-  --save outputs/$RUN/stl.json
-
+ts-agents tool run describe_series --input $DATA --value-col $COL --json --save $OUT/describe.json
+ts-agents tool run compute_psd --input $DATA --time-col $TIME --value-col $COL --json --save $OUT/psd.json
+ts-agents tool run stl_decompose --input $DATA --value-col $COL --param period=$P --json --save $OUT/stl.json
+ts-agents tool run find_discords --input $DATA --value-col $COL --param m=$P --json --save $OUT/discords.json
+ts-agents tool run segment_changepoint --input $DATA --value-col $COL --json --save $OUT/changepoints.json
 ```
 
-### 3. Pattern detection
+### 3. Forecast comparison with the workflow
 
 ```bash
-uv run ts-agents tool run detect_peaks_with_data \
-  --run $RUN --var $VAR \
-  --json \
-  --save outputs/$RUN/peaks.json
-
-uv run ts-agents tool run segment_changepoint_with_data \
-  --run $RUN --var $VAR \
-  --json \
-  --save outputs/$RUN/changepoints.json
-
-uv run ts-agents tool run analyze_matrix_profile_with_data \
-  --run $RUN --var $VAR \
-  --json \
-  --save outputs/$RUN/mp.json
+ts-agents workflow run forecast-series --input $DATA --time-col $TIME --value-col $COL --horizon $P --season-length $P --methods seasonal_naive,theta,arima --output-dir $OUT/forecast --json --save $OUT/forecast.json
 ```
 
-### 4. Forecasting summaries
+### 4. Compose the Quarto document
+
+Create `$OUT/report.qmd`. Embed the workflow plots
+(`inspect/autocorrelation.png`, `forecast/forecast_comparison.png`). Tools
+return arrays rather than images: plot `stl.json` (`result.trend`,
+`result.seasonal`, `result.residual`) and `psd.json` (`result.frequencies`,
+`result.psd`) in a code cell, and tabulate the discords (`index`, `robust_z`)
+and change-points (`changepoints`, `segment_stats`).
+
+### 5. Render to PDF
 
 ```bash
-uv run ts-agents tool run forecast_theta_with_data \
-  --run $RUN --var $VAR --param horizon=30 \
-  --json \
-  --save outputs/$RUN/theta.json
-
-uv run ts-agents tool run forecast_ets_with_data \
-  --run $RUN --var $VAR --param horizon=30 \
-  --json \
-  --save outputs/$RUN/ets.json
-
-uv run ts-agents tool run forecast_arima_with_data \
-  --run $RUN --var $VAR --param horizon=30 \
-  --json \
-  --save outputs/$RUN/arima.json
-```
-
-### 5. Compose the Quarto document
-
-Create `outputs/$RUN/report.qmd` with this structure:
-
-```
----
-title: "Comprehensive Analysis: $RUN / $VAR"
-format: pdf
----
-
-## Diagnostics
-(paste key stats from describe.json)
-
-![ACF](<path from acf.json -> result.artifacts[0].path>)
-![PSD](<path from psd.json -> result.artifacts[0].path>)
-
-## Decomposition
-![STL](<path from stl.json -> result.artifacts[0].path>)
-
-## Patterns
-![Peaks](<path from peaks.json -> result.artifacts[0].path>)
-![Changepoints](<path from changepoints.json -> result.artifacts[0].path>)
-![Matrix Profile](<path from mp.json -> result.artifacts[0].path>)
-
-## Forecasting
-Summarize `theta.json`, `ets.json`, and `arima.json`:
-- horizon and forecast length
-- point forecast values
-- intervals / uncertainty fields when present
-
-If you also ran `workflow run forecast-series`, reference its forecast plot,
-CSV, and Markdown artifacts here instead of expecting PNGs from the forecast
-wrappers.
-
-## Summary
-(synthesize findings across all phases)
-```
-
-### 6. Render to PDF
-
-```bash
-cd outputs/$RUN && quarto render report.qmd --to pdf
+cd $OUT && quarto render report.qmd --to pdf
 ```
 
 ## Guardrails
 
-- If any tool fails, log the error and continue with remaining tools.
-- If the series has fewer than 50 points, skip forecasting and warn the user.
-- Always verify that the plot-producing tool JSON files (`acf.json`, `psd.json`, `stl.json`, `peaks.json`, `changepoints.json`, `mp.json`) contain the expected `result.artifacts[*].path` entries before composing the QMD.
-- Treat the saved forecast JSON files as the forecasting source of truth unless
-  you explicitly ran `workflow run forecast-series`; do not expect
-  `--extract-images` output from the forecast wrappers.
+- If a tool returns `ok: false`, record the error and continue with the rest.
+- Copy `result.warnings` and `input.warnings` from any response with
+  `quality_status: review` into the report instead of dropping them.
+- Judge discords by `robust_z`; top-k discords exist even in pure noise.
 ````
 
 ### Example prompts
 
 These prompts ask an agent to run the comprehensive workflow:
 
-> Run a full analysis of Re200Rm200 / bx001_real: diagnostics, STL decomposition,
-> peak detection, changepoint segmentation, matrix profile, and Theta + ARIMA forecasts
-> with horizon 30. Save the diagnostic/decomposition/pattern plots, summarize the forecast JSON outputs, and render a PDF report.
+> Run a full analysis of the `periodic` column in data/synthetic_signals.csv
+> (time column `t`): diagnostics, PSD, STL decomposition, discords, change-points,
+> and a Theta + ARIMA forecast comparison over one period. Render a PDF report.
 
-> I need a comprehensive PDF report for every variable in the Re200Rm200 run.
-> For each variable: compute ACF, PSD, STL decomposition, detect peaks, and
-> forecast 20 steps with ETS. Compile the plots plus the saved forecast summaries into a single Quarto PDF.
+> I need a comprehensive PDF report for every value column in data.csv
+> (time column `ds`). For each column: run inspect-series, compute the PSD,
+> decompose with STL when a period is detected, and compare forecasts 20 steps
+> ahead with ETS and Theta. Compile everything into a single Quarto PDF.
 
 ### Requesting deeper analysis
 
 Chain skills in a single prompt:
 
-> Run diagnostics on Re200Rm200 / bx001_real to check for seasonality,
-> then decompose with STL, then forecast the trend component 30 steps ahead
+> Run diagnostics on column `y` of data.csv to check for a significant period,
+> then decompose with STL if one is detected, then forecast 30 steps ahead
 > using ARIMA and Theta. Compare the forecasts.
 
 This produces diagnostics artifacts, decomposition plots, and a forecast comparison — all in one session.
@@ -301,8 +226,10 @@ After editing, copy the changed files to the same packaged-mirror paths, run
 the existing integrity check, and re-export when agent directories need it:
 
 ```bash
+# Source checkout: mirror integrity and command discovery
 uv run --no-sync python -m pytest -q tests/cli/test_skills.py
-uv run --no-sync ts-agents skills export --all-agents
+ts-agents skills validate
+ts-agents skills export --all-agents
 ```
 
 Inspect per-agent outcomes: a failed destination makes the export fail rather
@@ -322,18 +249,26 @@ skills/
 ```markdown
 ---
 name: my-custom-skill
-description: One-line description of what the skill does
-tasks: [keyword1, keyword2]
-tools: [tool_a, tool_b]
+description: One-line description of what the skill does and when to use it
+compatibility: "ts-agents CLI (`ts-agents`)"
+metadata:
+  domain: time-series
+  tasks: [keyword1, keyword2]
+  ts_agents:
+    tool_category: statistics
+    preferred_workflow: inspect-series
+    preferred_tools: [describe_series, compute_autocorrelation]
 ---
 
-## Objective
+# My custom skill
+
+## When to use
 What problem this skill solves.
 
 ## Workflow
-1. Step one — call `tool_a` with these parameters ...
-2. Step two — call `tool_b` ...
-3. Summarize results.
+1. Run `ts-agents tool run describe_series --input data.csv --value-col y --json`.
+2. Run `ts-agents tool run compute_autocorrelation --input data.csv --value-col y --json`.
+3. Summarize results, including any `quality_status: review` warnings.
 
 ## Guardrails
 - Validation rules, limits, warnings.
@@ -342,30 +277,34 @@ What problem this skill solves.
 Validate and export:
 
 ```bash
-uv run ts-agents skills validate
-uv run ts-agents skills export --all-agents
+ts-agents skills validate
+ts-agents skills export --all-agents
 ```
+
+`skills validate` rejects tool and workflow names (in `preferred_tools`,
+`avoid_tools`, `preferred_workflow`, or `ts-agents tool|workflow run ...`
+commands in the body) that the installed CLI does not provide.
 
 ## Export and sync commands
 
 ```bash
 # List registered skills
-uv run ts-agents skills list
+ts-agents skills list
 
 # Validate frontmatter
-uv run ts-agents skills validate
+ts-agents skills validate
 
 # Export to all agent directories (copy)
-uv run ts-agents skills export --all-agents
+ts-agents skills export --all-agents
 
 # Export with symlinks (local dev, Unix only)
-uv run ts-agents skills export --all-agents --symlink
+ts-agents skills export --all-agents --symlink
 
 # Export to a single agent
-uv run ts-agents skills export --agent claude
+ts-agents skills export --agent claude
 
 # Generate an aggregate summary
-uv run ts-agents skills export --out skills/SKILLS.md
+ts-agents skills export --out skills/SKILLS.md
 ```
 
 Supported agents: `claude`, `codex`, `gemini`, `windsurf`, `github`.

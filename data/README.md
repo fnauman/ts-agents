@@ -46,6 +46,46 @@ The WISDM dataset is licensed under
 > Weiss, G. (2019). WISDM Smartphone and Smartwatch Activity and Biometrics Dataset
 > \[Dataset\]. UCI Machine Learning Repository. https://doi.org/10.24432/C5HK59.
 
+## `synthetic_signals.csv` — known-answer signals
+
+A synthetic table for checking non-forecasting tools against known answers:
+3,000 samples at 50 Hz (60 s). `t` is time in seconds; each value column has a
+documented ground truth.
+
+| Column | Ground truth |
+|--------|--------------|
+| `periodic` | 2 Hz sine plus Gaussian noise (sd 0.3): period 0.5 s = 25 samples |
+| `regime` | White noise whose mean shifts by +2 at sample 1000 (t = 20 s) and whose standard deviation triples at sample 2000 (t = 40 s) |
+| `anomaly` | 0.5 Hz sine (period 100 samples) plus noise (sd 0.1), replaced by a flat line for samples 1500-1529 |
+
+| File | Rows | Size | Version controlled |
+|------|------|------|--------------------|
+| **`synthetic_signals.csv`** | 3,000 | ~90 KB | yes |
+
+Regenerate it (default `--seed 7` reproduces the checked-in file):
+
+```bash
+uv run python data/make_synthetic_signals.py --out data/synthetic_signals.csv
+```
+
+Example checks:
+
+```bash
+ts-agents tool run detect_periodicity --input data/synthetic_signals.csv \
+  --time-col t --value-col periodic --json
+ts-agents tool run segment_changepoint --input data/synthetic_signals.csv \
+  --value-col regime --json
+ts-agents tool run find_discords --input data/synthetic_signals.csv \
+  --value-col anomaly --param m=100 --json
+```
+
+`detect_periodicity` takes `sample_rate` (50 Hz) from the regular `t` column
+and reports a period of about 0.5 s. `segment_changepoint` places change-points
+near samples 1000 and 2000; by default they are resolved to a coarse `jump`
+grid, reported as a warning with `quality_status: review` (`--param jump=1`
+gives full resolution). The top `find_discords` result overlaps samples
+1500-1529, with a `robust_z` far above the other discords.
+
 ## `short_real.csv` — MHD shearing-box simulation
 
 A small time-series dataset from a magnetohydrodynamic (MHD) simulation of the
@@ -67,13 +107,14 @@ Re = 200 and magnetic Reynolds number Rm = 200. `ds` is the (integer) time step.
 |------|------|------|------|--------------------|
 | **`short_real.csv`** | 2 (Re200Rm200, Re175Rm175) | 10 | <1 KB | yes |
 
-This file is used as the default bundled forecast example dataset for
-quick CLI checks and workflow examples such as
-`uv run ts-agents workflow run forecast-series --input data/short_real.csv --time-col ds --value-col bx001_real --output-dir outputs/forecast-short-real`.
-Low-level compatibility tools such as
-`uv run ts-agents tool run forecast_theta_with_data --run Re200Rm200 --var bx001_real --param horizon=12 --json`
-remain available when you want a direct structured forecast payload instead of
-a workflow artifact bundle.
+This file is a tiny smoke fixture: 5 rows per run. It is read by the
+`--run-id/--variable` workflow options and the `get_series` tool, for example
+`ts-agents workflow run forecast-series --run-id Re200Rm200 --variable bx001_real --horizon 1 --methods seasonal_naive`
+or `ts-agents tool run get_series --param run_id=Re200Rm200 --param variable=bx001_real --json`.
+Five points are too short for the periodicity test (`inspect-series` reports
+`degraded` with `periodicity_not_assessed`) and say nothing about method
+quality. For tool examples, pass a longer file with
+`--input <file> --value-col <col>`, such as `synthetic_signals.csv`.
 
 ## `m4_monthly_mini.csv` — M4 Monthly workflow subset
 

@@ -240,13 +240,17 @@ If you see:
 ## Cloud sandbox smoke tests
 
 Run these after auth and deployment setup to verify end-to-end execution.
+The CLI reads the `--input` file locally and sends the selected column to the
+backend as the tool's `series` parameter, so the file does not need to exist
+inside the sandbox. Check `execution.backend_actual` in `--json` output.
 
 Daytona smoke test:
 
 ```bash
-uv run ts-agents tool run stl_decompose_with_data \
-  --run Re200Rm200 \
-  --var bx001_real \
+uv run ts-agents tool run stl_decompose \
+  --input data/synthetic_signals.csv \
+  --value-col periodic \
+  --param period=25 \
   --sandbox daytona
 ```
 
@@ -256,9 +260,10 @@ Modal smoke test:
 # First deploy once after auth, from the repo root:
 uv run modal deploy -m ts_agents.sandbox.modal_app --env main --name ts-agents-sandbox
 
-uv run ts-agents tool run stl_decompose_with_data \
-  --run Re200Rm200 \
-  --var bx001_real \
+uv run ts-agents tool run stl_decompose \
+  --input data/synthetic_signals.csv \
+  --value-col periodic \
+  --param period=25 \
   --sandbox modal
 ```
 

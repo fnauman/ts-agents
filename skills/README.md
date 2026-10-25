@@ -8,19 +8,25 @@ This is the **canonical location** for ts-agents skills. Skills defined here are
 skills/
   README.md                           # This file
   SKILLS.md                           # Aggregate skills summary (generated)
-  activity-recognition/SKILL.md       # End-to-end windowing/classification workflow
+  diagnostics/SKILL.md                # First look: data quality, periodicity, regimes, next steps
+  anomaly-detection/SKILL.md          # Discords, peaks, residual outliers
+  segmentation/SKILL.md               # Change-points and regimes
+  spectral-analysis/SKILL.md          # PSD, spectral slope, periodicity, coherence
+  decomposition/SKILL.md              # Trend/seasonality (STL, MSTL, Holt-Winters)
+  activity-recognition/SKILL.md       # Labeled sensor streams: windowing + held-out evaluation
+  classification/SKILL.md             # Time series classification
   forecasting/SKILL.md                # Forecasting methods
   forecasting/SKILL-pro.md            # Professional M4 benchmark workflow
   panel-forecasting/SKILL.md          # Panel GBM/NHITS and zero-shot foundation models
-  diagnostics/SKILL.md                # Quick EDA diagnostics
-  decomposition/SKILL.md              # Decomposition methods
-  classification/SKILL.md             # Time series classification
   report-generation/SKILL.md          # Turn workflow artifacts into reports
 ```
 
-This repository intentionally keeps a **small, focused set** of skills to reduce
-drift across agent-specific directories. Reporting is included because
-artifact-to-report handoff is a first-class workflow boundary for agents.
+This repository keeps one skill per task family so external agents can find an
+entry point for each kind of time-series question. Reporting is included
+because artifact-to-report handoff is a first-class workflow boundary for
+agents. Skills load user data with `--input`/`--value-col`/`--time-col`;
+`ts-agents skills validate` rejects tools or workflows a skill names that the
+CLI does not provide.
 
 ## Agent-Specific Locations
 
@@ -40,15 +46,15 @@ To export skills to agent-specific locations:
 
 ```bash
 # Export and place skills for all agents
-uv run ts-agents skills export --all-agents
+ts-agents skills export --all-agents
 
 # Export to specific agent
-uv run ts-agents skills export --agent claude
-uv run ts-agents skills export --agent codex
-uv run ts-agents skills export --agent github
+ts-agents skills export --agent claude
+ts-agents skills export --agent codex
+ts-agents skills export --agent github
 
 # Validate skill format
-uv run ts-agents skills validate
+ts-agents skills validate
 ```
 
 Export updates all current source files and preserves destination-only files,
@@ -60,7 +66,7 @@ re-export after adding files.
 To generate the aggregate `SKILLS.md` summary:
 
 ```bash
-uv run ts-agents skills export --out skills/SKILLS.md
+ts-agents skills export --out skills/SKILLS.md
 ```
 
 ## Skill Format
@@ -77,9 +83,8 @@ metadata:
   tasks: [task1, task2]
   ts_agents:
     tool_category: category_name
-    prefers_with_data_tools: true
     preferred_workflow: inspect-series
-    preferred_tools: [describe_series_with_data]
+    preferred_tools: [describe_series]
     artifact_checklist: [summary.json, report.md]
 ---
 
@@ -102,18 +107,18 @@ metadata:
    `ts_agents/resources/skills/`. This packaged mirror, including this README,
    must remain byte-identical for installed wheels; agent export does not
    update it.
-4. Run `uv run --no-sync ts-agents skills validate` and
+4. Run `ts-agents skills validate` and
    `uv run --no-sync python -m pytest -q tests/cli/test_skills.py` to check
    format, command discovery, and mirror integrity.
-5. Use `uv run --no-sync ts-agents skills export --all-agents` when agent
+5. Use `ts-agents skills export --all-agents` when agent
    directories need updating. Inspect the per-agent outcomes: a partial
    export is an error, not a successful distribution.
 
 For demo/report workflows, prefer a Quarto report (`.qmd`) rendered to PDF
 with publication-quality figures.
 
-Built-in agents and UI were removed in 0.4.0. Skills remain for external agent
-runtimes across activity recognition, classification, anomaly/pattern detection,
-forecasting, decomposition, and spectral analysis. Inspect result quality and
+Skills target external agent runtimes across activity recognition,
+classification, anomaly/pattern detection, change-points, forecasting,
+decomposition, and spectral analysis. Inspect result quality and
 requested/actual execution backends; `planned`/`plan-only` results contain no
 trained-model evaluation. Backend substitution requires review.

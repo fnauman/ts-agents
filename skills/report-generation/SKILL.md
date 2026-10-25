@@ -46,10 +46,10 @@ references.
 If the user has not run a workflow yet, discover the relevant workflow contract:
 
 ```bash
-uv run ts-agents workflow show inspect-series --json
-uv run ts-agents workflow show forecast-series --json
-uv run ts-agents workflow show forecast-panel --json
-uv run ts-agents workflow show activity-recognition --json
+ts-agents workflow show inspect-series --json
+ts-agents workflow show forecast-series --json
+ts-agents workflow show forecast-panel --json
+ts-agents workflow show activity-recognition --json
 ```
 
 ### 2. Choose the report format

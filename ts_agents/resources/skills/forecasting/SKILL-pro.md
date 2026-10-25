@@ -10,7 +10,6 @@ metadata:
   tasks: [forecasting, benchmark, backtesting, reporting]
   ts_agents:
     tool_category: forecasting
-    prefers_with_data_tools: false
 ---
 
 # Professional forecasting workflow
@@ -50,16 +49,16 @@ Validation layers:
 ## Primary command
 Run the end-to-end example script:
 ```bash
-uv run python examples/forecasting_m4_monthly_mini.py
+python examples/forecasting_m4_monthly_mini.py
 ```
 
 Useful variants:
 ```bash
-uv run python examples/forecasting_m4_monthly_mini.py \
+python examples/forecasting_m4_monthly_mini.py \
   --methods seasonal_naive,theta,ets,arima \
   --output-dir outputs/reports/forecasting-workflow-m4-mini
 
-uv run python examples/forecasting_m4_monthly_mini.py \
+python examples/forecasting_m4_monthly_mini.py \
   --series M4,M100 \
   --methods seasonal_naive,theta \
   --output-dir outputs/reports/forecasting-workflow-smoke

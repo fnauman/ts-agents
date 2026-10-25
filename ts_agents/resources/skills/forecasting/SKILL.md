@@ -3,17 +3,15 @@ name: time-series-forecasting
 description: >
   Forecast/predict future values of a time series, choose reasonable baselines, and
   compare forecasting methods (seasonal naive, ARIMA/ETS/Theta, and optional Darts
-  zero-shot foundation models such as Chronos-2) on arbitrary series loaded from
-  ts-agents data.
+  zero-shot foundation models such as Chronos-2) on a user's series file.
 compatibility: "Best with the ts-agents repo + CLI (`ts-agents`)."
 metadata:
   domain: time-series
   tasks: [forecasting, prediction, model-selection, foundation-models]
   ts_agents:
     tool_category: forecasting
-    prefers_with_data_tools: true
     preferred_workflow: forecast-series
-    preferred_tools: [detect_periodicity_with_data, forecast_seasonal_naive_with_data]
+    preferred_tools: [detect_periodicity, forecast_seasonal_naive]
     artifact_checklist: [forecast_comparison.json, forecast.json, forecast.csv, report.md]
   claude_code:
     allowed-tools: [Bash, Read, Write, Edit]
@@ -33,7 +31,7 @@ is:
 
 If the user wants a reproducible benchmark/report workflow on the vendored M4
 Monthly mini-panel, switch to [`SKILL-pro.md`](./SKILL-pro.md). This base skill
-is for arbitrary `run_id` + `variable` series, not the fixed workflow contract.
+is for an arbitrary single series, not the fixed workflow contract.
 
 If the user has many related series in one long-format table (`unique_id`, `ds`,
 `y`), or wants global LightGBM/NHITS models or FM scores under rolling
@@ -41,7 +39,7 @@ validation across a panel, switch to the `panel-forecasting` skill and the
 `forecast-panel` workflow.
 
 ## Minimal info to proceed
-- A specific series (`run_id` + `variable`, or raw array in Python)
+- A specific series (a file plus `--value-col`/`--time-col`, or inline JSON)
 - Forecast horizon
 
 Useful extras:
@@ -63,12 +61,14 @@ If the season length is unknown and seasonality matters, estimate it first.
 ## Workflow
 ### 0) Estimate seasonality when needed
 ```bash
-uv run ts-agents tool run detect_periodicity_with_data --run <RUN_ID> --var <VARIABLE> --param n_top=3
+ts-agents tool run detect_periodicity --input data.csv --value-col y --json
 ```
+Use `dominant_period` as `--season-length` only when `detected` is true; a
+non-significant result means no seasonal baseline is justified by the data.
 
 ### 1) Check which methods are available in the current environment
 ```bash
-uv run ts-agents workflow show forecast-series --json
+ts-agents workflow show forecast-series --json
 ```
 
 Interpret `available_methods` / `unavailable_methods` before you choose models.
@@ -78,18 +78,19 @@ In a default/base install, expect `seasonal_naive` to be available and
 
 ### 2) Run a base-safe baseline and artifact workflow
 ```bash
-uv run ts-agents workflow run forecast-series \
-  --run-id <RUN_ID> --variable <VARIABLE> \
+ts-agents workflow run forecast-series \
+  --input data.csv --time-col ds --value-col y \
   --horizon 50 \
   --methods seasonal_naive \
   --season-length <PERIOD>
 ```
+The workflow flags `irregular_sampling` when the time column has gaps; seasonal
+lags then span the gaps, so resolve them before trusting the comparison.
 
 If you only need a quick point forecast instead of the workflow artifact set:
 ```bash
-uv run ts-agents tool run forecast_seasonal_naive_with_data \
-  --run <RUN_ID> --var <VARIABLE> \
-  --param horizon=50 --param season_length=<PERIOD>
+ts-agents tool run forecast_seasonal_naive --input data.csv --value-col y \
+  --param horizon=50 --param season_length=<PERIOD> --json
 ```
 
 ### 3) Expand the comparison only after confirming advanced backends are available
@@ -108,8 +109,8 @@ FMs are also available in `forecast-series` once `ts-agents[foundation]` is
 installed. They run zero-shot (nothing is trained) on the last
 `--context-length` points (default 512; explicit values must fit checkpoint-specific window limits):
 ```bash
-uv run ts-agents workflow run forecast-series \
-  --run-id <RUN_ID> --variable <VARIABLE> \
+ts-agents workflow run forecast-series \
+  --input data.csv --time-col ds --value-col y \
   --horizon 24 --season-length <PERIOD> \
   --methods seasonal_naive,chronos2_small
 ```
@@ -117,7 +118,7 @@ Request one checkpoint at a time unless the comparison needs more: each model
 downloads its own weights on first use, and network-less sandboxes need a
 pre-populated `HF_HOME`. Public benchmark series may overlap FM pretraining
 data, so treat FM wins on them cautiously. For a quick point forecast without
-the artifact bundle, use the `forecast_foundation_with_data` tool
+the artifact bundle, use the `forecast_foundation` tool
 (VERY_HIGH cost: CLI runs need `--approve`). For FM provenance, cite
 `models/<fm>/model_spec.json` (checkpoint, pinned revision, licence, resolved
 context); it is written only for FMs that produced a forecast.
@@ -127,16 +128,16 @@ Treat ensembles as an advanced path, not a base-profile default. Only use them
 after individual methods are available and have been compared explicitly.
 
 ## Prediction intervals
-The core forecasting functions support `level=[80, 95]`, while the
-`*_with_data` wrappers are mainly geared toward point forecasts and plots.
+The core forecasting functions support `level=[80, 95]`; the CLI tools and
+workflows report point forecasts.
 
 If you need interval-capable statistical models such as ETS, Theta, or ARIMA,
 install `ts-agents[forecasting]` and use Python directly:
 ```python
-from ts_agents.data_access import get_series
+import pandas as pd
 from ts_agents.core.forecasting import forecast_ets
 
-y = get_series("Re200Rm200", "bx001_real")
+y = pd.read_csv("data.csv")["y"].to_numpy()
 res = forecast_ets(y, horizon=50, level=[80, 95], season_length=12)
 print(res.lower_bound[:5])
 print(res.upper_bound[:5])
