@@ -7,8 +7,19 @@ It complements `README.md` (what exists today) with direction (what is next).
 
 - Keep the `ts-agents` CLI contract stable.
 - Treat artifacts (plots, reports, JSON, logs) as first-class outputs.
-- Keep orchestration in external agent runtimes; maintain broad time-series analysis capabilities.
+- Keep orchestration in external agent runtimes; maintain broad time-series
+  analysis capabilities across task families, not forecasting alone.
 - Use sandbox backends to handle dependency and runtime isolation.
+
+## In Progress (0.5.0, unreleased)
+
+- Task-family parity: file input for every series tool, discovery by task
+  words, and skills for anomaly detection, segmentation, and spectral
+  analysis alongside diagnostics, decomposition, activity recognition,
+  classification, and forecasting.
+- Integrity of non-forecasting results: unit-invariant change-points,
+  significance-tested periodicity, explicit failures instead of empty answers,
+  and held-out (optionally leave-subject-out) activity evaluation.
 
 ## Recently Shipped (0.4.0)
 
@@ -47,36 +58,50 @@ constant customer, and NHITS produced a few negative demand predictions.
 
 ## Current Focus
 
-- Run further bounded dogfoods before choosing reusable preparation,
-  frozen-model evaluation, and report-regeneration APIs. Record custom glue,
-  domain constraints, and validation coverage instead of broadening capability
-  claims from one successful task.
-- External covariates, calibrated intervals/quantiles, foundation Modal
-  extras, and FMs in `forecast-daytona` remain deferred.
+- **Pilots before context APIs.** Run bounded, agent-driven pilots outside
+  forecasting with labeled ground truth: enterprise activity/classification
+  (leave-subject-out), engineering anomaly detection on labeled events, and
+  physics/DNS spectral or regime tasks with known answers. Score correctness,
+  misleading-success incidents, custom glue code, and the context the agent
+  had to be told.
+- **Domain context.** Units, sampling conventions, channel meanings,
+  operating regimes, physical constraints, and task objectives should inform
+  preparation, evaluation, and interpretation. Start from the time-axis
+  diagnostics now reported with every series input; add a recorded context
+  file, then promote only the fields pilots show change a computation.
+- **Evaluation per task family.** Event-level anomaly scoring, change-point
+  annotation scoring, and known-answer spectral checks, plus agent-in-the-loop
+  scenarios that grade answers rather than command success.
 - Keep published artifacts, install instructions, and source claims aligned
   through installed-wheel and source-identity release gates.
-- Checkpoint recovery for interrupted autoresearch/workflow computations.
-  Current workflow `--resume` is a compatible rerun, not checkpoint recovery.
-- Job-aware progress reporting: stream trial/step progress into the job record
-  so `jobs status` can show percent-complete for long runs.
 
 ## Decisions Needed
 
-- **MCP:** evaluate an adapter when a named consumer needs it, including
-  authentication, process lifecycle, and error semantics. Decide deliberately whether "CLI+skills only" is the bet, and
-  record why.
+- **MCP:** CLI + skills is the current bet for Claude Code and Codex. Revisit
+  when a named consumer needs an adapter, including authentication, process
+  lifecycle, and error semantics.
 
 ## Next
 
+- Task workflows chosen from pilot evidence (for example anomaly detection
+  with event scoring, regime segmentation, or applying a trained activity model
+  to unlabeled streams).
+- Multichannel analysis beyond pairwise coherence (lag cross-correlation,
+  multivariate change-points and discords).
+- Missing-data and resampling policies recorded in provenance; optional
+  loaders for scientific formats (HDF5/NetCDF) if pilots need them.
+- Job-aware progress reporting for long runs.
 - Better environment resolution and caching for heavy optional dependencies
   (the locked optional stack is not yet qualified on 3.14).
-- Richer experiment history and diffing of run outputs/artifacts on top of the
-  `runs` catalog.
 
 ## Later
 
+- External covariates, calibrated intervals/quantiles, foundation Modal
+  extras, and FMs in `forecast-daytona`.
+- Checkpoint recovery for interrupted autoresearch/workflow computations.
+  Current workflow `--resume` is a compatible rerun, not checkpoint recovery.
+- Richer experiment history and diffing of run outputs/artifacts.
 - Human-in-the-loop gates for expensive/high-risk operations.
-- Improved hybrid tool routing (heuristics + LLM + evaluation feedback).
 
 ## How This Roadmap Is Maintained
 

@@ -2,23 +2,33 @@
 title: "ts-agents docs"
 ---
 
-`ts-agents` is a CLI toolkit for time-series analysis used by external agents
-and automation. It gives agent runtimes a stable, machine-readable surface
-so a model can discover available methods, run supported analysis workflows,
-and produce inspectable artifacts.
+`ts-agents` is a general-purpose, CLI-first time-series toolkit for external
+agents and automation. Agents discover methods, run analyses on their own data
+files, and get inspectable artifacts with explicit quality signals across task
+families:
 
-It wraps statistical forecasting methods, sandboxed code execution, and
-external agent runtimes through a stable workflow/tool contract. Project-specific
-preparation, custom holdout evaluation, and comprehensive reporting can still
-require code. These docs capture
-the project's durable design choices so interfaces can evolve without
-rewriting the core toolchain.
+| Task family | Start with |
+| --- | --- |
+| First look, data quality, periodicity | `workflow run inspect-series` |
+| Anomalies and unusual events | `tool run find_discords --input ...` |
+| Change-points and regimes | `tool run segment_changepoint --input ...` |
+| Spectra, frequencies, coherence | `tool run compute_psd --input ... --time-col t` |
+| Trend and seasonality | `tool run stl_decompose --input ...` |
+| Activity recognition | `workflow run activity-recognition` |
+| Classification | `tool run compare_classifiers` |
+| Forecasting | `workflow run forecast-series` / `forecast-panel` |
+
+Project-specific preparation, custom evaluation, and comprehensive reporting
+can still require code. These docs capture the project's durable design
+choices so interfaces can evolve without rewriting the core toolchain.
 
 ## Why Autonomous Agents Like It
 
 - **Bootstrap with one call:** `ts-agents capabilities --json` returns the full
   agent-facing bootstrap surface (workflows, tools, sandboxes, `install_profile`,
   status-contract guidance).
+- **Find tools by task:** `tool search anomaly --json` matches task words and
+  synonyms, and every tool takes data with `tool run <tool> --input <file>`.
 - **Discover before acting:** `workflow show --json` / `tool show --json`
   expose `cli_templates`, `source_options`, `global_options`,
   `default_output_behavior`, required extras, and availability in the current
@@ -40,13 +50,13 @@ rewriting the core toolchain.
 ## Get Started
 
 1. [Quickstart](quickstart.qmd) — install and run your first workflow in under a minute
-2. [CLI Examples](cli-examples.qmd) — practical workflow/tool patterns by example
+2. [CLI Examples](cli-examples.qmd) — the CLI contract by example, across task families
 3. [Walkthroughs](walkthroughs.qmd) — step-by-step guides for the first-class workflows
-4. [Panel and foundation-model forecasting](panel-forecasting.qmd) — global GBM/NHITS models and Darts zero-shot checkpoints on long-format panels
+4. [Skills Guide](skills-guide.qmd) — task-family skills for external agents
+5. [Panel and foundation-model forecasting](panel-forecasting.qmd) — global GBM/NHITS models and Darts zero-shot checkpoints on long-format panels
 
 ## Learn More
 
-- [Skills Guide](skills-guide.qmd) — using, customizing, and creating skills
 - [Evaluation](evaluation.qmd) — benchmark evidence and rerun instructions
 - [Design](philosophy.qmd) — why the project is structured around a stable CLI contract for agents
 - [Distribution](distribution.qmd) — packaging, release, and publishing workflow

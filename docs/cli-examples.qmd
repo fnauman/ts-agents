@@ -3,40 +3,45 @@ title: "CLI Quick Reference"
 ---
 
 Practical patterns for the `ts-agents` CLI. Not exhaustive, but centered on the
-current workflow/tool grammar rather than the deprecated compatibility aliases.
+workflow/tool grammar that external agents should use.
 
 Install notes:
 - `ts-agents`: workflow discovery, `inspect-series`, and `forecast-series --methods seasonal_naive`
 - `ts-agents[recommended]`: full forecasting comparisons plus `activity-recognition`
+- `ts-agents[patterns]`: change-points, discords/motifs, FLUSS (matrix profile)
 - `ts-agents[ml]` / `ts-agents[neural]`: global GBM / NHITS models for `forecast-panel`
 - `ts-agents[foundation]`: Darts zero-shot foundation models (`chronos2_small`, `chronos2`, `timesfm2p5`, `patchtst_fm`) for `forecast-series`, `forecast-panel` and `foundation-smoke`
 - `source checkout + uv sync`: same base CLI-first profile as `ts-agents`
 - `source checkout + uv sync --extra recommended`: same recommended profile as `ts-agents[recommended]`
 
-## Data discovery
+## Bundled data
 
 ```bash
-# List all available runs and variables
+# Run IDs / variables in the bundled smoke fixture used by --run-id/--variable
+# workflow inputs (short_real.csv holds only 5 samples per run)
 uv run ts-agents data list
 
-# Only run IDs
-uv run ts-agents data list --runs
-
-# Only variable names
-uv run ts-agents data list --variables
-
-# Use the full dataset instead of the test subset
-uv run ts-agents data list --full-data
+# Export the bundled M4 mini-panel for panel forecasting
+uv run ts-agents data export-panel m4-monthly-mini --split train --out panel.csv --json
 ```
+
+A source checkout also ships `data/synthetic_signals.csv`: 3000 samples at
+50 Hz (`t` in seconds) with known answers — `periodic` (2 Hz sine), `regime`
+(mean shift at sample 1000, variance tripled at 2000), and `anomaly`
+(oscillation flatlined at samples 1500–1529). See `data/README.md`.
 
 ## Tool discovery
 
 ```bash
+# Find tools by task words (synonyms such as anomaly, outlier, regime, spectrum)
+uv run ts-agents tool search anomaly --json
+uv run ts-agents tool search regime --json
+
 # All registered tools
 uv run ts-agents tool list
 
 # Tools in a specific bundle
-uv run ts-agents tool list --bundle demo
+uv run ts-agents tool list --bundle minimal
 uv run ts-agents tool list --bundle standard
 
 # Tools in a category
@@ -50,7 +55,8 @@ uv run ts-agents tool list --max-cost medium
 uv run ts-agents tool list --category forecasting --json
 ```
 
-Common bundles: `minimal` (5 tools), `standard` (15), `full` (25+), `demo`, `demo_windowing`, `demo_forecasting`.
+Common bundles: `minimal` (one entry point per task family), `standard`, `full`,
+`all`, `orchestrator`, and one bundle per category.
 
 ## Workflow discovery and execution
 
@@ -63,9 +69,10 @@ uv run ts-agents workflow list
 uv run ts-agents workflow list --json
 uv run ts-agents workflow show forecast-series --json
 
-# Inspect a short series
+# Task-neutral diagnostics: sampling/gaps, significance-tested periodicity,
+# regime screen, and next steps across task families
 uv run ts-agents workflow run inspect-series \
-  --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' \
+  --input data/synthetic_signals.csv --time-col t --value-col periodic \
   --output-dir outputs/inspect
 
 # Forecast a deterministic inline series with the base-install baseline
@@ -106,7 +113,33 @@ uv run ts-agents workflow run activity-recognition \
   --label-col label \
   --value-cols x,y,z \
   --output-dir outputs/activity
+
+# Leave-subject-out evaluation for streams that concatenate subjects/sessions
+uv run ts-agents workflow run activity-recognition \
+  --input data/wisdm_subset.csv --label-col label --group-col subject_id \
+  --output-dir outputs/activity-subjects
 ```
+
+`inspect-series` reports `result.data.time_axis` (median step, `regular`,
+`gap_count`, `reordered`) and sets `quality_flags` such as `irregular_sampling`
+and `periodicity_not_assessed`. A series with fewer than 16 samples is
+`degraded` because periodicity cannot be assessed. A constant after detrending
+(such as a pure linear ramp) also has `periodicity.assessed: false` and a
+warning. Diagnostic warnings reach the CLI, summary, and report.
+`periodicity.detected` is false when no period passes the test;
+`candidate_period` shows the strongest candidate when one was assessed.
+
+`activity-recognition` holds out whole `--group-col` groups (or, without it,
+whole label segments) before selecting the window size on the remaining data,
+and reports the held-out score. `eval.json` includes
+`details.chance_balanced_accuracy`. The held-out fraction may exceed
+`--test-size` to retain at least two test classes with training support.
+`--balance` and `--max-windows-per-segment` apply to final training windows;
+the held-out windows retain their original distribution. Changing group
+assignments or the group column invalidates `--resume`. Windows never span groups, and with
+`--labeling majority` training windows that share samples with test windows
+are purged. `forecast-series` flags `irregular_sampling` when the time column
+has gaps.
 
 If you omit `--output-dir`, workflows create a unique run directory under
 `outputs/<workflow>/` and write `run_manifest.json` plus the generated
@@ -122,7 +155,50 @@ floating-point roundoff can conservatively cause timestamps to be omitted.
 ## Running tools directly
 
 Use `ts-agents tool run <tool>` to call any individual tool from the command
-line.
+line. For tools with a `series` parameter, `--input` loads it from a file:
+
+- `--input` accepts CSV, TSV, parquet, JSON, and JSONL; `--value-col` picks
+  the column (inferred when there is a single numeric column).
+- `--time-col` orders rows, rejects duplicate times, and reports sampling in
+  `input.series.time_axis`. Gaps or irregular steps add `input.warnings` and
+  make `quality_status` `review`.
+- For a regular numeric time column, tools with a `sample_rate` parameter get
+  `sample_rate = 1 / step` unless you pass one
+  (`input.series.sample_rate_source`). Periods and frequencies are then in
+  time-column units. Datetime axes stay in samples.
+- Univariate tools reject multichannel arrays, non-finite values, and inputs
+  too short for the method with `ok: false`; they never flatten channels or
+  return an empty answer for a failed computation.
+- `quality_status` is always set for tool runs: `ok`, or `review` when
+  `result.warnings` or `input.warnings` are present.
+- Numeric arrays longer than 16 values are echoed in `input.params` as
+  `{summary, shape, dtype, sha256, head, tail}` instead of raw values. Ragged
+  or object sequences are summarized recursively; long sequences use
+  `{summary, length, sha256, head, tail}`. These summaries describe inputs;
+  the tool still receives their full values.
+
+Method-specific contracts:
+
+- `segment_changepoint` standardizes the series by a robust noise scale, so
+  changepoints do not depend on units. The default cost is `normal`, and the
+  default penalty is `3·log(n)` (`2·log(n)` for `rbf`) times `(1+ρ)/(1−ρ)` for
+  lag-1 autocorrelation ρ. Above 500 samples, candidates use `jump = ceil(n/500)`.
+  The result reports the algorithm that actually ran (`method`,
+  `requested_method`) and the effective `settings`.
+- `detect_periodicity` tests detrended spectral peaks against an AR(1)
+  background and requires an autocorrelation peak at the same lag and at least
+  `min_cycles` (default 3) cycles. `detected`, `p_value`, and
+  `candidate_period` describe the outcome. STL/MSTL/Holt-Winters auto-period
+  use the same test and fail rather than guess.
+- `find_discords`/`find_motifs` default `exclusion_zone` to `m`; discords carry
+  `robust_z` (distance in MAD units from the profile median). Top-k discords
+  always exist, so judge them by `robust_z`.
+- `analyze_recurrence` reports decimation (`downsample_step`) and returns the
+  matrix only with `include_matrix=true`; `analyze_matrix_profile` returns the
+  full profile only with `include_profile=true`.
+- Classifiers report accuracy, balanced accuracy, macro-F1, and a confusion
+  matrix. `compare_classifiers` ranks by `rank_metric` (default
+  `balanced_accuracy`), and unknown ROCKET variants are rejected.
 
 Classification comparisons retain the requested and actual method plus fallback
 warnings. A missing optional classifier can use a documented fallback, but its
@@ -132,15 +208,29 @@ produce predictions, the call fails. `hivecote_classify` exposes
 different model-fitting budget is authorized.
 
 ```bash
-# STL decomposition
-uv run ts-agents tool run stl_decompose_with_data \
-  --run Re200Rm200 --var bx001_real
+# Significant periodicity in time units (2 Hz sine → period 0.5 s)
+uv run ts-agents tool run detect_periodicity \
+  --input data/synthetic_signals.csv --time-col t --value-col periodic --json
+
+# Change-points (expect ~1000 and ~2000)
+uv run ts-agents tool run segment_changepoint \
+  --input data/synthetic_signals.csv --value-col regime --json
+
+# Discords (the flatlined segment starts near 1500)
+uv run ts-agents tool run find_discords \
+  --input data/synthetic_signals.csv --value-col anomaly --param m=100 --json
+
+# STL decomposition with an explicit period
+uv run ts-agents tool run stl_decompose \
+  --input data/synthetic_signals.csv --value-col periodic --param period=25 --json
 
 # Theta forecast with a custom horizon
-uv run ts-agents tool run forecast_theta_with_data \
-  --run Re200Rm200 --var bx001_real \
-  --param horizon=30 \
-  --json
+uv run ts-agents tool run forecast_theta \
+  --input data/synthetic_signals.csv --value-col periodic --param horizon=25 --json
+
+# Two aligned series for coherence (no `series` parameter, so use JSON)
+uv run ts-agents tool run compute_coherence \
+  --input-json '{"series1":[0,1,0,-1,0,1,0,-1],"series2":[1,0,-1,0,1,0,-1,0]}' --json
 
 # Window-size selection with multiple params
 uv run ts-agents tool run select_window_size_from_csv \
@@ -159,9 +249,9 @@ Forecasting tools for agents (all VERY_HIGH cost):
 ```bash
 # Zero-shot foundation-model point forecast (foundation extra; default model chronos2_small).
 # VERY_HIGH cost tools need --approve, otherwise they fail with permission_denied (exit 7).
-uv run ts-agents tool show forecast_foundation_with_data --json
-uv run ts-agents tool run forecast_foundation_with_data \
-  --run Re200Rm200 --var bx001_real \
+uv run ts-agents tool show forecast_foundation --json
+uv run ts-agents tool run forecast_foundation \
+  --input data/synthetic_signals.csv --value-col periodic \
   --param horizon=12 --param model=chronos2_small --approve --json
 
 # Run the forecast-panel workflow from a long-format file; output_dir defaults
@@ -173,8 +263,9 @@ Key flags:
 
 | Flag | Purpose |
 |------|---------|
-| `--run` | Run ID |
-| `--var` | Variable name |
+| `--input` | File supplying the `series` parameter |
+| `--value-col` / `--time-col` | Columns for `--input` |
+| `--input-json` / `--stdin` | JSON object of parameters |
 | `--param key=value` | Tool parameter (repeatable) |
 | `--json` | JSON output |
 | `--approve` | Approve very-high-cost tools |
@@ -187,30 +278,28 @@ error envelope and a nonzero exit code.
 
 Workflow commands already write artifact files under `--output-dir`, or to an
 auto-generated run directory when you omit that flag. Read `run_manifest.json`
-inside the workflow output directory to enumerate the generated artifacts. Use
-the lower-level `tool run` path below when you want a machine-readable record
-of a specific plot-producing tool response:
+inside the workflow output directory to enumerate the generated artifacts.
+Tools return data rather than plots; `--save` records the exact envelope:
 
 ```bash
-uv run ts-agents tool run stl_decompose_with_data \
-  --run Re200Rm200 --var bx001_real \
-  --json \
-  --save outputs/Re200Rm200/stl.json
+uv run ts-agents tool run stl_decompose \
+  --input data/synthetic_signals.csv --value-col periodic --param period=25 \
+  --json --save outputs/stl.json
 ```
 
-Read the saved tool JSON and use `result.artifacts[*].path` for the generated PNG
-paths. `--extract-images` only unwraps legacy `[IMAGE_DATA:...]` tokens from
-older compatibility outputs. Forecasting `forecast_*_with_data` wrappers no
-longer embed plots; treat them as structured numeric compatibility tools. Use
-`workflow run forecast-series --output-dir ...` when you want forecast
-PNG/CSV/report artifacts.
+`--extract-images` only unwraps legacy `[IMAGE_DATA:...]` tokens from older
+saved outputs. Use `workflow run ... --output-dir ...` when you want PNG, CSV,
+and report artifacts.
 
 ## Execution quality and input ordering
 
 Single-series inputs with time coordinates are sorted chronologically together
-with their values. Duplicate, missing, or invalid times and multiple IDs are
-rejected. Numeric coordinates retain their units; bare arrays retain row order.
-Select one series explicitly or use `forecast-panel` for multiple series.
+with their values; `time_axis.reordered` records when that happened. Duplicate,
+missing, or invalid times and multiple IDs are rejected. Numeric coordinates
+keep their own units (they are not reinterpreted as dates); results report
+periods, windows, and indices in samples unless `sample_rate` was derived from
+a regular numeric time column. Bare arrays retain row order. Select one series
+explicitly or use `forecast-panel` for multiple series.
 
 Ensembles reject empty, unknown, or missing requested members and incomplete or
 nonfinite forecasts. Legacy comparisons retain their MAE ranking; workflows
@@ -229,7 +318,9 @@ or Python `ExecutionResult.metadata` carries `fallback_used` and backend names.
 Deterministic validation errors are not retryable with unchanged inputs.
 
 Built-in `agent run`, UI/hosted entrypoints, and LLM report generation were
-removed in 0.4.0. Use an external agent with CLI/skills. Legacy demos run scripted.
+removed in 0.4.0. The `run`/`demo` aliases and the bundled-data `*_with_data`
+tools were removed in 0.5.0; use `tool run <tool> --input <file>` and
+`workflow run`.
 
 ## Sandbox modes
 
@@ -237,14 +328,17 @@ Control where tool code executes with `--sandbox`:
 
 ```bash
 # Default — in-process, no isolation
-uv run ts-agents tool run stl_decompose_with_data --run Re200Rm200 --var bx001_real
+uv run ts-agents tool run stl_decompose \
+  --input data/synthetic_signals.csv --value-col periodic --param period=25
 
-# Separate Python process
-uv run ts-agents tool run stl_decompose_with_data --run Re200Rm200 --var bx001_real \
+# Separate Python process (the file is read on the host; values are passed in)
+uv run ts-agents tool run stl_decompose \
+  --input data/synthetic_signals.csv --value-col periodic --param period=25 \
   --sandbox subprocess
 
 # Docker container (requires: ./build_docker_sandbox.sh)
-uv run ts-agents tool run stl_decompose_with_data --run Re200Rm200 --var bx001_real \
+uv run ts-agents tool run stl_decompose \
+  --input data/synthetic_signals.csv --value-col periodic --param period=25 \
   --sandbox docker
 ```
 
@@ -258,8 +352,11 @@ uv run ts-agents tool run stl_decompose_with_data --run Re200Rm200 --var bx001_r
 
 You can also set the default via the `TS_AGENTS_SANDBOX_MODE` environment variable.
 
-## Compatibility note
+## Removed in 0.5.0
 
-`ts-agents run ...` and `ts-agents demo ...` still work for one release cycle
-to avoid breaking existing scripts, but both surfaces now emit deprecation
-warnings. Use `tool run` and `workflow run` in new automation and docs.
+| Removed | Use instead |
+| --- | --- |
+| `ts-agents run <tool>` | `ts-agents tool run <tool>` |
+| `ts-agents demo ...` | `bash demo/run_demo*.sh` (source checkout) or `workflow run ...` |
+| `tool run <x>_with_data --run R --var V` | `tool run <x> --input file --value-col V [--time-col t]` |
+| `demo`, `demo_windowing`, `demo_forecasting` bundles | `minimal`, `standard`, `full`, or a category bundle |

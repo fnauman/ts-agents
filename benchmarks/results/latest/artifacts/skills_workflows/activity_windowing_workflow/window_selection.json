@@ -1,5 +1,6 @@
 {
   "method": "window_size_selection",
+  "warnings": [],
   "best_window_size": 8,
   "metric": "balanced_accuracy",
   "scores_by_window": {
@@ -7,8 +8,8 @@
     "16": 1.0
   },
   "n_windows_by_window": {
-    "8": 114,
-    "16": 54
+    "8": 76,
+    "16": 36
   },
   "details": {
     "candidates": [
@@ -21,17 +22,54 @@
     "max_windows_per_segment": 25,
     "n_splits": 3,
     "test_size": 0.25,
+    "all_classes": [
+      "idle",
+      "walk"
+    ],
+    "selection_rule": "best_score_with_all_classes",
+    "random_state": 1337,
+    "grouped": true,
     "split_scores": {
       "8": [
-        1.0,
-        1.0,
         1.0
       ],
       "16": [
-        1.0,
-        1.0,
         1.0
       ]
+    },
+    "window_diagnostics": {
+      "8": {
+        "window_size": 8,
+        "stride": 4,
+        "n_windows": 76,
+        "class_counts": {
+          "idle": 30,
+          "walk": 46
+        },
+        "retained_classes": [
+          "idle",
+          "walk"
+        ],
+        "dropped_classes": [],
+        "retained_class_fraction": 1.0,
+        "valid_split_count": 1
+      },
+      "16": {
+        "window_size": 16,
+        "stride": 8,
+        "n_windows": 36,
+        "class_counts": {
+          "idle": 14,
+          "walk": 22
+        },
+        "retained_classes": [
+          "idle",
+          "walk"
+        ],
+        "dropped_classes": [],
+        "retained_class_fraction": 1.0,
+        "valid_split_count": 1
+      }
     }
   }
 }

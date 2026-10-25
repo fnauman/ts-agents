@@ -185,3 +185,10 @@ def test_fallback_quality_requires_review():
     envelope = _success_envelope(args, raw)
     assert envelope.result == raw and envelope.requires_review is True
     assert envelope.execution.metadata["fallback_used"] is True
+
+    args._ts_execution_result = None
+    for result in ({"status": "ok", "warnings": ["Backend warning"]},
+                   {"status": "ok", "data": {"quality_flags": ["uncertain"]}}):
+        envelope = _success_envelope(args, result)
+        assert envelope.requires_review is True
+        assert envelope.quality_status == "review"

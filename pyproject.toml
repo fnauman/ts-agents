@@ -115,8 +115,6 @@ include = ["ts_agents*"]
 ts_agents = [
     "py.typed",
     "resources/data/*",
-    "resources/demo/*",
-    "resources/demo/assets/*",
     "resources/skills/*",
     "resources/skills/*/*",
 ]

@@ -9,6 +9,17 @@ import numpy as np
 from scipy import signal
 
 from ..base import CoherenceResult
+from ..validation import as_univariate_series
+
+
+def _paired_series(series1, series2):
+    s1 = as_univariate_series(series1, name="series1", min_length=2)
+    s2 = as_univariate_series(series2, name="series2", min_length=2)
+    if len(s1) != len(s2):
+        raise ValueError(
+            f"series1 and series2 must be aligned and equal in length; got {len(s1)} and {len(s2)}."
+        )
+    return s1, s2
 
 
 def _resolve_nperseg(length: int, nperseg: Optional[int]) -> int:
@@ -59,15 +70,10 @@ def compute_coherence(
     >>> result = compute_coherence(x, y)
     >>> print(f"Mean coherence: {result.mean_coherence:.3f}")
     """
-    series1 = np.asarray(series1, dtype=np.float64).flatten()
-    series2 = np.asarray(series2, dtype=np.float64).flatten()
-
-    # Ensure same length
-    min_len = min(len(series1), len(series2))
-    s1 = series1[:min_len]
-    s2 = series2[:min_len]
-
-    nperseg = _resolve_nperseg(min_len, nperseg)
+    s1, s2 = _paired_series(series1, series2)
+    if not np.isfinite(sample_rate) or sample_rate <= 0:
+        raise ValueError("sample_rate must be finite and positive.")
+    nperseg = _resolve_nperseg(len(s1), nperseg)
 
     # Compute coherence
     freqs, coh = signal.coherence(s1, s2, fs=sample_rate, nperseg=nperseg)
@@ -124,14 +130,8 @@ def compute_cross_spectrum(
     csd : np.ndarray
         Cross spectral density (complex)
     """
-    series1 = np.asarray(series1, dtype=np.float64).flatten()
-    series2 = np.asarray(series2, dtype=np.float64).flatten()
-
-    min_len = min(len(series1), len(series2))
-    s1 = series1[:min_len]
-    s2 = series2[:min_len]
-
-    nperseg = _resolve_nperseg(min_len, nperseg)
+    s1, s2 = _paired_series(series1, series2)
+    nperseg = _resolve_nperseg(len(s1), nperseg)
 
     freqs, csd = signal.csd(s1, s2, fs=sample_rate, nperseg=nperseg)
 
@@ -166,14 +166,8 @@ def compute_phase_coherence(
     coherence : np.ndarray
         Coherence values
     """
-    series1 = np.asarray(series1, dtype=np.float64).flatten()
-    series2 = np.asarray(series2, dtype=np.float64).flatten()
-
-    min_len = min(len(series1), len(series2))
-    s1 = series1[:min_len]
-    s2 = series2[:min_len]
-
-    nperseg = _resolve_nperseg(min_len, nperseg)
+    s1, s2 = _paired_series(series1, series2)
+    nperseg = _resolve_nperseg(len(s1), nperseg)
 
     # Compute cross spectrum
     freqs, csd = signal.csd(s1, s2, fs=sample_rate, nperseg=nperseg)

@@ -267,10 +267,11 @@ def test_foundation_agent_tools_reuse_one_bounded_model(fake_darts, monkeypatch)
         assert len(foundation._MODEL_CACHE) == 1
     assert len(FakeModel.instances) == 1
 
-    monkeypatch.setattr(agent_tools, "_get_series_data", lambda variable, run: np.arange(40.0))
-    payload = agent_tools.forecast_foundation_with_data("bx001_real", "Re200Rm200", horizon=4)
-    assert payload.data["foundation_model"]["output_chunk_length"] == 4
+    # A different configuration evicts the cached model instead of growing the cache.
+    result = agent_tools.forecast_foundation(np.arange(40.0), horizon=4)
+    assert len(result.forecast) == 4
     assert len(foundation._MODEL_CACHE) == 1
+    assert len(FakeModel.instances) == 2
 
 
 def test_dropped_models_in_reference_cycles_are_freed(fake_darts):
@@ -303,7 +304,7 @@ def test_weights_unavailable_maps_to_typed_backend_unavailable_error():
     from ts_agents.tools.executor import ToolError, ToolErrorCode
 
     exc = foundation.FoundationModelUnavailableError("weights for x are not cached; pre-populate HF_HOME")
-    error = ToolError.from_exception(exc, tool_name="forecast_foundation_with_data")
+    error = ToolError.from_exception(exc, tool_name="forecast_foundation")
     assert error.code == ToolErrorCode.BACKEND_UNAVAILABLE
     assert error.recoverable is True
     assert "HF_HOME" in error.hint

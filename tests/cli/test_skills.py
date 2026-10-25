@@ -99,6 +99,27 @@ def test_skills_validate_fails_for_invalid_skill(tmp_path, capsys):
     assert "broken" in payload["error"]["details"]["errors"]
 
 
+def test_skills_validate_rejects_unknown_tool_and_workflow_references(tmp_path):
+    from ts_agents.cli.skills import validate_skill
+
+    skill_dir = tmp_path / "stale"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: stale\ndescription: Stale references.\nmetadata:\n  ts_agents:\n"
+        "    preferred_tools: [describe_series_with_data]\n    preferred_workflow: forecast\n---\n\n"
+        "# Stale\n\n## When to use\nNever.\n\n## Workflow\n```bash\n"
+        "ts-agents tool run stl_decompose_with_data --input data.csv\n"
+        "ts-agents tool run find_discords --input data.csv --value-col value\n```\n"
+    )
+
+    errors = validate_skill(skill_dir)
+
+    assert any("unknown tool 'describe_series_with_data'" in error for error in errors)
+    assert any("unknown workflow 'forecast'" in error for error in errors)
+    assert any("unknown tool 'stl_decompose_with_data'" in error for error in errors)
+    assert not any("find_discords" in error for error in errors)
+
+
 def test_bundled_skills_validate_and_match_packaged_mirror(capsys):
     assert run(["skills", "validate", "--json"]) == 0
     capsys.readouterr()

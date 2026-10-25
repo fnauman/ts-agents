@@ -8,10 +8,19 @@ from ts_agents.core.recommendations import recommend_forecasting_method
     [
         (
             {"length": 96, "std": 1.2},
-            {"dominant_period": 24.0, "confidence": 0.72},
+            {"dominant_period": 24.0, "confidence": 0.72, "detected": True},
             [1.0, 0.31, 0.12],
             ["seasonal_naive", "theta", "ets", "arima"],
             "seasonal_naive",
+        ),
+        (
+            # A large power share without a significant, confirmed period is
+            # not seasonality (e.g. a trend or random walk).
+            {"length": 96, "std": 1.2},
+            {"dominant_period": None, "candidate_period": 96.0, "confidence": 0.72, "detected": False},
+            [1.0, 0.31, 0.12],
+            ["seasonal_naive", "theta", "ets", "arima"],
+            "theta",
         ),
         (
             {"length": 48, "std": 0.8},
@@ -22,7 +31,7 @@ from ts_agents.core.recommendations import recommend_forecasting_method
         ),
         (
             {"length": 18, "std": 0.4},
-            {"dominant_period": 12.0, "confidence": 0.4},
+            {"dominant_period": 12.0, "confidence": 0.4, "detected": True},
             [1.0, 0.2, 0.1],
             ["seasonal_naive"],
             "seasonal_naive",

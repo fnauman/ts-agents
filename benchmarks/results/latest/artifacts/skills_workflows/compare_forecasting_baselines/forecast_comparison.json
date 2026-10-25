@@ -1,10 +1,16 @@
 {
   "category": "forecasting",
   "methods": [
+    "seasonal_naive",
     "arima",
     "theta"
   ],
   "metrics": {
+    "seasonal_naive": {
+      "mae": 2.84452,
+      "rmse": 3.1172329152631506,
+      "mape": 15.309868478914163
+    },
     "arima": {
       "mae": 0.026377327180939148,
       "rmse": 0.031722983195547755,
@@ -17,22 +23,26 @@
     }
   },
   "rankings": {
-    "mae": [
-      "arima",
-      "theta"
-    ],
     "rmse": [
       "arima",
-      "theta"
+      "theta",
+      "seasonal_naive"
     ],
     "mape": [
       "arima",
-      "theta"
+      "theta",
+      "seasonal_naive"
+    ],
+    "mae": [
+      "arima",
+      "theta",
+      "seasonal_naive"
     ]
   },
-  "recommendation": "## Forecasting Method Comparison\n\n**Recommended: ARIMA** (RMSE: 0.0317)\n\n### Accuracy Metrics:\n- **arima**: MAE=0.0264, RMSE=0.0317, MAPE=0.1%\n- **theta**: MAE=0.1208, RMSE=0.1621, MAPE=0.6%\n\n### Method Notes:\n- **ARIMA**: Best for non-seasonal or differenced series\n- **Theta**: Simple but effective, won M3 competition",
+  "recommendation": "## Forecasting Method Comparison\n\n**Recommended: ARIMA** (RMSE: 0.0317)\n\n### Accuracy Metrics:\n- **seasonal_naive**: MAE=2.8445, RMSE=3.1172, MAPE=15.3%\n- **arima**: MAE=0.0264, RMSE=0.0317, MAPE=0.1%\n- **theta**: MAE=0.1208, RMSE=0.1621, MAPE=0.6%\n\n### Method Notes:\n- **Seasonal Naive**: Strong baseline that repeats the last observed seasonal cycle\n- **ARIMA**: Best for non-seasonal or differenced series\n- **Theta**: Simple but effective, won M3 competition",
   "computation_times": {
-    "arima": 0.060938119888305664,
-    "theta": 0.0018546581268310547
+    "seasonal_naive": 0.0016100406646728516,
+    "arima": 0.0557408332824707,
+    "theta": 0.0016171932220458984
   }
 }

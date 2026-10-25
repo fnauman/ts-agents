@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from ..base import DecompositionResult
+from ..validation import as_univariate_series
 
 
 def _get_stl() -> type:
@@ -38,7 +39,9 @@ def stl_decompose(
     series : np.ndarray
         1D time series data
     period : int, optional
-        Seasonal period. If None, auto-detected via FFT.
+        Seasonal period in samples. If None, it is auto-detected with
+        :func:`ts_agents.core.spectral.detect_periodicity`; a ``ValueError``
+        is raised when no significant period exists.
     robust : bool
         Use robust fitting (resistant to outliers). Default True.
     seasonal : int
@@ -64,14 +67,8 @@ def stl_decompose(
     >>> result = stl_decompose(x, period=100)
     >>> print(f"Residual variance: {result.residual_variance:.4f}")
     """
-    series = np.asarray(series, dtype=np.float64).flatten()
-
-    # Auto-detect period if not provided
-    if period is None:
-        period = _detect_period(series)
-
-    # Ensure period is at least 2
-    period = max(2, period)
+    series = as_univariate_series(series, min_length=4)
+    period, period_source = _resolve_period(series, period)
 
     # Convert to pandas Series (STL requires this)
     ts = pd.Series(series)
@@ -93,32 +90,20 @@ def stl_decompose(
         seasonal=result.seasonal.values,
         residual=result.resid.values,
         period=period,
+        period_source=period_source,
     )
 
 
-def _detect_period(series: np.ndarray) -> int:
-    """Auto-detect dominant period using FFT."""
-    # Remove mean
-    sig = series - np.mean(series)
+def _resolve_period(series: np.ndarray, period: Optional[int]) -> tuple[int, str]:
+    """Validate a user period or auto-detect one with the shared estimator."""
+    if period is None:
+        from ..spectral.psd import detect_seasonal_period
 
-    # FFT
-    fft = np.fft.rfft(sig)
-    freqs = np.fft.rfftfreq(len(sig))
-    power = np.abs(fft) ** 2
-
-    # Ignore DC component
-    power[0] = 0
-
-    # Find dominant frequency
-    peak_idx = np.argmax(power)
-    dominant_freq = freqs[peak_idx]
-
-    if dominant_freq > 0:
-        period = int(1 / dominant_freq)
-    else:
-        period = len(series) // 10  # fallback
-
-    # Clamp to reasonable range
-    period = max(2, min(period, len(series) // 2))
-
-    return period
+        detected, _ = detect_seasonal_period(series)
+        return detected, "auto"
+    period = int(period)
+    if period < 2 or period > len(series) // 2:
+        raise ValueError(
+            f"period must be between 2 and half the series length ({len(series) // 2}); got {period}."
+        )
+    return period, "user"

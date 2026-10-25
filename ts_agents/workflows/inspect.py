@@ -31,18 +31,49 @@ def run_inspect_series_workflow(
     output_dir_mode: str = "explicit",
     defer_finalization: bool = False,
 ) -> ToolPayload:
-    """Run a lightweight diagnostics workflow on an arbitrary series."""
+    """Run task-neutral diagnostics on a series and suggest next steps.
+
+    Reports data quality (sampling, gaps, reordering), descriptive statistics,
+    significance-tested periodicity, autocorrelation, a quick regime screen
+    (when the patterns extra is installed), and next steps across task
+    families. A forecasting start method is included as one section.
+    """
     from ts_agents.core.recommendations import recommend_forecasting_method
     from ts_agents.core.spectral import detect_periodicity
+    from ts_agents.core.spectral.psd import MIN_PERIODICITY_SAMPLES
     from ts_agents.core.statistics import compute_autocorrelation, describe_series
 
     workflow_name = "inspect-series"
     output_path = ensure_output_dir(output_dir)
-    stats = describe_series(series_input.series, extended=True)
-    periodicity = detect_periodicity(series_input.series, top_n=3)
+    series = series_input.series
+    n = len(series)
+    time_axis = series_input.time_axis
+    warnings: List[str] = list((time_axis or {}).get("warnings") or [])
+    quality_flags: List[str] = []
+    if time_axis and time_axis.get("regular") is False:
+        quality_flags.append("irregular_sampling")
+    if time_axis and time_axis.get("reordered"):
+        quality_flags.append("input_reordered")
 
-    resolved_max_lag = max_lag if max_lag is not None else min(64, max(8, len(series_input.series) // 4))
-    acf = compute_autocorrelation(series_input.series, max_lag=resolved_max_lag)
+    stats = describe_series(series, extended=True)
+
+    periodicity = None
+    if n >= MIN_PERIODICITY_SAMPLES and stats.std > 0:
+        periodicity = detect_periodicity(series, top_n=3)
+        warnings.extend(w for w in periodicity.warnings if w not in warnings)
+        if not periodicity.assessed:
+            quality_flags.append("periodicity_not_assessed")
+    else:
+        reason = "constant" if stats.std == 0 else f"shorter than {MIN_PERIODICITY_SAMPLES} samples"
+        warnings.append(f"Periodicity not assessed: series is {reason}.")
+        quality_flags.append("periodicity_not_assessed")
+
+    resolved_max_lag = max_lag if max_lag is not None else min(64, max(8, n // 4))
+    acf = np.array([1.0])
+    if stats.std > 0 and n >= 2:
+        acf = compute_autocorrelation(series, max_lag=resolved_max_lag)
+    regime_screen = _regime_screen(series)
+    warnings.extend(w for w in regime_screen.get("warnings", []) if w not in warnings)
     forecast_recommendation = recommend_forecasting_method(
         stats=stats,
         periodicity=periodicity,
@@ -53,29 +84,46 @@ def run_inspect_series_workflow(
     recommended_next_steps = _recommend_next_steps(
         periodicity=periodicity,
         acf=acf,
-        length=len(series_input.series),
+        length=n,
+        regime_screen=regime_screen,
+        time_axis=time_axis,
     )
     effective_max_lag = max(len(acf) - 1, 0)
     lag_one = float(acf[1]) if len(acf) > 1 else None
+    periodicity_payload = to_jsonable(periodicity) if periodicity is not None else {
+        "detected": False,
+        "dominant_period": None,
+        "assessed": False,
+    }
+    if periodicity is not None:
+        periodicity_payload["period_unit"] = "samples"
+        sample_rate = (time_axis or {}).get("sample_rate")
+        if sample_rate and periodicity.dominant_period:
+            periodicity_payload["dominant_period_time"] = periodicity.dominant_period / sample_rate
+            periodicity_payload["time_unit"] = (time_axis or {}).get("step_unit")
     ledger_entries = _build_analysis_ledger(
         stats=to_jsonable(stats),
-        periodicity=to_jsonable(periodicity),
+        periodicity=periodicity_payload,
         lag_one=lag_one,
         forecast_recommendation=forecast_recommendation,
     )
     summary_data = {
         "workflow": workflow_name,
         "source": series_input.provenance.get("series_ref", {}),
-        "series_length": int(len(series_input.series)),
+        "series_length": int(n),
+        "time_axis": time_axis,
         "stats": to_jsonable(stats),
-        "periodicity": to_jsonable(periodicity),
+        "periodicity": periodicity_payload,
         "autocorrelation": {
             "max_lag": int(effective_max_lag),
             "requested_max_lag": int(resolved_max_lag),
             "lag_1": lag_one,
         },
-        "forecast_recommendation": to_jsonable(forecast_recommendation),
+        "regime_screen": regime_screen,
+        "quality_flags": quality_flags,
+        "warnings": warnings,
         "recommended_next_steps": recommended_next_steps,
+        "forecast_recommendation": to_jsonable(forecast_recommendation),
         "output_dir": str(output_path),
     }
 
@@ -92,7 +140,6 @@ def run_inspect_series_workflow(
             created_by=workflow_name,
         ),
     ]
-    warnings: List[str] = []
 
     if not skip_plots:
         try:
@@ -118,10 +165,8 @@ def run_inspect_series_workflow(
 
     report = _build_report(
         series_input=series_input,
-        stats=summary_data["stats"],
-        periodicity=summary_data["periodicity"],
-        forecast_recommendation=summary_data["forecast_recommendation"],
-        recommended_next_steps=recommended_next_steps,
+        summary_data=summary_data,
+        warnings=warnings,
     )
     artifacts.append(
         write_text_artifact(
@@ -133,13 +178,19 @@ def run_inspect_series_workflow(
     )
 
     dominant_period = summary_data["periodicity"].get("dominant_period")
-    lag_one = summary_data["autocorrelation"].get("lag_1")
-    recommended_method = summary_data["forecast_recommendation"].get("choice")
+    period_text = (
+        f"significant period {_format_number(dominant_period)} samples"
+        if dominant_period is not None
+        else "no significant periodicity"
+    )
+    regime_text = (
+        f"{len(regime_screen['changepoints'])} candidate regime change(s)"
+        if regime_screen.get("ran")
+        else "regime screen skipped"
+    )
     summary = (
-        f"Inspect-series workflow completed for {series_input.label}. "
-        f"Dominant period: {_format_number(dominant_period)}; "
-        f"lag-1 autocorrelation: {_format_number(lag_one)}; "
-        f"forecast start: {recommended_method or 'n/a'}."
+        f"Inspect-series workflow completed for {series_input.label}: {period_text}; "
+        f"lag-1 autocorrelation {_format_number(lag_one)}; {regime_text}."
     )
     payload = ToolPayload(
         kind="workflow",
@@ -175,27 +226,68 @@ def _available_forecasting_methods() -> list[str]:
     return normalized or ["seasonal_naive"]
 
 
+def _regime_screen(series: np.ndarray) -> dict[str, Any]:
+    """Quick scale-invariant change-point screen; skipped without the patterns extra."""
+    try:
+        from ts_agents.core.patterns import segment_changepoint
+
+        result = segment_changepoint(series)
+    except ImportError:
+        return {"ran": False, "reason": "ruptures is not installed (ts-agents[patterns])."}
+    except ValueError as exc:
+        return {"ran": False, "reason": str(exc)}
+    return {
+        "ran": True,
+        "method": result.method,
+        "changepoints": [int(cp) for cp in result.changepoints],
+        "settings": to_jsonable(result.settings),
+        "warnings": list(result.warnings),
+    }
+
+
 def _recommend_next_steps(
     *,
     periodicity: Any,
     acf: np.ndarray,
     length: int,
+    regime_screen: Optional[dict[str, Any]] = None,
+    time_axis: Optional[dict[str, Any]] = None,
 ) -> List[str]:
     steps: List[str] = []
-    if getattr(periodicity, "confidence", 0.0) >= 0.2 and getattr(periodicity, "dominant_period", 0.0) > 1:
+    if time_axis and time_axis.get("regular") is False:
         steps.append(
-            f"Run forecast-series with a horizon aligned to the detected period (~{periodicity.dominant_period:.1f})."
+            "Resolve irregular sampling or gaps before spectral, decomposition, or forecasting steps; "
+            "they assume equally spaced samples."
         )
+    period = getattr(periodicity, "dominant_period", None) if periodicity is not None else None
+    if period is not None:
+        rounded = max(2, int(round(period)))
+        steps.append(
+            f"Decompose with stl_decompose --param period={rounded} to separate trend, seasonality, and residual."
+        )
+        steps.append(
+            f"For anomalies, run find_discords with m near the period ({rounded} samples) and judge results by robust_z."
+        )
+        steps.append(
+            f"For forecasting, run forecast-series with --season-length {rounded} and a horizon of at least one period."
+        )
+    else:
+        steps.append(
+            "No significant periodicity: use find_discords with an event-length m for anomalies, and "
+            "non-seasonal baselines if forecasting."
+        )
+    if regime_screen and regime_screen.get("ran") and regime_screen.get("changepoints"):
+        steps.append(
+            "Candidate regime changes at samples "
+            f"{regime_screen['changepoints'][:10]}: analyze segments separately (segment_changepoint) "
+            "before fitting one model to the whole series."
+        )
+    elif regime_screen and not regime_screen.get("ran"):
+        steps.append(f"Regime screen skipped ({regime_screen.get('reason')}).")
     if len(acf) > 1 and abs(float(acf[1])) >= 0.5:
-        steps.append("Inspect decomposition or changepoints because the series shows strong short-lag dependence.")
+        steps.append("Strong short-lag dependence: residual-based anomaly checks should use decomposition residuals.")
     if length < 64:
-        steps.append("Treat periodicity findings as low-confidence because the series is short.")
-        steps.append(
-            "For short histories, compare forecast-series --methods seasonal_naive,chronos2_small "
-            "(zero-shot foundation model; needs ts-agents[foundation])."
-        )
-    if not steps:
-        steps.append("Use forecast-series as the next baseline workflow if forecasting is the downstream task.")
+        steps.append("The series is short; treat all diagnostics as low-confidence.")
     return steps
 
 
@@ -220,7 +312,7 @@ def _build_analysis_ledger(
             value=periodicity.get("dominant_period"),
             confidence=_optional_float(periodicity.get("confidence")),
             evidence=["summary.json#periodicity"],
-            notes="Dominant FFT-derived period estimate from inspect-series.",
+            notes="Period that passed the red-noise significance test (null when none did).",
         ),
         AnalysisLedgerEntry(
             kind="finding",
@@ -248,35 +340,56 @@ def _build_analysis_ledger(
 def _build_report(
     *,
     series_input: SeriesInput,
-    stats: dict[str, Any],
-    periodicity: dict[str, Any],
-    forecast_recommendation: dict[str, Any],
-    recommended_next_steps: List[str],
+    summary_data: dict[str, Any],
+    warnings: List[str],
 ) -> str:
+    stats = summary_data["stats"]
+    periodicity = summary_data["periodicity"]
+    forecast_recommendation = summary_data["forecast_recommendation"]
+    regime = summary_data["regime_screen"]
+    time_axis = summary_data.get("time_axis") or {}
     top_periods = periodicity.get("top_periods") or []
-    next_steps_lines = [f"- {step}" for step in recommended_next_steps]
     rationale = forecast_recommendation.get("rationale") or []
-    rationale_lines = [f"- {item}" for item in rationale]
+    if regime.get("ran"):
+        regime_text = f"{regime.get('changepoints')} ({regime.get('method')})"
+    else:
+        regime_text = f"skipped: {regime.get('reason')}"
+    if time_axis:
+        sampling_text = (
+            f"{'regular' if time_axis.get('regular') else 'irregular'}; median step "
+            f"{_format_number(time_axis.get('median_step'))} {time_axis.get('step_unit', '')}; "
+            f"gaps {time_axis.get('gap_count', 0)}"
+        )
+    else:
+        sampling_text = "no time column (sample index)"
     return "\n".join(
         [
             "### Report on Inspect-Series Workflow",
             "",
+            "#### Data",
             f"- **Source**: `{series_input.label}`",
-            f"- **Length**: {stats.get('length')}",
-            f"- **Mean**: {_format_number(stats.get('mean'))}",
-            f"- **Std**: {_format_number(stats.get('std'))}",
+            f"- **Length**: {stats.get('length')} (non-finite dropped: {stats.get('nan_count', 0)})",
+            f"- **Sampling**: {sampling_text}",
+            f"- **Mean / Std**: {_format_number(stats.get('mean'))} / {_format_number(stats.get('std'))}",
             f"- **Min / Max**: {_format_number(stats.get('min'))} / {_format_number(stats.get('max'))}",
-            f"- **Dominant Period**: {_format_number(periodicity.get('dominant_period'))}",
-            f"- **Periodicity Confidence**: {_format_number(periodicity.get('confidence'))}",
-            f"- **Top Periods**: {', '.join(_format_number(value) for value in top_periods) if top_periods else 'n/a'}",
-            f"- **Forecast Start Method**: {forecast_recommendation.get('choice', 'n/a')}",
-            f"- **Recommendation Confidence**: {_format_number(forecast_recommendation.get('confidence'))}",
+            f"- **Quality Flags**: {', '.join(summary_data.get('quality_flags') or []) or 'none'}",
+            f"- **Warnings**: {'; '.join(warnings) if warnings else 'none'}",
             "",
-            "#### Forecast Recommendation Rationale",
-            *(rationale_lines or ["- n/a"]),
+            "#### Structure",
+            f"- **Significant Period (samples)**: {_format_number(periodicity.get('dominant_period'))}",
+            f"- **Periodicity p-value**: {_format_number(periodicity.get('p_value'))}",
+            f"- **Strongest Candidate (samples)**: {_format_number(periodicity.get('candidate_period'))}",
+            f"- **Significant Periods**: {', '.join(_format_number(value) for value in top_periods) if top_periods else 'none'}",
+            f"- **Lag-1 Autocorrelation**: {_format_number(summary_data['autocorrelation'].get('lag_1'))}",
+            f"- **Regime Screen**: {regime_text}",
             "",
             "#### Recommended Next Steps",
-            *next_steps_lines,
+            *[f"- {step}" for step in summary_data["recommended_next_steps"]],
+            "",
+            "#### If Forecasting",
+            f"- **Start Method**: {forecast_recommendation.get('choice', 'n/a')}",
+            f"- **Recommendation Confidence**: {_format_number(forecast_recommendation.get('confidence'))}",
+            *([f"- {item}" for item in rationale] or ["- n/a"]),
         ]
     )
 
@@ -285,7 +398,7 @@ def _format_number(value: Any) -> str:
     if value is None:
         return "n/a"
     if isinstance(value, (int, float)):
-        return f"{value:.4f}"
+        return f"{value:.4g}"
     return str(value)
 
 

@@ -43,7 +43,7 @@ uv pip install --python "$VENV/bin/python" "$WHEEL"
 cd "$VENV"
 
 "$VENV/bin/ts-agents" --help >/dev/null
-"$VENV/bin/ts-agents" tool list --bundle demo >/dev/null
+"$VENV/bin/ts-agents" tool list --bundle minimal >/dev/null
 # -I keeps the repo checkout off sys.path so the installed wheel is what
 # actually gets imported and asserted against.
 "$VENV/bin/python" -I - <<'PY'
@@ -91,6 +91,13 @@ with tempfile.TemporaryDirectory(prefix="wheel-cli-", dir=Path.cwd()) as directo
         manifest = json.loads(Path(workflow["data"]["manifest_path"]).read_text())
         assert manifest["resume_identity"]["input_sha256"]
     invoke("autoresearch", "run", "forecast-daytona", "--profile", "smoke", "--models", "seasonal_naive", "--json")
+
+    # Base-install tool run on the packaged known-answer table: a 2 Hz sine
+    # sampled at 50 Hz has a 0.5 s period once the time column sets sample_rate.
+    signals = resolve_default_data_dir() / "synthetic_signals.csv"
+    periodicity = invoke("tool", "run", "detect_periodicity", "--input", str(signals),
+                         "--time-col", "t", "--value-col", "periodic", "--json")
+    assert periodicity["detected"] and abs(periodicity["dominant_period"] - 0.5) < 0.01, periodicity
 
     # The base wheel ships no Darts: foundation models must be reported as an
     # optional feature behind the foundation extra, and the smoke loop must

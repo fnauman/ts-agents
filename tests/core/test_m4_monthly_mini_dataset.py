@@ -15,9 +15,12 @@ EXPECTED_TRAIN_LENGTHS = {
 }
 
 
+ROOT = Path(__file__).resolve().parents[2]
+
+
 def test_m4_monthly_mini_dataset_contract():
-    repo_path = Path("data/m4_monthly_mini.csv")
-    package_path = Path("ts_agents/resources/data/m4_monthly_mini.csv")
+    repo_path = ROOT / "data/m4_monthly_mini.csv"
+    package_path = ROOT / "ts_agents/resources/data/m4_monthly_mini.csv"
 
     repo_df = pd.read_csv(repo_path)
     package_df = pd.read_csv(package_path)

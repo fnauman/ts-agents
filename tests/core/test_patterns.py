@@ -100,29 +100,42 @@ class TestMatrixProfile:
 
         # Create a series with a repeating pattern
         pattern = np.sin(np.linspace(0, 2 * np.pi, 50))
-        x = np.random.randn(500)
+        x = np.random.default_rng(3).standard_normal(500)
         x[100:150] = pattern
         x[300:350] = pattern * 1.1
 
-        motifs = find_motifs(x, m=50, max_motifs=3)
+        result = find_motifs(x, m=50, max_motifs=3)
 
-        assert len(motifs) >= 1
-        assert all(m.distance >= 0 for m in motifs)
+        best = result.motifs[0]
+        assert {best.index, best.neighbor_index} == {100, 300}
+        assert result.exclusion_zone == 50
+        # The planted pair is reported once, not again as (300, 100).
+        members = [index for motif in result.motifs for index in (motif.index, motif.neighbor_index)]
+        assert sum(abs(index - 300) < 50 for index in members) == 1
+
+        # A third occurrence can still point to an already excluded neighbor.
+        from ts_agents.core.patterns.matrix_profile import _top_motifs
+        profile = np.array([[0., 3], [9., 6], [9., 6], [0., 0], [9., 0], [9., 0], [1., 0]])
+        motifs = _top_motifs(np.arange(9), profile, 2, 3, 1, False)
+        assert len(motifs) == 1
 
     def test_find_discords(self):
         """Test discord (anomaly) detection."""
         from ts_agents.core.patterns import find_discords
 
-        # Create normal series with an anomaly
-        x = np.sin(np.linspace(0, 20 * np.pi, 1000))
-        x[500:550] += 5  # Inject anomaly
+        # Two separate events; one event must not occupy several top-k slots.
+        rng = np.random.default_rng(0)
+        x = np.sin(2 * np.pi * np.arange(3000) / 100) + 0.05 * rng.standard_normal(3000)
+        x[700:705] += 3.0
+        x[2100:2130] = x[2100]
 
-        discords = find_discords(x, m=50, max_discords=3)
+        result = find_discords(x, m=40, max_discords=2)
 
-        assert len(discords) >= 1
-        # The anomaly should be one of the top discords
-        anomaly_near = any(abs(d.index - 500) < 50 for d in discords)
-        assert anomaly_near
+        assert result.exclusion_zone == 40
+        assert len(result.discords) == 2
+        assert any(abs(d.index - 700) < 40 for d in result.discords)
+        assert any(abs(d.index - 2100) < 40 for d in result.discords)
+        assert all(d.robust_z > 5 for d in result.discords)
 
     def test_analyze_matrix_profile(self):
         """Test comprehensive matrix profile analysis."""
@@ -155,6 +168,55 @@ class TestSegmentation:
         assert len(result.changepoints) == 1
         # Changepoint should be near 200
         assert 150 < result.changepoints[0] < 250
+
+    def test_segment_changepoint_default_is_scale_invariant(self):
+        """Changing units must not change the detected regimes."""
+        from ts_agents.core.patterns import segment_changepoint
+
+        rng = np.random.default_rng(0)
+        x = rng.standard_normal(900)
+        x[300:600] += 3.0
+
+        results = [segment_changepoint(x * scale) for scale in (1e-3, 1.0, 1e3)]
+
+        assert all(result.changepoints == [300, 600] for result in results)
+        assert results[0].settings["penalty_source"] == "default"
+
+    def test_segment_changepoint_finds_no_regimes_in_random_walk(self):
+        """Autocorrelation-adjusted penalties do not cut persistent noise into regimes."""
+        from ts_agents.core.patterns import segment_changepoint
+
+        walk = np.cumsum(np.random.default_rng(2).standard_normal(500))
+
+        assert segment_changepoint(walk).changepoints == []
+
+    def test_segment_changepoint_reports_substituted_algorithm(self):
+        """PELT cannot target a segment count; the result names what ran."""
+        from ts_agents.core.patterns import segment_changepoint
+
+        x = np.concatenate([np.zeros(100), np.ones(100) * 5]) + np.random.default_rng(0).normal(0, 0.1, 200)
+        result = segment_changepoint(x, n_segments=2, algorithm="pelt")
+
+        assert result.method == "changepoint_binseg"
+        assert result.requested_method == "changepoint_pelt"
+        assert result.warnings
+
+    @pytest.mark.parametrize(
+        ("series", "kwargs", "message"),
+        [
+            (np.arange(100.0), {"algorithm": "bogus"}, "Unknown algorithm"),
+            (np.arange(100.0), {"cost_model": "bogus"}, "Unknown cost_model"),
+            (np.r_[np.arange(50.0), np.nan], {}, "non-finite"),
+            (np.arange(8.0), {}, "too short"),
+            (np.ones((100, 2)), {}, "one-dimensional"),
+        ],
+    )
+    def test_segment_changepoint_rejects_invalid_input(self, series, kwargs, message):
+        """Errors fail loudly instead of returning an empty 'no changepoints' result."""
+        from ts_agents.core.patterns import segment_changepoint
+
+        with pytest.raises(ValueError, match=message):
+            segment_changepoint(series, **kwargs)
 
     def test_segment_fluss(self):
         """Test FLUSS segmentation."""
@@ -212,12 +274,14 @@ class TestSegmentation:
         assert len(result.motifs) <= 2
         assert len(result.discords) <= 2
 
-    def test_recurrence_accepts_embedding_aliases(self):
-        """Recurrence analysis should accept embedding/time-delay aliases."""
+    def test_recurrence_reports_decimation(self):
+        """Decimated recurrence input is reported, not silently substituted."""
         from ts_agents.core.patterns import analyze_recurrence
 
-        x = np.sin(np.linspace(0, 4 * np.pi, 300))
-        result = analyze_recurrence(x, embedding_dimension=3, time_delay=2, threshold=0.1)
+        x = np.sin(np.linspace(0, 40 * np.pi, 2500))
+        result = analyze_recurrence(x, max_points=1000, threshold=0.1)
 
-        assert result.method == "recurrence_plot"
-        assert 0 <= result.recurrence_rate <= 1
+        assert result.downsample_step == 3
+        assert result.n_points_used == 834
+        assert result.recurrence_matrix is None
+        assert "decimated with step 3" in result.warnings[0]

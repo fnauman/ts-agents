@@ -1,2 +1,2 @@
-"""Packaged runtime resources (skills/data/demo assets)."""
+"""Packaged runtime resources (skills and data)."""
 

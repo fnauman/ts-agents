@@ -1,9 +1,10 @@
-# Demo Scripts and Legacy Aliases
+# Demo Scripts
 
-These shell scripts and VHS tapes record short terminal demos. The synthetic
-activity-recognition and forecasting scripts use the current
-`ts-agents workflow run ...` surface. Deprecated compatibility aliases are
-documented below for older terminal flows.
+These shell scripts and VHS tapes record short terminal demos. They use the
+current `ts-agents workflow run ...` and `ts-agents tool run ...` commands.
+The `ts-agents demo ...` command, the packaged demo assets, and the `demo`,
+`demo_windowing`, and `demo_forecasting` tool bundles are removed in 0.5.0
+(unreleased); run the scripts below or the equivalent workflow commands.
 
 | Demo | Script | Tape | Output dir |
 |------|--------|------|------------|
@@ -24,11 +25,28 @@ A *30–60 second terminal walkthrough* showing:
 
 1. generating a labeled-stream dataset (synthetic stairs data by default)
 2. selecting a window size automatically
-3. evaluating a windowed classifier
+3. evaluating a windowed classifier on held-out segments
 4. producing plots, JSON outputs, a run manifest, and `report.md`
 
 ```bash
 bash demo/run_demo.sh
+```
+
+Equivalent commands:
+
+```bash
+uv run --no-sync python data/make_synthetic_labeled_stream.py \
+  --scenario stairs --hz 20 --minutes 4 --seed 1337 \
+  --out data/demo_labeled_stream.csv
+
+uv run --no-sync ts-agents workflow run activity-recognition \
+  --input data/demo_labeled_stream.csv \
+  --label-col label \
+  --value-cols x,y,z \
+  --metric balanced_accuracy \
+  --classifier auto \
+  --output-dir outputs/demo \
+  --overwrite
 ```
 
 Outputs will be written under:
@@ -41,74 +59,57 @@ Outputs will be written under:
 - `outputs/demo/report.md`
 - `outputs/demo/run_manifest.json`
 
-## Compatibility alias (synthetic, no downloads)
-
-From the repo root:
-
-```bash
-uv run ts-agents demo window-classification
-```
-
-The deprecated alias writes similar outputs under:
-
-- `data/demo_labeled_stream.csv`
-- `outputs/demo/window_selection.json`
-- `outputs/demo/window_scores.png`
-- `outputs/demo/eval.json`
-- `outputs/demo/confusion_matrix.png`
-- `outputs/demo/report.md`
-
-### Deprecated alias without an API key
-
-```bash
-uv run ts-agents demo window-classification --no-llm
-```
-
-The scripted CLI path writes the same core artifacts (including `report.md`)
-without calling an LLM.
+The synthetic stairs classes are easy to separate, so the workflow reports
+`quality_status: degraded` with the `perfect_metrics` flag. The demo shows the
+artifacts, not a realistic accuracy.
 
 ---
 
 ## Activity recognition — WISDM (real data)
 
-Same window-size selection + evaluation workflow, but using the checked-in
-WISDM accelerometer subset (2 subjects, 6 activities, ~33 k rows).
+Same window-size selection + evaluation, but using the checked-in WISDM
+accelerometer subset (2 subjects, 6 activities, ~33 k rows).
 
 ```bash
 bash demo/run_demo_wisdm.sh
 ```
 
-Outputs from the legacy shell script (under `outputs/demo_wisdm/`):
+The script calls `select_window_size_from_csv` and
+`evaluate_windowed_classifier_from_csv`, then draws the plots with
+`demo/plot_window_selection.py` and `demo/plot_confusion_matrix.py`. Outputs
+(under `outputs/demo_wisdm/`):
 
 - `window_selection.json`
 - `window_scores.png`
 - `eval.json`
 - `confusion_matrix.png`
 
-If you also want `report.md`, use the deprecated CLI alias directly:
+The script reuses the data and split used for window selection, so its score
+is exploratory and can be optimistic. It also does not pass a subject column,
+so test windows come from the same two subjects it trains on.
+For an untouched leave-subject-out score plus
+`report.md` and `run_manifest.json`, use the workflow with `--group-col`:
 
 ```bash
-uv run ts-agents demo window-classification --no-llm \
-  --no-generate \
-  --csv-path data/wisdm_subset.csv \
-  --output-dir outputs/demo_wisdm \
-  --report-path outputs/demo_wisdm/report.md
+uv run --no-sync ts-agents workflow run activity-recognition \
+  --input data/wisdm_subset.csv \
+  --label-col label \
+  --value-cols x,y,z \
+  --group-col subject_id \
+  --output-dir outputs/demo_wisdm_workflow
 ```
-
-That compatibility path writes the same core artifacts plus `outputs/demo_wisdm/report.md`.
 
 ---
 
 ## Forecasting comparison workflow
 
-Compares forecasting methods on the MHD shearing-box dataset (`data/short_real.csv`).
-
 ```bash
 bash demo/run_demo_forecasting.sh
 ```
 
-The shell script runs `workflow run forecast-series` and writes artifacts to
-`outputs/demo_forecasting/`:
+The shell script runs `workflow run forecast-series` with
+`--run-id Re200Rm200 --variable bx001_real --horizon 1 --methods arima,theta`
+and writes artifacts to `outputs/demo_forecasting/`:
 
 - `forecast_comparison.json`
 - `forecast.json`
@@ -117,40 +118,23 @@ The shell script runs `workflow run forecast-series` and writes artifacts to
 - `run_manifest.json`
 - `forecast_comparison.png` (when plotting is available)
 
-Or via the deprecated compatibility alias:
+`--run-id/--variable` reads the bundled `data/short_real.csv` smoke fixture,
+which has only 5 points per run. The demo shows the workflow's artifacts and
+status fields; it says nothing about forecast accuracy. For a longer series,
+run the same workflow on a file:
 
 ```bash
-uv run ts-agents demo forecasting --no-llm
+uv run --no-sync ts-agents workflow run forecast-series \
+  --input data/synthetic_signals.csv \
+  --time-col t \
+  --value-col periodic \
+  --horizon 25 \
+  --season-length 25 \
+  --methods seasonal_naive,theta,arima \
+  --output-dir outputs/demo_forecasting_synthetic
 ```
 
-The raw CLI alias defaults to `outputs/demo/` for workflow artifacts and
-`outputs/demo/forecasting_report.md` for the compatibility report.
-
-The CLI default method set is `arima,theta` for stable behavior on the tiny
-built-in test data. To include ETS, prefer a larger setup:
-
-```bash
-uv run ts-agents demo forecasting --full-data --horizon 12 --methods arima,ets,theta --no-llm
-```
-
-Outputs from the raw compatibility alias (under `outputs/demo/` by default):
-
-- `forecast_comparison.json`
-- `forecast.json`
-- `forecast.csv`
-- `report.md`
-- `forecasting_report.md`
-- `forecast_comparison.png` (when plotting is available)
 ---
-
-## Demo tool bundles (for external runtimes)
-
-Inspect these with `ts-agents tool list --bundle <name>` or use the optional
-external framework wrappers:
-
-- `demo`: meta-bundle (windowing + forecasting demos)
-- `demo_windowing`: focused activity-recognition/window-size workflow
-- `demo_forecasting`: focused forecasting workflow
 
 ## Building a custom WISDM stream
 
@@ -177,4 +161,7 @@ vhs demo/demo_wisdm.tape        # WISDM activity recognition
 vhs demo/demo_forecasting.tape  # forecasting comparison
 ```
 
-Each tape writes a GIF to `demo/assets/`.
+Each tape types `bash demo/run_demo*.sh` and writes a GIF to `demo/assets/`.
+The checked-in `demo/assets/demo.gif` and `demo/assets/demo_forecasting.gif`
+were recorded before the latest script changes, so their terminal output can
+differ from a fresh run. No WISDM GIF is checked in.

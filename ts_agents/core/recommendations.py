@@ -25,7 +25,9 @@ def recommend_forecasting_method(
     dominant_period = float(periodicity_dict.get("dominant_period") or 0.0)
     periodicity_confidence = float(periodicity_dict.get("confidence") or 0.0)
     lag_one = _lag_one_autocorrelation(acf)
-    has_detected_seasonality = dominant_period > 1.0 and periodicity_confidence >= 0.2
+    # Seasonality requires a period that passed detect_periodicity's red-noise
+    # significance test; spectral power share alone is not evidence.
+    has_detected_seasonality = bool(periodicity_dict.get("detected")) and dominant_period > 1.0
     seasonal_history_ok = has_detected_seasonality and length >= max(int(round(dominant_period * 2)), 24)
     arima_history_ok = length >= 32
     non_constant_series = std > 0.0
@@ -43,7 +45,8 @@ def recommend_forecasting_method(
     if has_detected_seasonality:
         preconditions_met.append("seasonality_detected")
         rationale.append(
-            f"Detected a dominant period near {dominant_period:.1f} with confidence {periodicity_confidence:.2f}."
+            f"Detected a significant period near {dominant_period:.1f} samples "
+            f"(p={float(periodicity_dict.get('p_value') or 0.0):.2g})."
         )
     else:
         preconditions_missing.append("seasonality_detected")

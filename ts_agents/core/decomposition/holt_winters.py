@@ -8,6 +8,7 @@ from typing import Optional, Literal
 import numpy as np
 
 from ..base import DecompositionResult
+from ..validation import as_univariate_series
 
 
 def holt_winters_decompose(
@@ -31,7 +32,8 @@ def holt_winters_decompose(
     series : np.ndarray
         1D time series data
     period : int, optional
-        Seasonal period. If None, auto-detected.
+        Seasonal period in samples. If None, auto-detected with the shared
+        red-noise periodicity test (``ValueError`` when none is significant).
     trend : str or None
         Type of trend component: 'add', 'mul', or None
     seasonal : str or None
@@ -58,14 +60,10 @@ def holt_winters_decompose(
             'Holt-Winters decomposition requires optional dependencies. Install with: pip install "ts-agents[decomposition]"'
         ) from exc
 
-    series = np.asarray(series, dtype=np.float64).flatten()
+    from .stl import _resolve_period
 
-    # Auto-detect period if not provided
-    if period is None:
-        period = _detect_period(series)
-
-    # Ensure period is at least 2
-    period = max(2, period)
+    series = as_univariate_series(series, min_length=4)
+    period, period_source = _resolve_period(series, period)
 
     # Fit the model
     try:
@@ -98,30 +96,18 @@ def holt_winters_decompose(
             seasonal=np.asarray(seasonal_component),
             residual=np.asarray(residual),
             period=period,
+            period_source=period_source,
         )
 
-    except Exception:
-        # Fallback: simple decomposition
-        return _simple_decompose(series, period)
-
-
-def _detect_period(series: np.ndarray) -> int:
-    """Auto-detect dominant period using FFT."""
-    sig = series - np.mean(series)
-    fft = np.fft.rfft(sig)
-    freqs = np.fft.rfftfreq(len(sig))
-    power = np.abs(fft) ** 2
-    power[0] = 0
-
-    peak_idx = np.argmax(power)
-    dominant_freq = freqs[peak_idx]
-
-    if dominant_freq > 0:
-        period = int(1 / dominant_freq)
-    else:
-        period = len(series) // 10
-
-    return max(2, min(period, len(series) // 2))
+    except Exception as exc:
+        # Fallback: simple decomposition, labelled and explained.
+        result = _simple_decompose(series, period)
+        result.period_source = period_source
+        result.warnings.append(
+            f"Holt-Winters fit failed ({type(exc).__name__}: {exc}); returned a moving-average "
+            "decomposition instead (method 'holt_winters_fallback')."
+        )
+        return result
 
 
 def _simple_decompose(series: np.ndarray, period: int) -> DecompositionResult:

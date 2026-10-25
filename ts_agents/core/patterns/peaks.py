@@ -9,6 +9,7 @@ import numpy as np
 from scipy.signal import find_peaks
 
 from ..base import PeakResult
+from ..validation import as_univariate_series
 
 
 def detect_peaks(
@@ -48,7 +49,7 @@ def detect_peaks(
     >>> result = detect_peaks(x, distance=50, prominence=0.5)
     >>> print(f"Found {result.count} peaks")
     """
-    series = np.asarray(series).flatten()
+    series = as_univariate_series(series)
 
     # Find peaks with all specified parameters
     peaks, properties = find_peaks(
@@ -74,24 +75,22 @@ def detect_peaks(
             count=0,
         )
 
-    # Spacing statistics
+    # Spacing statistics need at least two peaks; with fewer, regularity is
+    # undefined rather than "quasi-periodic".
+    mean_spacing = std_spacing = spacing_cv = None
+    regularity = "undefined"
     if count > 1:
         spacings = np.diff(peaks)
         mean_spacing = float(np.mean(spacings))
         std_spacing = float(np.std(spacings))
-        spacing_cv = std_spacing / mean_spacing if mean_spacing > 0 else 0.0
-    else:
-        mean_spacing = 0.0
-        std_spacing = 0.0
-        spacing_cv = 0.0
-
-    # Regularity classification
-    if spacing_cv < 0.2:
-        regularity = "High (Quasi-periodic)"
-    elif spacing_cv < 0.5:
-        regularity = "Moderate"
-    else:
-        regularity = "Low (Irregular)"
+        spacing_cv = std_spacing / mean_spacing if mean_spacing > 0 else None
+        if spacing_cv is not None:
+            if spacing_cv < 0.2:
+                regularity = "High (Quasi-periodic)"
+            elif spacing_cv < 0.5:
+                regularity = "Moderate"
+            else:
+                regularity = "Low (Irregular)"
 
     # Height statistics
     if "peak_heights" in properties:
@@ -178,5 +177,5 @@ def find_peak_properties(
     properties : dict
         Dictionary of peak properties from scipy
     """
-    series = np.asarray(series).flatten()
+    series = as_univariate_series(series)
     return find_peaks(series, height=height, distance=distance)

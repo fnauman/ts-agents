@@ -1,0 +1,54 @@
+{
+  "schema_version": "1.0",
+  "kind": "analysis_ledger",
+  "workflow": "inspect-series",
+  "created_at": "2026-10-25T13:37:34.203427Z",
+  "entries": [
+    {
+      "kind": "finding",
+      "key": "series_length",
+      "value": 20,
+      "confidence": 1.0,
+      "evidence": [
+        "summary.json#stats"
+      ],
+      "ruled_out": [],
+      "notes": null
+    },
+    {
+      "kind": "finding",
+      "key": "dominant_period",
+      "value": null,
+      "confidence": 0.03465769425275475,
+      "evidence": [
+        "summary.json#periodicity"
+      ],
+      "ruled_out": [],
+      "notes": "Period that passed the red-noise significance test (null when none did)."
+    },
+    {
+      "kind": "finding",
+      "key": "lag_1_autocorrelation",
+      "value": 0.8529497484069996,
+      "confidence": 0.8529497484069996,
+      "evidence": [
+        "summary.json#autocorrelation"
+      ],
+      "ruled_out": [],
+      "notes": null
+    },
+    {
+      "kind": "recommendation",
+      "key": "forecasting_method",
+      "value": "theta",
+      "confidence": 0.4353,
+      "evidence": [
+        "summary.json#stats",
+        "summary.json#periodicity",
+        "summary.json#autocorrelation"
+      ],
+      "ruled_out": [],
+      "notes": "Lag-1 autocorrelation is 0.85, indicating meaningful short-range dependence.; A low-cost autoregressive-style baseline is a good next step after diagnostics."
+    }
+  ]
+}
