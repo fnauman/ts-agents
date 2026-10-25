@@ -86,20 +86,40 @@ def _as_1d_labels(labels: Union[np.ndarray, Sequence[Any]]) -> np.ndarray:
     return arr
 
 
-def _compute_segments(labels: np.ndarray) -> List[Tuple[int, int, Any]]:
-    """Return contiguous segments as (start, end_exclusive, label)."""
+def _compute_segments(
+    labels: np.ndarray,
+    groups: Optional[np.ndarray] = None,
+) -> List[Tuple[int, int, Any]]:
+    """Return contiguous segments as (start, end_exclusive, label).
+
+    Segments break where the label changes and, when ``groups`` is given,
+    where the group (subject, session, or contiguous block) changes.
+    """
     if labels.size == 0:
         return []
     segments: List[Tuple[int, int, Any]] = []
     start = 0
     cur = labels[0]
     for i in range(1, len(labels)):
-        if labels[i] != cur:
+        if labels[i] != cur or (groups is not None and groups[i] != groups[i - 1]):
             segments.append((start, i, cur))
             start = i
             cur = labels[i]
     segments.append((start, len(labels), cur))
     return segments
+
+
+def _as_group_ids(groups: Optional[Union[np.ndarray, Sequence[Any]]], n: int) -> Optional[np.ndarray]:
+    """Map arbitrary per-timepoint group labels to integer codes."""
+    if groups is None:
+        return None
+    arr = np.asarray(groups)
+    if arr.ndim != 1 or len(arr) != n:
+        raise ValueError(f"groups must be 1D with one entry per timepoint ({n}); got shape {arr.shape}")
+    if bool(np.any(pd.isna(arr))):
+        raise ValueError("groups must not contain missing values.")
+    _, codes = np.unique(arr.astype(str), return_inverse=True)
+    return codes.astype(int)
 
 
 def _segment_ids_from_segments(
@@ -158,6 +178,7 @@ def _extract_windows_from_segments(
     labeling: LabelingStrategy,
     min_purity: float = 0.8,
     labels: Optional[np.ndarray] = None,
+    group_ids: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Extract windows from within segments.
 
@@ -168,11 +189,15 @@ def _extract_windows_from_segments(
     y : np.ndarray
         Shape (n_windows,)
     groups : np.ndarray
-        Segment id for each window (used for group splitting).
+        Segment id for each window (the segment where it starts).
+    spans : np.ndarray
+        ``(start, end_exclusive)`` sample range of each window, used to purge
+        training windows that overlap test windows (majority labeling).
     """
     X_list: List[np.ndarray] = []
     y_list: List[Any] = []
     g_list: List[int] = []
+    span_list: List[Tuple[int, int]] = []
 
     if labeling == "majority":
         if labels is None:
@@ -185,6 +210,8 @@ def _extract_windows_from_segments(
 
         for s in range(0, len(labels) - window_size + 1, stride):
             e = s + window_size
+            if group_ids is not None and group_ids[s] != group_ids[e - 1]:
+                continue  # never mix subjects/sessions inside one window
             window_labels = labels[s:e]
             if window_labels.size == 0:
                 continue
@@ -199,6 +226,7 @@ def _extract_windows_from_segments(
             X_list.append(window)
             y_list.append(label)
             g_list.append(int(segment_ids[s]))
+            span_list.append((s, e))
     else:
         # Strict labeling: keep windows fully inside a segment.
         for seg_id, (start, end, label) in enumerate(segments):
@@ -212,32 +240,36 @@ def _extract_windows_from_segments(
                 X_list.append(window)
                 y_list.append(label)
                 g_list.append(seg_id)
+                span_list.append((s, e))
 
     if not X_list:
         return (
             np.empty((0, window_size, series_2d.shape[1])),
             np.empty((0,), dtype=object),
             np.empty((0,), dtype=int),
+            np.empty((0, 2), dtype=int),
         )
 
     X = np.stack(X_list, axis=0)
     y = np.asarray(y_list)
     groups = np.asarray(g_list, dtype=int)
-    return X, y, groups
+    spans = np.asarray(span_list, dtype=int)
+    return X, y, groups, spans
 
 
 def _apply_balance_strategy(
     X: np.ndarray,
     y: np.ndarray,
     groups: np.ndarray,
+    spans: np.ndarray,
     *,
     strategy: BalanceStrategy,
     max_windows_per_segment: int = 25,
     rng: Optional[np.random.Generator] = None,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Downsample windows to mitigate duration/class imbalance."""
     if strategy == "none":
-        return X, y, groups
+        return X, y, groups, spans
 
     rng = rng or np.random.default_rng(0)
 
@@ -250,7 +282,7 @@ def _apply_balance_strategy(
             else:
                 keep_idx.extend(rng.choice(seg_idx, size=max_windows_per_segment, replace=False).tolist())
         keep = np.array(sorted(keep_idx), dtype=int)
-        return X[keep], y[keep], groups[keep]
+        return X[keep], y[keep], groups[keep], spans[keep]
 
     if strategy == "undersample":
         # Equalize number of windows per class.
@@ -264,7 +296,7 @@ def _apply_balance_strategy(
             else:
                 keep_idx.extend(rng.choice(idx, size=target, replace=False).tolist())
         keep = np.array(sorted(keep_idx), dtype=int)
-        return X[keep], y[keep], groups[keep]
+        return X[keep], y[keep], groups[keep], spans[keep]
 
     raise ValueError(f"Unknown balance strategy: {strategy}")
 
@@ -334,6 +366,7 @@ def _run_window_classifier(
     X_test: np.ndarray,
     y_test: np.ndarray,
     rocket_n_kernels: int,
+    random_state: Optional[int] = None,
 ):
     X_train_3d = _to_classifier_input(X_train)
     X_test_3d = _to_classifier_input(X_test)
@@ -347,6 +380,7 @@ def _run_window_classifier(
             y_test,
             variant=variant,
             n_kernels=rocket_n_kernels,
+            random_state=random_state,
         )
     elif classifier == "knn":
         clf_res = knn_classify(
@@ -372,8 +406,14 @@ def _iter_valid_group_splits(
     test_size: float,
     random_state: int,
     min_classes_per_split: int = 2,
+    spans: Optional[np.ndarray] = None,
 ) -> List[Tuple[np.ndarray, np.ndarray]]:
-    """Return up to ``n_splits`` group splits with class coverage in train/test."""
+    """Return up to ``n_splits`` group splits with class coverage in train/test.
+
+    When ``spans`` is given, training windows whose samples overlap any test
+    window are purged, so train and test never share raw samples even when
+    windows cross segment boundaries.
+    """
     _, _, _, GroupShuffleSplit = _get_sklearn_windowing_tools()
     attempts = max(n_splits, n_splits * 4)
     splitter = GroupShuffleSplit(
@@ -385,6 +425,8 @@ def _iter_valid_group_splits(
     valid_splits: List[Tuple[np.ndarray, np.ndarray]] = []
     fallback: Optional[Tuple[np.ndarray, np.ndarray]] = None
     for train_idx, test_idx in splitter.split(X, y, groups=groups):
+        if spans is not None and len(spans):
+            train_idx = _purge_overlapping(train_idx, test_idx, spans)
         if fallback is None:
             fallback = (train_idx, test_idx)
 
@@ -400,6 +442,20 @@ def _iter_valid_group_splits(
     if fallback is not None:
         return [fallback]
     return []
+
+
+def _purge_overlapping(train_idx: np.ndarray, test_idx: np.ndarray, spans: np.ndarray) -> np.ndarray:
+    """Drop training windows that share any sample with a test window."""
+    n = int(spans[:, 1].max())
+    covered = np.zeros(n + 1, dtype=int)
+    for start, end in spans[test_idx]:
+        covered[start] += 1
+        covered[end] -= 1
+    in_test = np.cumsum(covered)[:n] > 0
+    prefix = np.concatenate([[0], np.cumsum(in_test)])
+    starts, ends = spans[train_idx, 0], spans[train_idx, 1]
+    overlaps = (prefix[ends] - prefix[starts]) > 0
+    return train_idx[~overlaps]
 
 
 def _score_metric(metric: MetricName, y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -442,6 +498,7 @@ def select_window_size(
     random_state: int = 0,
     seed: Optional[int] = None,
     rocket_n_kernels: int = 2000,
+    groups: Optional[Union[np.ndarray, Sequence[Any]]] = None,
 ) -> WindowSizeSelectionResult:
     """Select an appropriate window size for sliding-window classification.
 
@@ -477,9 +534,17 @@ def select_window_size(
     test_size
         Fraction of segments reserved for test per split.
     seed
-        Optional alias for random_state (for CLI convenience).
+        Optional alias for random_state (for CLI convenience). Also seeds
+        ROCKET-family kernels so results are reproducible.
     rocket_n_kernels
         Number of kernels for ROCKET/MiniROCKET variants.
+    groups
+        Optional per-timepoint group labels (subject, session, or contiguous
+        block). Windows never span two groups.
+
+    The best window is the highest-scoring candidate that keeps every class;
+    only when no candidate keeps every class does the overall best win, and
+    ``details["selection_rule"]`` records which rule applied.
     """
 
     if seed is not None:
@@ -492,7 +557,8 @@ def select_window_size(
             f"series and labels must have the same length; got {len(series_2d)} and {len(labels_1d)}"
         )
 
-    segments = _compute_segments(labels_1d)
+    group_ids = _as_group_ids(groups, len(labels_1d))
+    segments = _compute_segments(labels_1d, group_ids)
     if not segments:
         raise ValueError("No label segments found; labels appear to be empty")
 
@@ -522,18 +588,20 @@ def select_window_size(
 
     for w in window_sizes:
         s = stride if stride is not None else max(1, w // 2)
-        X, y, groups = _extract_windows_from_segments(
+        X, y, split_units, spans = _extract_windows_from_segments(
             series_2d,
             segments,
             window_size=w,
             stride=s,
             labeling=labeling,
             labels=labels_1d,
+            group_ids=group_ids,
         )
-        X, y, groups = _apply_balance_strategy(
+        X, y, split_units, spans = _apply_balance_strategy(
             X,
             y,
-            groups,
+            split_units,
+            spans,
             strategy=balance,
             max_windows_per_segment=max_windows_per_segment,
             rng=rng,
@@ -562,11 +630,12 @@ def select_window_size(
         for train_idx, test_idx in _iter_valid_group_splits(
             X,
             y,
-            groups,
+            split_units,
             n_splits=n_splits,
             test_size=test_size,
             random_state=random_state,
             min_classes_per_split=min_classes,
+            spans=spans if labeling == "majority" else None,
         ):
             X_train = X[train_idx]
             y_train = y[train_idx]
@@ -580,6 +649,7 @@ def select_window_size(
                 X_test=X_test,
                 y_test=y_test,
                 rocket_n_kernels=rocket_n_kernels,
+                random_state=random_state,
             )
             fold_scores.append(_score_metric(metric, y_test, y_pred))
 
@@ -587,18 +657,22 @@ def select_window_size(
         scores_by_window[w] = float(np.nanmean(fold_scores)) if fold_scores else float("nan")
         window_diagnostics[w]["valid_split_count"] = len(fold_scores)
 
-    # Choose best (highest score), ignoring NaNs.
-    best_w = None
-    best_score = -float("inf")
-    for w, score in scores_by_window.items():
-        if np.isnan(score):
-            continue
-        if score > best_score:
-            best_score = score
-            best_w = w
+    # Choose the best scoring window among those that keep every class; a
+    # window that scores higher only by dropping hard classes is not "best".
+    def _best(candidates: List[int]) -> Optional[int]:
+        scored = [w for w in candidates if not np.isnan(scores_by_window[w])]
+        return max(scored, key=lambda w: scores_by_window[w]) if scored else None
+
+    full_coverage = [w for w in window_sizes if not window_diagnostics[w]["dropped_classes"]]
+    best_w = _best(full_coverage)
+    selection_rule = "best_score_with_all_classes"
+    if best_w is None:
+        best_w = _best(list(window_sizes))
+        selection_rule = "best_score_some_classes_dropped"
     if best_w is None:
         # All NaN; pick median candidate.
         best_w = int(window_sizes[len(window_sizes) // 2])
+        selection_rule = "no_valid_scores_median_candidate"
 
     return WindowSizeSelectionResult(
         method="window_size_selection",
@@ -615,6 +689,9 @@ def select_window_size(
             "n_splits": n_splits,
             "test_size": test_size,
             "all_classes": [str(label) for label in original_classes],
+            "selection_rule": selection_rule,
+            "random_state": int(random_state),
+            "grouped": group_ids is not None,
             "split_scores": {int(k): [float(x) for x in v] for k, v in split_scores.items()},
             "window_diagnostics": {int(k): v for k, v in window_diagnostics.items()},
         },
@@ -679,26 +756,29 @@ def evaluate_windowed_classifier(
     seed: int = 1337,
     rocket_n_kernels: int = 2000,
     min_label_purity: float = 0.8,
+    groups: Optional[Union[np.ndarray, Sequence[Any]]] = None,
 ) -> WindowedClassificationEvaluation:
     """Evaluate a classifier on sliding windows extracted from a labeled stream.
 
     This is a convenience wrapper that performs:
-    - segment-contained window extraction
+    - segment-contained window extraction (never across ``groups``)
     - imbalance handling (optional)
-    - group-aware train/test split (by segment)
+    - group-aware train/test split (by segment, or by connected segments
+      for majority labeling, so train and test never share raw samples)
     - classification + metric computation
     """
 
     series2d = _as_2d_series(series)
     labels1d = _as_1d_labels(labels)
+    group_ids = _as_group_ids(groups, len(labels1d))
 
-    segments = _compute_segments(labels1d)
+    segments = _compute_segments(labels1d, group_ids)
     if not segments:
         raise ValueError("labels produced no segments")
 
     original_classes = np.unique(labels1d)
     stride_value = stride if stride is not None else max(1, window_size // 2)
-    X, y, groups = _extract_windows_from_segments(
+    X, y, groups, spans = _extract_windows_from_segments(
         series2d,
         segments,
         window_size=window_size,
@@ -706,14 +786,16 @@ def evaluate_windowed_classifier(
         labeling=labeling,
         min_purity=min_label_purity,
         labels=labels1d,
+        group_ids=group_ids,
     )
 
     rng = np.random.default_rng(seed)
     cap = max_windows_per_segment if max_windows_per_segment is not None else 25
-    X, y, groups = _apply_balance_strategy(
+    X, y, groups, spans = _apply_balance_strategy(
         X,
         y,
         groups,
+        spans,
         strategy=balance,
         max_windows_per_segment=cap,
         rng=rng,
@@ -734,6 +816,7 @@ def evaluate_windowed_classifier(
         test_size=test_size,
         random_state=seed,
         min_classes_per_split=min_classes,
+        spans=spans if labeling == "majority" else None,
     )
     if not splits:
         raise ValueError("Unable to construct a valid train/test split from extracted windows")
@@ -753,6 +836,7 @@ def evaluate_windowed_classifier(
             X_test=X_test,
             y_test=y_test,
             rocket_n_kernels=rocket_n_kernels,
+            random_state=seed,
         )
         split_scores.append(_score_metric(metric, y_test, y_pred))
         pooled_true.append(np.asarray(y_test))
@@ -804,6 +888,177 @@ def evaluate_windowed_classifier(
             "retained_class_fraction": retention["retained_class_fraction"],
             "all_classes": retention["all_classes"],
             "test_class_counts": _class_count_dict(y_true),
+        },
+    )
+
+
+def split_holdout_units(
+    labels: Union[np.ndarray, Sequence[Any]],
+    *,
+    groups: Optional[Union[np.ndarray, Sequence[Any]]] = None,
+    test_size: float = 0.25,
+    seed: int = 1337,
+    max_attempts: int = 200,
+) -> np.ndarray:
+    """Choose a held-out set of whole groups (or label segments) for final scoring.
+
+    Returns a boolean per-timepoint mask (True = held out). Units are the
+    given ``groups`` (e.g. subjects) or, without groups, contiguous label
+    segments. The holdout must contain at least two classes and every
+    held-out class must also appear in the remaining data.
+    """
+    labels_1d = _as_1d_labels(labels)
+    group_ids = _as_group_ids(groups, len(labels_1d))
+    if not 0 < test_size < 1:
+        raise ValueError("test_size must be between 0 and 1.")
+    if group_ids is not None:
+        unit_ids = group_ids
+    else:
+        unit_ids = _segment_ids_from_segments(_compute_segments(labels_1d), len(labels_1d))
+    units = np.unique(unit_ids)
+    if units.size < 2:
+        raise ValueError(
+            "A held-out evaluation needs at least two groups; "
+            + ("the group column has only one value." if group_ids is not None else "labels form a single segment.")
+        )
+    target = test_size * len(labels_1d)
+    rng = np.random.default_rng(seed)
+    for _ in range(max_attempts):
+        chosen: List[int] = []
+        held = 0
+        for unit in rng.permutation(units):
+            if held >= target or len(chosen) == units.size - 1:
+                break
+            chosen.append(int(unit))
+            held += int(np.sum(unit_ids == unit))
+        mask = np.isin(unit_ids, chosen)
+        held_classes = set(np.unique(labels_1d[mask]).tolist())
+        pool_classes = set(np.unique(labels_1d[~mask]).tolist())
+        if len(held_classes) >= 2 and held_classes <= pool_classes:
+            return mask
+    raise ValueError(
+        "Could not find a held-out split with at least two classes whose classes all appear "
+        "in the remaining data; add more groups/segments or lower test_size."
+    )
+
+
+def contiguous_block_ids(
+    holdout_mask: np.ndarray,
+    groups: Optional[Union[np.ndarray, Sequence[Any]]] = None,
+) -> np.ndarray:
+    """Integer ids for runs of constant (group, holdout membership)."""
+    mask = np.asarray(holdout_mask, dtype=bool)
+    group_ids = _as_group_ids(groups, len(mask))
+    change = np.zeros(len(mask), dtype=bool)
+    change[1:] = mask[1:] != mask[:-1]
+    if group_ids is not None:
+        change[1:] |= group_ids[1:] != group_ids[:-1]
+    return np.cumsum(change)
+
+
+def evaluate_windowed_classifier_holdout(
+    series: Union[np.ndarray, Sequence[float], Sequence[Sequence[float]]],
+    labels: Union[np.ndarray, Sequence[Any]],
+    *,
+    holdout_mask: Union[np.ndarray, Sequence[bool]],
+    window_size: int,
+    groups: Optional[Union[np.ndarray, Sequence[Any]]] = None,
+    stride: Optional[int] = None,
+    classifier: ClassifierName = "minirocket",
+    metric: MetricName = "balanced_accuracy",
+    labeling: LabelingStrategy = "strict",
+    seed: int = 1337,
+    rocket_n_kernels: int = 2000,
+    min_label_purity: float = 0.8,
+) -> WindowedClassificationEvaluation:
+    """Train on non-held-out windows and score once on held-out windows.
+
+    Windows never span holdout boundaries or ``groups``, so the score is
+    independent of any data used to choose the window size (when selection
+    only saw the non-held-out rows).
+    """
+    series2d = _as_2d_series(series)
+    labels1d = _as_1d_labels(labels)
+    mask = np.asarray(holdout_mask, dtype=bool)
+    if mask.shape != labels1d.shape:
+        raise ValueError("holdout_mask must have one entry per timepoint.")
+    block_ids = contiguous_block_ids(mask, groups)
+    segments = _compute_segments(labels1d, block_ids)
+    original_classes = np.unique(labels1d)
+    stride_value = stride if stride is not None else max(1, window_size // 2)
+    X, y, _, spans = _extract_windows_from_segments(
+        series2d,
+        segments,
+        window_size=window_size,
+        stride=stride_value,
+        labeling=labeling,
+        min_purity=min_label_purity,
+        labels=labels1d,
+        group_ids=block_ids,
+    )
+    in_holdout = mask[spans[:, 0]] if len(spans) else np.zeros(0, dtype=bool)
+    train_idx, test_idx = np.flatnonzero(~in_holdout), np.flatnonzero(in_holdout)
+    if train_idx.size < 2 or test_idx.size < 1:
+        raise ValueError(
+            f"Window size {window_size} leaves {train_idx.size} training and {test_idx.size} held-out windows; "
+            "use a smaller window or a larger holdout."
+        )
+    if np.unique(y[train_idx]).size < 2:
+        raise ValueError("Training windows contain fewer than two classes.")
+
+    y_pred, clf_res = _run_window_classifier(
+        classifier=classifier,
+        X_train=X[train_idx],
+        y_train=y[train_idx],
+        X_test=X[test_idx],
+        y_test=y[test_idx],
+        rocket_n_kernels=rocket_n_kernels,
+        random_state=seed,
+    )
+    y_true = y[test_idx]
+    score = _score_metric(metric, y_true, y_pred)
+    labels_order = np.unique(np.concatenate([y_true, y_pred]))
+    accuracy_score, f1_score, confusion_matrix, _ = _get_sklearn_windowing_tools()
+    retention = _class_retention_summary(original_classes, y)
+    classification = {
+        "method": str(getattr(clf_res, "method", classifier)),
+        "predictions": np.asarray(y_pred).tolist(),
+        "accuracy": float(accuracy_score(y_true, y_pred)),
+        "f1_score": float(f1_score(y_true, y_pred, average="macro", zero_division=0)),
+        "confusion_matrix": confusion_matrix(y_true, y_pred, labels=labels_order).tolist(),
+        "labels": [str(label) for label in labels_order],
+    }
+    if getattr(clf_res, "warnings", None):
+        classification["warnings"] = [str(w) for w in clf_res.warnings]
+    test_counts = _class_count_dict(y_true)
+    majority_share = max(test_counts.values()) / float(len(y_true))
+    return WindowedClassificationEvaluation(
+        method="windowed_classification_holdout",
+        window_size=int(window_size),
+        stride=int(stride_value),
+        classifier=str(classifier),
+        metric=str(metric),
+        score=float(score),
+        n_windows=int(X.shape[0]),
+        class_counts=_class_count_dict(y),
+        classification=classification,
+        n_splits=1,
+        split_scores=[float(score)],
+        retained_classes=retention["retained_classes"],
+        dropped_classes=retention["dropped_classes"],
+        details={
+            "evaluation": "holdout",
+            "labeling": labeling,
+            "n_train_windows": int(train_idx.size),
+            "n_holdout_windows": int(test_idx.size),
+            "holdout_fraction_of_timepoints": float(mask.mean()),
+            "test_class_counts": test_counts,
+            # Chance references for interpreting the score.
+            "chance_balanced_accuracy": float(1.0 / len(test_counts)),
+            "majority_class_accuracy": float(majority_share),
+            "random_state": int(seed),
+            "all_classes": retention["all_classes"],
+            "retained_class_fraction": retention["retained_class_fraction"],
         },
     )
 

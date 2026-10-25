@@ -101,7 +101,7 @@ class TestMSTL:
             ImportError,
             match=r'MSTL decomposition requires optional dependencies',
         ):
-            mstl_decompose(x, periods=[100, 700])
+            mstl_decompose(x, periods=[100, 250])
 
 
 @requires_statsmodels

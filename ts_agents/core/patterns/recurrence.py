@@ -9,6 +9,15 @@ import numpy as np
 import scipy.ndimage as ndimage
 
 from ..base import RecurrenceResult
+from ..validation import as_univariate_series
+
+
+def _downsample(series: np.ndarray, max_points: int) -> Tuple[np.ndarray, int]:
+    """Decimate to at most ``max_points`` samples; returns (series, step)."""
+    if max_points < 2:
+        raise ValueError("max_points must be at least 2.")
+    step = int(np.ceil(len(series) / max_points)) if len(series) > max_points else 1
+    return series[::step], step
 
 
 def compute_recurrence_matrix(
@@ -27,7 +36,8 @@ def compute_recurrence_matrix(
     threshold : float, optional
         Distance threshold for recurrence. If None, auto-computed as 10% of range.
     max_points : int
-        Maximum number of points to use (downsamples if needed).
+        Maximum number of points to use. Longer series are decimated with
+        step ``ceil(n / max_points)`` (no anti-alias filtering).
 
     Returns
     -------
@@ -42,12 +52,8 @@ def compute_recurrence_matrix(
     >>> R, thresh = compute_recurrence_matrix(x)
     >>> print(f"Recurrence matrix shape: {R.shape}")
     """
-    series = np.asarray(series).flatten()
-
-    # Downsample if too long
-    if len(series) > max_points:
-        step = len(series) // max_points
-        series = series[::step]
+    series = as_univariate_series(series, min_length=2)
+    series, _ = _downsample(series, max_points)
 
     # Compute distance matrix
     s = series[:, None]
@@ -57,6 +63,8 @@ def compute_recurrence_matrix(
     # Auto-compute threshold if not provided
     if threshold is None:
         threshold = (np.max(series) - np.min(series)) * 0.1
+    if not threshold > 0:
+        raise ValueError("Recurrence threshold must be positive (the series may be constant).")
 
     # Create binary recurrence matrix
     recurrence_matrix = (dist_mat < threshold).astype(np.int8)
@@ -127,26 +135,28 @@ def analyze_recurrence(
     threshold: Optional[float] = None,
     max_points: int = 1000,
     min_line_length: int = 2,
-    embedding_dimension: Optional[int] = None,
-    time_delay: Optional[int] = None,
+    include_matrix: bool = False,
 ) -> RecurrenceResult:
-    """Perform full recurrence analysis on a time series.
+    """Perform recurrence analysis on a scalar time series (no embedding).
 
     Parameters
     ----------
     series : np.ndarray
         1D time series data
     threshold : float, optional
-        Distance threshold for recurrence
+        Distance threshold for recurrence (default: 10% of the value range)
     max_points : int
-        Maximum number of points for analysis
+        Maximum number of points for analysis; longer inputs are decimated
+        and the step is reported in ``downsample_step`` with a warning.
     min_line_length : int
         Minimum line length for RQA metrics
+    include_matrix : bool
+        Return the binary recurrence matrix (up to ``max_points``^2 values).
 
     Returns
     -------
     RecurrenceResult
-        Result containing recurrence matrix and RQA metrics
+        RQA metrics, plus the matrix when requested
 
     Examples
     --------
@@ -155,20 +165,30 @@ def analyze_recurrence(
     >>> print(f"Recurrence Rate: {result.recurrence_rate:.3f}")
     >>> print(f"Determinism: {result.determinism:.3f}")
     """
-    # Accepted for API compatibility with older UI callers.
-    _ = embedding_dimension, time_delay
-
+    series = as_univariate_series(series, min_length=2)
+    _, step = _downsample(series, max_points)
     recurrence_matrix, threshold = compute_recurrence_matrix(
         series, threshold=threshold, max_points=max_points
     )
 
     metrics = compute_rqa_metrics(recurrence_matrix, min_line_length=min_line_length)
+    warnings = []
+    if step > 1:
+        warnings.append(
+            f"Input of {len(series)} samples was decimated with step {step} "
+            f"({recurrence_matrix.shape[0]} points used, no anti-alias filter); "
+            "RQA metrics describe the decimated series."
+        )
 
     return RecurrenceResult(
         method="recurrence_plot",
-        recurrence_matrix=recurrence_matrix,
+        recurrence_matrix=recurrence_matrix if include_matrix else None,
         threshold=threshold,
         recurrence_rate=metrics["RR"],
         determinism=metrics["DET"],
         laminarity=metrics["LAM"],
+        n_input_points=int(len(series)),
+        n_points_used=int(recurrence_matrix.shape[0]),
+        downsample_step=int(step),
+        warnings=warnings,
     )

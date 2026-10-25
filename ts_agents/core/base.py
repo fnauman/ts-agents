@@ -30,6 +30,9 @@ class AnalysisResult:
     - Metadata about the computation
     """
     method: str
+    # Non-fatal caveats about what actually ran (fallbacks, skipped work, weak
+    # evidence). Keyword-only so subclasses can keep positional fields.
+    warnings: List[str] = field(default_factory=list, kw_only=True)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert result to dictionary for serialization."""
@@ -55,6 +58,10 @@ class DecompositionResult(AnalysisResult):
     seasonal: np.ndarray
     residual: np.ndarray
     period: int
+
+    # "user" when supplied by the caller, "auto" when detected by
+    # detect_periodicity's red-noise test.
+    period_source: str = "user"
 
     # Metrics for comparison
     residual_variance: float = 0.0
@@ -124,17 +131,21 @@ class MultiForecastResult(AnalysisResult):
 
 @dataclass
 class PeakResult(AnalysisResult):
-    """Result of peak detection."""
+    """Result of peak detection.
+
+    Spacing statistics are in samples and are ``None`` when fewer than two
+    peaks exist; ``regularity`` is then ``"undefined"``.
+    """
     peak_indices: np.ndarray
     peak_values: np.ndarray
     count: int
 
     # Statistics
-    mean_spacing: float = 0.0
-    std_spacing: float = 0.0
-    spacing_cv: float = 0.0  # Coefficient of variation
-    regularity: str = "N/A"
-    mean_height: float = 0.0
+    mean_spacing: Optional[float] = None
+    std_spacing: Optional[float] = None
+    spacing_cv: Optional[float] = None  # Coefficient of variation
+    regularity: str = "undefined"
+    mean_height: Optional[float] = None
     mean_prominence: Optional[float] = None
 
 
@@ -149,17 +160,43 @@ class MotifResult:
 
 @dataclass
 class DiscordResult:
-    """A single discord (anomaly) found in the time series."""
+    """A single discord (anomaly) found in the time series.
+
+    ``robust_z`` is the discord distance relative to the matrix-profile
+    median in robust (MAD-scaled) units. It ranks how unusual the subsequence
+    is within this series; it is not a calibrated anomaly probability.
+    """
     index: int
     distance: float
     subsequence: Optional[np.ndarray] = None
+    robust_z: Optional[float] = None
+
+
+@dataclass
+class MotifSearchResult(AnalysisResult):
+    """Top motifs plus the search settings that produced them."""
+    motifs: List[MotifResult]
+    subsequence_length: int
+    exclusion_zone: int
+
+
+@dataclass
+class DiscordSearchResult(AnalysisResult):
+    """Top discords plus the search settings that produced them."""
+    discords: List[DiscordResult]
+    subsequence_length: int
+    exclusion_zone: int
 
 
 @dataclass
 class MatrixProfileResult(AnalysisResult):
-    """Result of matrix profile analysis."""
-    mp_values: np.ndarray
-    mp_indices: np.ndarray
+    """Result of matrix profile analysis.
+
+    ``mp_values``/``mp_indices`` are ``None`` unless the caller requested
+    the full profile; ``mp_min``/``mp_max`` always summarize it.
+    """
+    mp_values: Optional[np.ndarray]
+    mp_indices: Optional[np.ndarray]
     subsequence_length: int
 
     motifs: List[MotifResult] = field(default_factory=list)
@@ -171,24 +208,39 @@ class MatrixProfileResult(AnalysisResult):
 
 @dataclass
 class RecurrenceResult(AnalysisResult):
-    """Result of recurrence analysis."""
-    recurrence_matrix: np.ndarray
+    """Result of recurrence analysis.
+
+    ``recurrence_matrix`` is ``None`` unless the caller asked for it. When the
+    input was decimated, ``downsample_step`` > 1 and matrix indices refer to
+    every ``downsample_step``-th input sample.
+    """
+    recurrence_matrix: Optional[np.ndarray]
     threshold: float
 
     # RQA metrics
     recurrence_rate: float = 0.0
     determinism: float = 0.0
     laminarity: float = 0.0
+    n_input_points: int = 0
+    n_points_used: int = 0
+    downsample_step: int = 1
 
 
 @dataclass
 class SegmentResult(AnalysisResult):
-    """Result of time series segmentation."""
+    """Result of time series segmentation.
+
+    ``method`` names the algorithm that actually ran; ``requested_method``
+    keeps what the caller asked for when the two differ. ``settings`` records
+    the effective penalty, cost model, and scaling used.
+    """
     changepoints: List[int]
     n_segments: int
 
     # Per-segment statistics
     segment_stats: List[Dict[str, float]] = field(default_factory=list)
+    requested_method: Optional[str] = None
+    settings: Dict[str, Any] = field(default_factory=dict)
 
 
 # =============================================================================
@@ -201,11 +253,13 @@ class ClassificationResult(AnalysisResult):
     predictions: np.ndarray
     probabilities: Optional[np.ndarray] = None
 
-    # Metrics (if test labels provided)
+    # Metrics (if test labels provided). f1_score is macro-averaged;
+    # confusion_matrix rows/columns follow ``labels``.
     accuracy: Optional[float] = None
     f1_score: Optional[float] = None
     confusion_matrix: Optional[np.ndarray] = None
-    warnings: List[str] = field(default_factory=list)
+    balanced_accuracy: Optional[float] = None
+    labels: Optional[List[Any]] = None
 
 
 # =============================================================================
@@ -240,12 +294,27 @@ class CoherenceResult(AnalysisResult):
 
 @dataclass
 class PeriodicityResult(AnalysisResult):
-    """Result of periodicity detection."""
-    dominant_period: float
-    dominant_frequency: float
+    """Result of periodicity detection.
+
+    Periods are in the units of ``1 / sample_rate`` (samples when
+    ``sample_rate`` is 1). ``dominant_period`` and ``dominant_frequency`` are
+    ``None`` when no peak is significant against a red-noise background;
+    ``candidate_period`` still reports the strongest peak in that case.
+    ``confidence`` is the peak's share of total (detrended) spectral power,
+    not a probability.
+    """
+    dominant_period: Optional[float]
+    dominant_frequency: Optional[float]
     confidence: float
 
     top_periods: List[float] = field(default_factory=list)
+    detected: bool = False
+    p_value: Optional[float] = None
+    alpha: float = 0.01
+    candidate_period: Optional[float] = None
+    sample_rate: float = 1.0
+    detrend: str = "linear"
+    min_cycles: float = 3.0
 
 
 # =============================================================================
@@ -254,7 +323,12 @@ class PeriodicityResult(AnalysisResult):
 
 @dataclass
 class DescriptiveStats(AnalysisResult):
-    """Descriptive statistics of a time series."""
+    """Descriptive statistics of a time series.
+
+    ``length`` counts finite values used; ``nan_count`` counts dropped
+    non-finite values. ``median``, ``skewness``, and ``kurtosis`` are only
+    computed when ``extended=True`` (``extended`` records which).
+    """
     length: int
     mean: float
     std: float
@@ -266,6 +340,8 @@ class DescriptiveStats(AnalysisResult):
     median: Optional[float] = None
     skewness: Optional[float] = None
     kurtosis: Optional[float] = None
+    nan_count: int = 0
+    extended: bool = False
 
 
 # =============================================================================

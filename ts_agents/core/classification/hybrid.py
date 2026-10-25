@@ -8,7 +8,7 @@ from typing import Optional, List, Dict, Any
 import numpy as np
 
 from ..base import ClassificationResult
-from .utils import ensure_3d
+from .utils import classification_metrics, ensure_3d
 
 
 def hivecote_classify(
@@ -79,16 +79,13 @@ def hivecote_classify(
         except Exception:
             pass
 
-    accuracy = None
-    if y_test is not None:
-        y_test = np.asarray(y_test)
-        accuracy = float(np.mean(predictions == y_test))
+    metrics = classification_metrics(y_test, predictions)
 
     return ClassificationResult(
         method="hivecote2",
         predictions=predictions,
         probabilities=probabilities,
-        accuracy=accuracy,
+        **metrics,
     )
 
 
@@ -144,16 +141,13 @@ def _ensemble_fallback(
         predictions.append(unique[np.argmax(counts)])
     predictions = np.array(predictions)
 
-    accuracy = None
-    if y_test is not None:
-        y_test = np.asarray(y_test)
-        accuracy = float(np.mean(predictions == y_test))
+    metrics = classification_metrics(y_test, predictions)
 
     return ClassificationResult(
         method="ensemble_fallback",
         predictions=predictions,
         probabilities=None,
-        accuracy=accuracy,
+        **metrics,
         warnings=warnings,
     )
 
@@ -164,6 +158,8 @@ def compare_classifiers(
     X_test: np.ndarray,
     y_test: np.ndarray,
     classifiers: Optional[List[str]] = None,
+    rank_metric: str = "balanced_accuracy",
+    random_state: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Compare multiple classifiers on the same data.
 
@@ -178,7 +174,12 @@ def compare_classifiers(
     y_test : np.ndarray
         Test labels.
     classifiers : list of str, optional
-        Classifiers to compare. Default: ['knn_dtw', 'rocket', 'minirocket']
+        Classifiers to compare. Default: ['knn_euclidean', 'knn_dtw', 'rocket', 'minirocket']
+    rank_metric : str
+        Ranking metric: 'balanced_accuracy' (default), 'f1_score', or 'accuracy'.
+        Plain accuracy rewards predicting the majority class on imbalanced data.
+    random_state : int, optional
+        Seed forwarded to the ROCKET-family classifiers.
 
     Returns
     -------
@@ -196,6 +197,8 @@ def compare_classifiers(
 
     if classifiers is None:
         classifiers = ['knn_euclidean', 'knn_dtw', 'rocket', 'minirocket']
+    if rank_metric not in ('balanced_accuracy', 'f1_score', 'accuracy'):
+        raise ValueError("rank_metric must be 'balanced_accuracy', 'f1_score', or 'accuracy'.")
 
     results = {}
     errors = []
@@ -207,11 +210,11 @@ def compare_classifiers(
             elif clf_name == 'knn_dtw':
                 result = knn_classify(X_train, y_train, X_test, y_test, distance='dtw')
             elif clf_name == 'rocket':
-                result = rocket_classify(X_train, y_train, X_test, y_test, variant='rocket')
+                result = rocket_classify(X_train, y_train, X_test, y_test, variant='rocket', random_state=random_state)
             elif clf_name == 'minirocket':
-                result = rocket_classify(X_train, y_train, X_test, y_test, variant='minirocket')
+                result = rocket_classify(X_train, y_train, X_test, y_test, variant='minirocket', random_state=random_state)
             elif clf_name == 'multirocket':
-                result = rocket_classify(X_train, y_train, X_test, y_test, variant='multirocket')
+                result = rocket_classify(X_train, y_train, X_test, y_test, variant='multirocket', random_state=random_state)
             elif clf_name == 'hivecote2':
                 result = hivecote_classify(X_train, y_train, X_test, y_test, time_limit_in_minutes=1)
             else:
@@ -219,14 +222,17 @@ def compare_classifiers(
 
             if result.predictions.shape != np.asarray(y_test).shape:
                 raise ValueError("Classifier must return one prediction per test label.")
-            if result.accuracy is None or not np.isfinite(result.accuracy):
+            # Score every classifier the same way from its predictions rather
+            # than trusting per-backend metric fields.
+            metrics = classification_metrics(y_test, result.predictions)
+            if metrics['accuracy'] is None or not np.isfinite(metrics['accuracy']):
                 raise ValueError("Classifier accuracy must be finite.")
 
             results[clf_name] = {
                 'requested_method': clf_name,
                 'actual_method': result.method,
                 'warnings': result.warnings,
-                'accuracy': result.accuracy,
+                **metrics,
                 'predictions': result.predictions,
             }
 
@@ -240,15 +246,15 @@ def compare_classifiers(
                 'error': str(e),
             }
 
-    # Rank by accuracy
-    valid_results = {k: v for k, v in results.items() if v.get('accuracy') is not None}
+    # Rank by the requested metric (balanced accuracy by default).
+    valid_results = {k: v for k, v in results.items() if v.get(rank_metric) is not None}
     if not valid_results:
         failures = "; ".join(f"{name}: {entry['error']}" for name, entry in results.items())
         message = "All classifiers failed: " + (failures or "no classifiers requested")
         if errors and all(isinstance(error, ImportError) for error in errors):
             raise ImportError(message + '. Install with: pip install "ts-agents[classification]"') from errors[-1]
         raise RuntimeError(message)
-    rankings = sorted(valid_results.keys(), key=lambda k: valid_results[k]['accuracy'], reverse=True)
+    rankings = sorted(valid_results.keys(), key=lambda k: valid_results[k][rank_metric], reverse=True)
     warnings = []
     for requested, entry in results.items():
         warnings.extend(f"{requested}: {warning}" for warning in entry['warnings'])
@@ -260,6 +266,7 @@ def compare_classifiers(
     return {
         'results': results,
         'rankings': rankings,
+        'rank_metric': rank_metric,
         'best': rankings[0],
         'status': 'degraded' if warnings else 'ok',
         'warnings': warnings,

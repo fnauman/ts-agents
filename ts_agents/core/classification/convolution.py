@@ -8,7 +8,10 @@ from typing import Optional, Literal
 import numpy as np
 
 from ..base import ClassificationResult
-from .utils import ensure_3d
+from .utils import classification_metrics, ensure_3d
+
+
+_ROCKET_VARIANTS = ("rocket", "minirocket", "multirocket")
 
 
 def _rocket_fallback_warning(context: str, exc: Exception) -> str:
@@ -25,6 +28,7 @@ def rocket_classify(
     y_test: Optional[np.ndarray] = None,
     variant: Literal["rocket", "minirocket", "multirocket"] = "rocket",
     n_kernels: int = 10000,
+    random_state: Optional[int] = None,
 ) -> ClassificationResult:
     """Time series classification using ROCKET (Random Convolutional Kernel Transform).
 
@@ -49,6 +53,8 @@ def rocket_classify(
         - 'multirocket': Multivariate extension
     n_kernels : int
         Number of random kernels (default: 10000).
+    random_state : int, optional
+        Seed for kernel generation. Pass a value for reproducible results.
 
     Returns
     -------
@@ -64,6 +70,10 @@ def rocket_classify(
     >>> result = rocket_classify(X_train, y_train, X_test, variant='minirocket')
     >>> print(f"Predictions: {result.predictions}")
     """
+    if variant not in _ROCKET_VARIANTS:
+        raise ValueError(
+            f"Unknown ROCKET variant '{variant}'. Supported: {', '.join(_ROCKET_VARIANTS)}."
+        )
     try:
         from aeon.classification.convolution_based import (
             RocketClassifier,
@@ -91,15 +101,15 @@ def rocket_classify(
         "multirocket": MultiRocketClassifier,
     }
 
-    clf_class = clf_map.get(variant, RocketClassifier)
+    clf_class = clf_map[variant]
 
     # Different parameter names for different variants
     try:
         try:
-            clf = clf_class(num_kernels=n_kernels)
+            clf = clf_class(num_kernels=n_kernels, random_state=random_state)
         except TypeError:
             # Some variants use different parameter names
-            clf = clf_class()
+            clf = clf_class(random_state=random_state)
 
         clf.fit(X_train, y_train)
         predictions = clf.predict(X_test)
@@ -121,16 +131,13 @@ def rocket_classify(
             pass
 
     # Compute accuracy
-    accuracy = None
-    if y_test is not None:
-        y_test = np.asarray(y_test)
-        accuracy = float(np.mean(predictions == y_test))
+    metrics = classification_metrics(y_test, predictions)
 
     return ClassificationResult(
         method=f"{variant}",
         predictions=predictions,
         probabilities=probabilities,
-        accuracy=accuracy,
+        **metrics,
     )
 
 
@@ -179,15 +186,13 @@ def _fallback_rocket_classify(
 
     predictions = clf.predict(X_test_scaled)
 
-    accuracy = None
-    if y_test is not None:
-        accuracy = float(np.mean(predictions == y_test))
+    metrics = classification_metrics(y_test, predictions)
 
     return ClassificationResult(
         method="rocket_fallback",
         predictions=predictions,
         probabilities=None,
-        accuracy=accuracy,
+        **metrics,
         warnings=[warning_message] if warning_message else [],
     )
 
