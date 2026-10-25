@@ -319,7 +319,7 @@ Deterministic validation errors are not retryable with unchanged inputs.
 
 Built-in `agent run`, UI/hosted entrypoints, and LLM report generation were
 removed in 0.4.0. The `run`/`demo` aliases and the bundled-data `*_with_data`
-tools were removed in 0.5.0; use `tool run <tool> --input <file>` and
+tools were removed in 0.4.1; use `tool run <tool> --input <file>` and
 `workflow run`.
 
 ## Sandbox modes
@@ -352,7 +352,7 @@ uv run ts-agents tool run stl_decompose \
 
 You can also set the default via the `TS_AGENTS_SANDBOX_MODE` environment variable.
 
-## Removed in 0.5.0
+## Removed in 0.4.1
 
 | Removed | Use instead |
 | --- | --- |

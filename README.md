@@ -335,7 +335,7 @@ any generated plots or reports.
 
 ## Installation
 
-Version 0.5.0 (unreleased) removes the `ts-agents run ...` and `ts-agents demo ...`
+Version 0.4.1 removes the `ts-agents run ...` and `ts-agents demo ...`
 aliases and the 24 `*_with_data` tools that read the bundled demo dataset; use
 `ts-agents tool run <tool> --input <file>` and `ts-agents workflow run ...`.
 See the [changelog](CHANGELOG.md) for migration notes. Version 0.4.0 removed
@@ -345,7 +345,7 @@ LangChain tool wrappers.
 For the GBM/NHITS forecasting and reporting profile:
 
 ```bash
-python -m pip install "ts-agents[ml,neural,forecasting,viz]==0.4.0"
+python -m pip install "ts-agents[ml,neural,forecasting,viz]==0.4.1"
 ```
 
 Prerequisites:

@@ -11,7 +11,7 @@ It complements `README.md` (what exists today) with direction (what is next).
   analysis capabilities across task families, not forecasting alone.
 - Use sandbox backends to handle dependency and runtime isolation.
 
-## In Progress (0.5.0, unreleased)
+## Recently Shipped (0.4.1)
 
 - Task-family parity: file input for every series tool, discovery by task
   words, and skills for anomaly detection, segmentation, and spectral
@@ -21,7 +21,7 @@ It complements `README.md` (what exists today) with direction (what is next).
   significance-tested periodicity, explicit failures instead of empty answers,
   and held-out (optionally leave-subject-out) activity evaluation.
 
-## Recently Shipped (0.4.0)
+## Earlier Shipped (0.4.0)
 
 - Remove Gradio, hosted entrypoints, and built-in agents while retaining activity
   recognition, classification, anomaly/pattern detection, forecasting,

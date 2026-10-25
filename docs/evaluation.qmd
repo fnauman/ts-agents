@@ -33,7 +33,7 @@ Metrics:
 
 ## Latest checked-in snapshot
 
-Regenerated for 0.5.0 (unreleased) on 2026-10-25, after the tool-input and
+Regenerated for 0.4.1 on 2026-10-25, after the tool-input and
 result-contract changes; the previous snapshot dated from 2026-04-01.
 
 Rerun command:
