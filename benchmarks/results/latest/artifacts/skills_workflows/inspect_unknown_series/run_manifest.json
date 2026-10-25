@@ -1,0 +1,75 @@
+{
+  "schema_version": "1.0",
+  "workflow": "inspect-series",
+  "run_id": "20261025T133734Z-a6d60cad",
+  "status": "ok",
+  "summary": "Inspect-series workflow completed for series: no significant periodicity; lag-1 autocorrelation 0.8529; 0 candidate regime change(s).",
+  "output_dir": "/home/nauman/repos/private/ts-agents/benchmarks/results/latest/artifacts/skills_workflows/inspect_unknown_series",
+  "manifest_path": "/home/nauman/repos/private/ts-agents/benchmarks/results/latest/artifacts/skills_workflows/inspect_unknown_series/run_manifest.json",
+  "created_at": "2026-10-25T13:37:34.197738Z",
+  "resumed": false,
+  "output_dir_mode": "explicit",
+  "source": {
+    "source_type": "inline_json",
+    "path": null
+  },
+  "options": {
+    "max_lag": null,
+    "skip_plots": true
+  },
+  "warnings": [],
+  "quality_flags": [],
+  "artifacts": [
+    {
+      "kind": "json",
+      "path": "/home/nauman/repos/private/ts-agents/benchmarks/results/latest/artifacts/skills_workflows/inspect_unknown_series/summary.json",
+      "mime_type": "application/json",
+      "description": "Inspection summary JSON.",
+      "created_by": "inspect-series"
+    },
+    {
+      "kind": "json",
+      "path": "/home/nauman/repos/private/ts-agents/benchmarks/results/latest/artifacts/skills_workflows/inspect_unknown_series/ledger.json",
+      "mime_type": "application/json",
+      "description": "Structured analysis ledger for workflow findings and recommendations.",
+      "created_by": "inspect-series"
+    },
+    {
+      "kind": "markdown",
+      "path": "/home/nauman/repos/private/ts-agents/benchmarks/results/latest/artifacts/skills_workflows/inspect_unknown_series/report.md",
+      "mime_type": "text/markdown",
+      "description": "Inspection workflow markdown report.",
+      "created_by": "inspect-series"
+    },
+    {
+      "kind": "json",
+      "path": "/home/nauman/repos/private/ts-agents/benchmarks/results/latest/artifacts/skills_workflows/inspect_unknown_series/run_manifest.json",
+      "mime_type": "application/json",
+      "description": "Workflow run manifest.",
+      "created_by": "inspect-series"
+    }
+  ],
+  "provenance": {
+    "series_ref": {
+      "source_type": "inline_json",
+      "path": null
+    }
+  },
+  "execution": {
+    "backend_requested": "local",
+    "backend_actual": "local",
+    "fallback_allowed": false,
+    "fallback_used": false
+  },
+  "resume_identity": {
+    "version": "1",
+    "workflow": "inspect-series",
+    "input_sha256": "fcb7122ee5bdb1f715222aaeb4dd29b64f9b7efad4d9f7f14fb8656750fee7a2",
+    "options_sha256": "3d612810929ca91ecd6970af20280eb6985686d333f463f4f09c7b21c52b3f1b",
+    "options": {
+      "max_lag": null,
+      "skip_plots": true
+    }
+  },
+  "updated_at": "2026-10-25T13:37:34.203663Z"
+}

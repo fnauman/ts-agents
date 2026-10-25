@@ -78,6 +78,13 @@ class TestMSTL:
         assert len(result.trend) == 10000
         assert len(result.seasonal) == 10000
 
+        # Auto detection commonly returns just one period (a Series, not DataFrame).
+        single = np.sin(2 * np.pi * np.arange(240) / 24)
+        for periods in ([24], None):
+            result = mstl_decompose(single, periods=periods)
+            assert result.period == 24
+            np.testing.assert_allclose(result.trend + result.seasonal + result.residual, single, atol=1e-12)
+
     def test_mstl_missing_statsmodels_reports_mstl_specific_error(self, monkeypatch):
         """Test MSTL missing-dependency path keeps an MSTL-specific error message."""
         from ts_agents.core.decomposition import mstl_decompose
@@ -101,7 +108,7 @@ class TestMSTL:
             ImportError,
             match=r'MSTL decomposition requires optional dependencies',
         ):
-            mstl_decompose(x, periods=[100, 700])
+            mstl_decompose(x, periods=[100, 250])
 
 
 @requires_statsmodels

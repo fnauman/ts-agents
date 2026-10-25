@@ -1,5 +1,6 @@
 {
-  "method": "windowed_classification",
+  "method": "windowed_classification_holdout",
+  "warnings": [],
   "window_size": 8,
   "stride": 4,
   "classifier": "knn",
@@ -52,160 +53,6 @@
       "walk",
       "walk"
     ],
-    "probabilities": [
-      [
-        1.0,
-        0.0
-      ],
-      [
-        1.0,
-        0.0
-      ],
-      [
-        1.0,
-        0.0
-      ],
-      [
-        1.0,
-        0.0
-      ],
-      [
-        1.0,
-        0.0
-      ],
-      [
-        1.0,
-        0.0
-      ],
-      [
-        1.0,
-        0.0
-      ],
-      [
-        1.0,
-        0.0
-      ],
-      [
-        1.0,
-        0.0
-      ],
-      [
-        1.0,
-        0.0
-      ],
-      [
-        1.0,
-        0.0
-      ],
-      [
-        1.0,
-        0.0
-      ],
-      [
-        1.0,
-        0.0
-      ],
-      [
-        1.0,
-        0.0
-      ],
-      [
-        1.0,
-        0.0
-      ],
-      [
-        0.0,
-        1.0
-      ],
-      [
-        0.0,
-        1.0
-      ],
-      [
-        0.0,
-        1.0
-      ],
-      [
-        0.0,
-        1.0
-      ],
-      [
-        0.0,
-        1.0
-      ],
-      [
-        0.0,
-        1.0
-      ],
-      [
-        0.0,
-        1.0
-      ],
-      [
-        0.0,
-        1.0
-      ],
-      [
-        0.0,
-        1.0
-      ],
-      [
-        0.0,
-        1.0
-      ],
-      [
-        0.0,
-        1.0
-      ],
-      [
-        0.0,
-        1.0
-      ],
-      [
-        0.0,
-        1.0
-      ],
-      [
-        0.0,
-        1.0
-      ],
-      [
-        0.0,
-        1.0
-      ],
-      [
-        0.0,
-        1.0
-      ],
-      [
-        0.0,
-        1.0
-      ],
-      [
-        0.0,
-        1.0
-      ],
-      [
-        0.0,
-        1.0
-      ],
-      [
-        0.0,
-        1.0
-      ],
-      [
-        0.0,
-        1.0
-      ],
-      [
-        0.0,
-        1.0
-      ],
-      [
-        0.0,
-        1.0
-      ]
-    ],
     "accuracy": 1.0,
     "f1_score": 1.0,
     "confusion_matrix": [
@@ -217,6 +64,38 @@
         0,
         23
       ]
+    ],
+    "labels": [
+      "idle",
+      "walk"
     ]
+  },
+  "n_splits": 1,
+  "split_scores": [
+    1.0
+  ],
+  "retained_classes": [
+    "idle",
+    "walk"
+  ],
+  "dropped_classes": [],
+  "details": {
+    "evaluation": "holdout",
+    "labeling": "strict",
+    "n_train_windows": 76,
+    "n_holdout_windows": 38,
+    "holdout_fraction_of_timepoints": 0.3333333333333333,
+    "test_class_counts": {
+      "idle": 15,
+      "walk": 23
+    },
+    "chance_balanced_accuracy": 0.5,
+    "majority_class_accuracy": 0.6052631578947368,
+    "random_state": 1337,
+    "all_classes": [
+      "idle",
+      "walk"
+    ],
+    "retained_class_fraction": 1.0
   }
 }

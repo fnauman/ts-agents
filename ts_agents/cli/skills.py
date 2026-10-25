@@ -51,9 +51,6 @@ def build_skills_markdown() -> str:
     """Build the aggregate SKILLS.md summary file."""
     from ts_agents.tools.bundles import (
         CATEGORY_BUNDLES,
-        DEMO_BUNDLE,
-        DEMO_WINDOWING_BUNDLE,
-        DEMO_FORECASTING_BUNDLE,
         MINIMAL_BUNDLE,
         STANDARD_BUNDLE,
         FULL_BUNDLE,
@@ -65,10 +62,10 @@ def build_skills_markdown() -> str:
         "Auto-generated skills summary for ts-agents.",
         "",
         "## CLI",
-        "- ts-agents data list",
-        "- ts-agents tool list",
-        "- ts-agents tool show forecast_theta_with_data",
-        "- ts-agents tool run <tool> --run <RUN> --var <VAR>",
+        "- ts-agents capabilities --json",
+        "- ts-agents tool search anomaly --json",
+        "- ts-agents tool show find_discords --json",
+        "- ts-agents tool run <tool> --input data.csv --value-col <col> [--time-col <t>] --json",
         "- ts-agents workflow run inspect-series --input-json '{\"series\":[1,2,3,4]}'",
         "- ts-agents workflow run forecast-series --input-json '{\"series\":[1,2,3,4,5,6,7,8,9,10]}' --horizon 3 --methods seasonal_naive",
         "- ts-agents data export-panel m4-monthly-mini --split train --out panel.csv --json",
@@ -86,13 +83,8 @@ def build_skills_markdown() -> str:
     ]
 
     bundle_summaries = {
-        "demo": f"Meta-bundle covering both demo tracks ({len(DEMO_BUNDLE)} tools)",
-        "demo_windowing": (
-            f"Focused windowing essentials for LLM-first demo ({len(DEMO_WINDOWING_BUNDLE)} tools)"
-        ),
-        "demo_forecasting": f"Focused forecasting demo tools ({len(DEMO_FORECASTING_BUNDLE)} tools)",
-        "minimal": f"Core tools for baseline testing ({len(MINIMAL_BUNDLE)} tools)",
-        "standard": f"Well-rounded set for typical analysis ({len(STANDARD_BUNDLE)} tools)",
+        "minimal": f"One entry point per task family ({len(MINIMAL_BUNDLE)} tools)",
+        "standard": f"Well-rounded set across task families ({len(STANDARD_BUNDLE)} tools)",
         "full": f"Comprehensive set for in-depth analysis ({len(FULL_BUNDLE)} tools)",
         "orchestrator": "High-level tools for agent orchestration",
     }
@@ -368,6 +360,8 @@ def validate_skill(skill_dir: Path) -> List[str]:
                             f"{skill_dir.name}: '{list_field}' must be a list of strings"
                         )
 
+    errors.extend(_validate_cli_references(skill_dir.name, frontmatter, body))
+
     # Check body has content
     if len(body.strip()) < 50:
         errors.append(f"{skill_dir.name}: Body content seems too short")
@@ -382,6 +376,39 @@ def validate_skill(skill_dir: Path) -> List[str]:
                 continue
             errors.append(f"{skill_dir.name}: Missing recommended section '{section}'")
 
+    return errors
+
+
+def _validate_cli_references(skill_name: str, frontmatter: Dict[str, Any], body: str) -> List[str]:
+    """Check that tools and workflows named by a skill exist in this CLI."""
+    from ts_agents.tools.registry import ToolRegistry
+    from ts_agents.workflows import list_workflows
+
+    tool_names = set(ToolRegistry.list_names())
+    workflow_names = {workflow.name for workflow in list_workflows()}
+    errors: List[str] = []
+
+    ts_meta = (frontmatter.get("metadata") or {}).get("ts_agents") or {}
+    if isinstance(ts_meta, dict):
+        for field in ("preferred_tools", "avoid_tools"):
+            for name in ts_meta.get(field) or []:
+                if isinstance(name, str) and name not in tool_names:
+                    errors.append(f"{skill_name}: '{field}' names unknown tool '{name}'")
+        workflow = ts_meta.get("preferred_workflow")
+        if isinstance(workflow, str) and workflow not in workflow_names:
+            errors.append(f"{skill_name}: 'preferred_workflow' names unknown workflow '{workflow}'")
+
+    for command in _extract_ts_agents_commands(body):
+        parts = command.split()
+        if len(parts) < 4 or parts[0] != "ts-agents":
+            continue
+        group, action, target = parts[1], parts[2], parts[3]
+        if target.startswith("<") or target.startswith("-"):
+            continue
+        if group == "tool" and action in {"run", "show"} and target not in tool_names:
+            errors.append(f"{skill_name}: command uses unknown tool '{target}': {command}")
+        if group == "workflow" and action in {"run", "show"} and target not in workflow_names:
+            errors.append(f"{skill_name}: command uses unknown workflow '{target}': {command}")
     return errors
 
 

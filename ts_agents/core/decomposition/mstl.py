@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from ..base import DecompositionResult
+from ..validation import as_univariate_series
 
 
 def mstl_decompose(
@@ -24,7 +25,9 @@ def mstl_decompose(
     series : np.ndarray
         1D time series data
     periods : list of int, optional
-        List of seasonal periods. If None, uses single auto-detected period.
+        List of seasonal periods in samples. If None, the significant periods
+        found by :func:`ts_agents.core.spectral.detect_periodicity` are used
+        (``ValueError`` when none is significant).
     windows : list of int, optional
         List of seasonal smoothing windows (same length as periods).
 
@@ -43,14 +46,17 @@ def mstl_decompose(
     >>> x = 0.1 * t + daily + weekly + 0.1 * np.random.randn(10000)
     >>> result = mstl_decompose(x, periods=[100, 700])
     """
-    series = np.asarray(series, dtype=np.float64).flatten()
+    series = as_univariate_series(series, min_length=4)
 
-    # Auto-detect periods if not provided
+    period_source = "user"
     if periods is None:
-        periods = [_detect_periods(series)[0]]
-
-    # Ensure periods are valid
-    periods = [max(2, p) for p in periods]
+        periods = _detect_periods(series)
+        period_source = "auto"
+    periods = [int(p) for p in periods]
+    if not periods or any(p < 2 or p > len(series) // 2 for p in periods):
+        raise ValueError(
+            f"periods must be between 2 and half the series length ({len(series) // 2}); got {periods}."
+        )
 
     # Use statsmodels MSTL if available
     try:
@@ -61,7 +67,7 @@ def mstl_decompose(
         result = mstl.fit()
 
         # Combine all seasonal components
-        seasonal = result.seasonal.sum(axis=1).values if hasattr(result.seasonal, 'sum') else result.seasonal.values
+        seasonal = result.seasonal.sum(axis=1).values if result.seasonal.ndim == 2 else result.seasonal.values
 
         return DecompositionResult(
             method="mstl",
@@ -69,43 +75,25 @@ def mstl_decompose(
             seasonal=seasonal,
             residual=result.resid.values,
             period=periods[0],  # Primary period
+            period_source=period_source,
         )
 
     except ImportError as exc:
         raise ImportError(
             'MSTL decomposition requires optional dependencies. Install with: pip install "ts-agents[decomposition]"'
         ) from exc
-    except AttributeError:
-        # Fallback to regular STL with first period
-        from .stl import stl_decompose
-        return stl_decompose(series, period=periods[0])
 
 
 def _detect_periods(series: np.ndarray, max_periods: int = 3) -> List[int]:
-    """Auto-detect multiple dominant periods using FFT."""
-    # Remove mean
-    sig = series - np.mean(series)
+    """Significant integer periods (deduplicated) from the shared estimator."""
+    from ..spectral.psd import detect_periodicity
 
-    # FFT
-    fft = np.fft.rfft(sig)
-    freqs = np.fft.rfftfreq(len(sig))
-    power = np.abs(fft) ** 2
-
-    # Ignore DC component
-    power[0] = 0
-
-    # Find top peaks
-    top_indices = np.argsort(power)[-max_periods:][::-1]
-
-    periods = []
-    for idx in top_indices:
-        freq = freqs[idx]
-        if freq > 0:
-            period = int(1 / freq)
-            if 2 <= period <= len(series) // 2:
-                periods.append(period)
-
+    result = detect_periodicity(series, top_n=max_periods)
+    periods: List[int] = []
+    for value in result.top_periods:
+        period = int(round(value))
+        if 2 <= period <= len(series) // 2 and period not in periods:
+            periods.append(period)
     if not periods:
-        periods = [max(2, len(series) // 10)]
-
-    return periods
+        raise ValueError("No significant seasonal period detected; pass periods explicitly.")
+    return sorted(periods)

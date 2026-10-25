@@ -15,8 +15,8 @@ in/out. A small file-based contract is the most interoperable option:
 Input schema (JSON)
 -------------------
 {
-  "tool_name": "forecast_theta_with_data",
-  "kwargs": {"run_id": "Re200Rm200", "variable_name": "y", "horizon": 50},
+  "tool_name": "forecast_theta",
+  "kwargs": {"series": [1.0, 2.0, 3.0, 4.0], "horizon": 50},
   "context": {"timeout_seconds": 120, "memory_mb": 2048}
 }
 

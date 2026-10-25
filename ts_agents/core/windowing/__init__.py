@@ -9,6 +9,9 @@ _LAZY_EXPORTS = {
     "WindowedClassificationEvaluation": ("selection", "WindowedClassificationEvaluation"),
     "evaluate_windowed_classifier": ("selection", "evaluate_windowed_classifier"),
     "evaluate_windowed_classifier_from_csv": ("selection", "evaluate_windowed_classifier_from_csv"),
+    "evaluate_windowed_classifier_holdout": ("selection", "evaluate_windowed_classifier_holdout"),
+    "split_holdout_units": ("selection", "split_holdout_units"),
+    "contiguous_block_ids": ("selection", "contiguous_block_ids"),
     "select_window_size": ("selection", "select_window_size"),
     "select_window_size_from_csv": ("selection", "select_window_size_from_csv"),
 }
@@ -26,4 +29,7 @@ __all__ = [
     "select_window_size_from_csv",
     "evaluate_windowed_classifier",
     "evaluate_windowed_classifier_from_csv",
+    "evaluate_windowed_classifier_holdout",
+    "split_holdout_units",
+    "contiguous_block_ids",
 ]

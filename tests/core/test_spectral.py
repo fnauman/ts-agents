@@ -61,7 +61,43 @@ class TestPSD:
         result = detect_periodicity(x)
 
         # Should detect the correct period
-        assert 40 < result.dominant_period < 60
+        assert result.detected
+        assert result.dominant_period == pytest.approx(50, rel=0.01)
+
+    def test_detect_periodicity_ignores_trend_and_reports_time_units(self):
+        """A trend must not become the "period"; periods use sample_rate units."""
+        from ts_agents.core.spectral import detect_periodicity
+
+        rng = np.random.default_rng(0)
+        t = np.arange(1000)
+        trended = 0.02 * t + np.sin(2 * np.pi * t / 24) + 0.3 * rng.standard_normal(1000)
+        assert detect_periodicity(trended).dominant_period == pytest.approx(24, rel=0.01)
+        assert detect_periodicity(1e-18 * trended).dominant_period == pytest.approx(24, rel=0.01)
+        from ts_agents.core.spectral.psd import _bonferroni_p
+        assert _bonferroni_p(np.log(20), 3) == pytest.approx(0.15)
+
+        seconds = np.arange(1000) / 50.0
+        five_hz = np.sin(2 * np.pi * 5.0 * seconds) + 0.2 * rng.standard_normal(1000)
+        assert detect_periodicity(five_hz, sample_rate=50.0).dominant_period == pytest.approx(0.2, rel=0.01)
+
+    @pytest.mark.parametrize("kind", ["random_walk", "level_shift", "white_noise"])
+    def test_detect_periodicity_reports_none_for_aperiodic_series(self, kind):
+        """Random walks, level shifts, and noise have no significant period."""
+        from ts_agents.core.spectral import detect_periodicity
+
+        rng = np.random.default_rng(1)
+        noise = rng.standard_normal(1000)
+        series = {
+            "random_walk": np.cumsum(noise),
+            "level_shift": noise + 3.0 * (np.arange(1000) >= 500),
+            "white_noise": noise,
+        }[kind]
+
+        result = detect_periodicity(series)
+
+        assert result.detected is False
+        assert result.dominant_period is None
+        assert result.candidate_period is not None
 
 
 class TestCoherence:

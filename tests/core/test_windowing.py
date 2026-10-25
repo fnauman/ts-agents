@@ -1,3 +1,4 @@
+import pytest
 import numpy as np
 import warnings
 import json
@@ -197,3 +198,109 @@ def test_select_window_size_from_csv_accepts_json_records(tmp_path):
     )
 
     assert result.best_window_size in result.scores_by_window
+
+
+def test_majority_splits_never_share_samples_between_train_and_test():
+    """Purging removes training windows that overlap any test window."""
+    series, labels = _make_series()
+    segments = window_selection._compute_segments(labels)
+    X, y, groups, spans = window_selection._extract_windows_from_segments(
+        series.reshape(-1, 1), segments, window_size=20, stride=1, labeling="majority", labels=labels
+    )
+    splits = window_selection._iter_valid_group_splits(
+        X, y, groups, n_splits=3, test_size=0.34, random_state=0, min_classes_per_split=1, spans=spans
+    )
+
+    assert splits
+    for train_idx, test_idx in splits:
+        test_samples = {t for start, end in spans[test_idx] for t in range(start, end)}
+        train_samples = {t for start, end in spans[train_idx] for t in range(start, end)}
+        assert not test_samples & train_samples
+
+
+def test_windows_never_span_groups_and_holdout_keeps_whole_groups():
+    """Subject groups bound windows, and the holdout takes whole subjects."""
+    rng = np.random.default_rng(0)
+    labels = np.array((["a"] * 40 + ["b"] * 40) * 3)
+    groups = np.repeat(["s1", "s2", "s3"], 80)
+    series = rng.normal(size=(240, 1)) + (labels == "b")[:, None] * 2.0
+
+    group_ids = window_selection._as_group_ids(groups, len(labels))
+    segments = window_selection._compute_segments(labels, group_ids)
+    _, _, _, spans = window_selection._extract_windows_from_segments(
+        series, segments, window_size=16, stride=4, labeling="majority", labels=labels, group_ids=group_ids
+    )
+    assert all(len(set(groups[start:end])) == 1 for start, end in spans)
+
+    # Returning to subject A must not make an A-B-A window valid.
+    repeated_groups = np.array(["a"] * 8 + ["b"] * 4 + ["a"] * 8)
+    repeated_ids = window_selection._as_group_ids(repeated_groups, 20)
+    repeated_labels = np.array(["x"] * 20)
+    _, _, _, repeated_spans = window_selection._extract_windows_from_segments(
+        np.arange(20)[:, None], window_selection._compute_segments(repeated_labels, repeated_ids),
+        window_size=16, stride=1, labeling="majority", labels=repeated_labels, group_ids=repeated_ids,
+    )
+    assert len(repeated_spans) == 0
+
+    mask = window_selection.split_holdout_units(labels, groups=groups, test_size=0.3, seed=1)
+    held = set(groups[mask])
+    assert len(held) == 1
+    assert all(mask[groups == group].all() for group in held)
+
+    # The requested fraction can be reached before the second required class.
+    for fraction in (0.1, 0.25):
+        stream_labels = np.repeat(["a", "b", "a", "b"], 40)
+        mask = window_selection.split_holdout_units(stream_labels, test_size=fraction)
+        assert set(stream_labels[mask]) == {"a", "b"}
+        assert set(stream_labels[~mask]) == {"a", "b"}
+
+
+def test_select_window_size_prefers_windows_keeping_every_class(monkeypatch):
+    """A window that scores higher only by dropping a class is not chosen."""
+    rng = np.random.default_rng(0)
+    # Class "c" segments are 20 samples long, so 30-sample windows drop it.
+    labels = np.array((["a"] * 60 + ["b"] * 60 + ["c"] * 20) * 3)
+    series = rng.normal(size=len(labels))
+
+    def fake_score(metric, y_true, y_pred):
+        # The hard class "c" lowers the score whenever it is evaluated.
+        return 0.6 if "c" in set(y_true) else 1.0
+
+    monkeypatch.setattr(window_selection, "_score_metric", fake_score)
+    monkeypatch.setattr(
+        window_selection,
+        "_run_window_classifier",
+        lambda **kwargs: (kwargs["y_test"], ClassificationResult(method="fake", predictions=kwargs["y_test"])),
+    )
+
+    result = select_window_size(
+        series, labels, window_sizes=[8, 30], classifier="knn", balance="none", n_splits=3, test_size=0.5,
+    )
+
+    assert result.details["window_diagnostics"][30]["dropped_classes"] == ["c"]
+    assert result.scores_by_window[30] > result.scores_by_window[8]
+    assert result.best_window_size == 8
+    assert result.details["selection_rule"] == "best_score_with_all_classes"
+
+
+@pytest.mark.parametrize("balance", ["segment_cap", "undersample"])
+def test_final_holdout_balances_training_only(monkeypatch, balance):
+    labels = np.repeat(["a", "b", "a", "b"], [80, 40, 80, 40])
+    mask = np.arange(len(labels)) >= 120
+    calls = []
+
+    def classify(**kwargs):
+        calls.append(kwargs)
+        return kwargs["y_test"], ClassificationResult(method="fake", predictions=kwargs["y_test"])
+
+    monkeypatch.setattr(window_selection, "_run_window_classifier", classify)
+    result = window_selection.evaluate_windowed_classifier_holdout(
+        np.arange(len(labels)), labels, holdout_mask=mask, window_size=8, stride=4,
+        balance=balance, max_windows_per_segment=3,
+    )
+    train = calls[0]["y_train"]
+    assert np.sum(train == "a") == np.sum(train == "b") == (3 if balance == "segment_cap" else 9)
+    assert len(calls[0]["y_test"]) == 28
+    assert result.details["n_train_windows"] == len(train)
+    assert result.details["n_holdout_windows"] == 28
+    assert result.n_windows == len(train) + 28

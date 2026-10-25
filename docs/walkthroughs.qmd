@@ -2,9 +2,8 @@
 title: "Workflow Walkthroughs"
 ---
 
-Step-by-step guides for the first-class workflows.
-The legacy `demo` aliases still exist for one release cycle, but this page uses
-the workflow/tool grammar that new automation should prefer.
+Step-by-step guides for the first-class workflows. The commands assume a
+source checkout (repo-root `data/` files and `uv run`).
 
 Profile note:
 - Base install supports `inspect-series` plus a light `seasonal_naive` forecast baseline.
@@ -17,16 +16,24 @@ Profile note:
 
 ```bash
 uv run ts-agents workflow run inspect-series \
-  --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' \
+  --input data/synthetic_signals.csv \
+  --time-col t \
+  --value-col periodic \
   --output-dir outputs/inspect
 ```
 
-This single command:
+`data/synthetic_signals.csv` is a 50 Hz known-answer table (see
+`data/README.md`); the `periodic` column is a 2 Hz sine plus noise. This
+single command:
 
-1. computes descriptive statistics
-2. estimates periodicity and autocorrelation
-3. writes a structured JSON summary plus a findings ledger
-4. writes a Markdown report and an autocorrelation plot
+1. checks the time axis (ordering, gaps, regular step) and computes descriptive statistics
+2. runs a significance-tested periodicity check and autocorrelation (here a
+   25-sample, 0.5 s period)
+3. screens for regime changes
+4. writes a structured JSON summary with next steps across anomaly detection,
+   segmentation, decomposition, spectral analysis, and forecasting, plus a
+   findings ledger
+5. writes a Markdown report and an autocorrelation plot
 
 ### 2. Interpret the outputs
 
@@ -34,7 +41,7 @@ All artifacts land in `outputs/inspect/` by default.
 
 | Artifact | What it tells you |
 |----------|-------------------|
-| `summary.json` | Stats, periodicity, autocorrelation, forecast recommendation, and recommended next steps |
+| `summary.json` | Time axis, stats, periodicity test, autocorrelation, regime screen, recommended next steps, and a forecast recommendation section |
 | `ledger.json` | Structured findings ledger for downstream agent/model-selection steps |
 | `autocorrelation.png` | Visual lag structure for the inspected series |
 | `report.md` | Markdown summary of the diagnostic run |
@@ -42,25 +49,29 @@ All artifacts land in `outputs/inspect/` by default.
 ### 3. Customize the run
 
 ```bash
-# Use a bundled series instead of inline JSON
+# Inline JSON instead of a file, with a longer autocorrelation horizon
+uv run ts-agents workflow run inspect-series \
+  --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' \
+  --max-lag 12 \
+  --output-dir outputs/inspect-inline
+
+# Bundled smoke fixture (5 points per run)
 uv run ts-agents workflow run inspect-series \
   --run-id Re200Rm200 \
   --variable bx001_real \
   --output-dir outputs/inspect-re200
-
-# Increase the autocorrelation horizon
-uv run ts-agents workflow run inspect-series \
-  --input-json '{"series":[1,2,3,4,5,6,7,8,9,10]}' \
-  --max-lag 12 \
-  --output-dir outputs/inspect-maxlag
 ```
+
+Both of these series are too short for the periodicity test, so the runs report
+`quality_status: degraded` with the `periodicity_not_assessed` quality flag.
 
 Key flags:
 
 | Flag | Default | Options |
 |------|---------|---------|
-| `--run-id` / `--variable` | off | bundled dataset lookup |
+| `--input` / `--value-col` / `--time-col` | off | CSV, parquet, or JSON file and its columns |
 | `--input-json` | off | inline JSON or JSON file path |
+| `--run-id` / `--variable` | off | bundled `short_real.csv` smoke fixture (5 points per run) |
 | `--max-lag` | auto | any positive integer |
 | `--output-dir` | workflow-specific temp path | any path |
 
@@ -119,7 +130,8 @@ Key flags:
 |------|---------|---------|
 | `--methods` | `seasonal_naive,arima,theta` | `seasonal_naive`, `arima`, `ets`, `theta` (comma-separated) |
 | `--horizon` | `1` | Any positive integer |
-| `--run-id` / `--variable` | off | bundled dataset lookup |
+| `--input` / `--value-col` / `--time-col` | off | CSV, parquet, or JSON file and its columns |
+| `--run-id` / `--variable` | off | bundled `short_real.csv` smoke fixture (5 points per run) |
 | `--output-dir` | workflow-specific temp path | Any path |
 
 ---
@@ -142,9 +154,17 @@ uv run ts-agents workflow run activity-recognition \
 This workflow:
 
 1. reads a labeled-stream CSV
-2. sweeps candidate window sizes
-3. evaluates the best window on a held-out split
-4. writes plots, JSON metrics, and a Markdown report
+2. sets aside held-out data first: whole label segments, or whole subjects or
+   sessions when `--group-col` is given
+3. sweeps candidate window sizes on the remaining data only
+4. scores the selected window on the held-out data and reports that score
+5. writes plots, JSON metrics, and a Markdown report
+
+`eval.json` includes `details.chance_balanced_accuracy`. With the
+`balanced_accuracy` metric, a held-out score that does not beat chance is
+flagged `score_at_or_below_chance`. If the `--time-col` values decrease
+(across the stream, or within a group when `--group-col` is given), the run is
+flagged `non_monotonic_time` and rows are used in input order.
 
 ### 2. Interpret the outputs
 
@@ -157,6 +177,11 @@ All artifacts land in `outputs/activity/` by default.
 | `eval.json` | Final metrics, confusion matrix, class counts |
 | `confusion_matrix.png` | Heatmap of predicted vs true labels |
 | `report.md` | Markdown summary of the workflow run |
+
+The synthetic classes are easy to separate, so these runs report
+`quality_status: degraded`: the 40-second stream above is flagged
+`too_few_windows` among others, and longer streams are flagged
+`perfect_metrics`. Read `quality_flags` before quoting the score.
 
 ### 3. Customize the run
 
@@ -184,6 +209,7 @@ Key flags:
 | `--window-sizes` | `32,64,96,128,160` | Comma-separated integers |
 | `--classifier` | `auto` | `auto`, `minirocket`, `rocket`, `knn` |
 | `--metric` | `balanced_accuracy` | `accuracy`, `balanced_accuracy`, `f1_macro` |
+| `--group-col` | off | Subject/session column; windows never span groups and whole groups are held out |
 | `--output-dir` | workflow-specific temp path | Any path |
 
 ---
@@ -192,6 +218,24 @@ Key flags:
 
 This WISDM walkthrough is a **source-checkout workflow**. It uses the repo-root
 dataset `data/wisdm_subset.csv`, which is not bundled into the published wheel.
+
+### Multi-subject data: hold out whole subjects
+
+`data/wisdm_subset.csv` holds two subjects. Pass `--group-col` so windows never
+span subjects and the reported score comes from a subject the window selection
+never saw (leave-subject-out):
+
+```bash
+uv run ts-agents workflow run activity-recognition \
+  --input data/wisdm_subset.csv \
+  --label-col label \
+  --value-cols x,y,z \
+  --group-col subject_id \
+  --output-dir outputs/activity-wisdm-subjects
+```
+
+Without `--group-col`, held-out segments come from the same subjects as the
+training data, so the score can overstate performance on a new person.
 
 ### Build a custom WISDM stream
 

@@ -9,6 +9,7 @@ import numpy as np
 from scipy import stats as scipy_stats
 
 from ..base import DescriptiveStats
+from ..validation import as_univariate_series
 
 
 def describe_series(
@@ -36,10 +37,14 @@ def describe_series(
     >>> stats = describe_series(x, extended=True)
     >>> print(f"Mean: {stats.mean:.2f}, Std: {stats.std:.2f}")
     """
-    series = np.asarray(series, dtype=np.float64).flatten()
+    series = as_univariate_series(series, allow_nonfinite=True)
 
-    # Remove NaNs for statistics
-    valid = series[~np.isnan(series)]
+    # Statistics use finite values only; dropped values are counted and reported.
+    finite = np.isfinite(series)
+    valid = series[finite]
+    nan_count = int(series.size - valid.size)
+    if valid.size == 0:
+        raise ValueError("series contains no finite values.")
 
     length = len(valid)
     mean = float(np.mean(valid))
@@ -56,7 +61,13 @@ def describe_series(
         min=min_val,
         max=max_val,
         rms=rms,
+        nan_count=nan_count,
+        extended=bool(extended),
     )
+    if nan_count:
+        result.warnings.append(
+            f"Dropped {nan_count} non-finite value(s); statistics use the remaining {length}."
+        )
 
     if extended and length > 0:
         result.median = float(np.median(valid))
@@ -142,13 +153,12 @@ def compute_correlation(
     >>> corr = compute_correlation(x, y)
     >>> print(f"Correlation: {corr['correlation']:.3f}")
     """
-    series1 = np.asarray(series1, dtype=np.float64).flatten()
-    series2 = np.asarray(series2, dtype=np.float64).flatten()
-
-    # Align lengths
-    min_len = min(len(series1), len(series2))
-    s1 = series1[:min_len]
-    s2 = series2[:min_len]
+    s1 = as_univariate_series(series1, name="series1", min_length=3)
+    s2 = as_univariate_series(series2, name="series2", min_length=3)
+    if len(s1) != len(s2):
+        raise ValueError(
+            f"series1 and series2 must have the same length; got {len(s1)} and {len(s2)}."
+        )
 
     if method == "pearson":
         corr, pvalue = scipy_stats.pearsonr(s1, s2)
@@ -190,8 +200,10 @@ def compute_autocorrelation(
     >>> acf = compute_autocorrelation(x, max_lag=100)
     >>> print(f"ACF at lag 50: {acf[50]:.3f}")
     """
-    series = np.asarray(series, dtype=np.float64).flatten()
+    series = as_univariate_series(series, min_length=2)
     series = series - np.mean(series)
+    if not np.any(series):
+        raise ValueError("Autocorrelation is undefined for a constant series.")
 
     n = len(series)
     if max_lag is None:

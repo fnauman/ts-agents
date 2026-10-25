@@ -10,8 +10,8 @@ Example usage:
     >>>
     >>> executor = ToolExecutor()
     >>> context = ExecutionContext(sandbox_mode=SandboxMode.LOCAL)
-    >>> result = executor.execute("stl_decompose_with_data",
-    ...     {"variable_name": "bx001_real", "unique_id": "Re200Rm200"},
+    >>> result = executor.execute("stl_decompose",
+    ...     {"series": series, "period": 24},
     ...     context=context
     ... )
 """
@@ -1834,16 +1834,14 @@ class ToolExecutor:
     >>> executor = ToolExecutor()
     >>>
     >>> # Execute with default (local) backend
-    >>> result = executor.execute("stl_decompose_with_data", {
-    ...     "variable_name": "bx001_real",
-    ...     "unique_id": "Re200Rm200",
-    ... })
+    >>> result = executor.execute("stl_decompose", {"series": series, "period": 24})
     >>>
     >>> # Execute with Docker sandbox
-    >>> result = executor.execute("stl_decompose_with_data", {
-    ...     "variable_name": "bx001_real",
-    ...     "unique_id": "Re200Rm200",
-    ... }, context=ExecutionContext(sandbox_mode=SandboxMode.DOCKER))
+    >>> result = executor.execute(
+    ...     "stl_decompose",
+    ...     {"series": series, "period": 24},
+    ...     context=ExecutionContext(sandbox_mode=SandboxMode.DOCKER),
+    ... )
     """
 
     def __init__(

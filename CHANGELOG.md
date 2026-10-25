@@ -4,6 +4,106 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+Planned as 0.5.0. Makes the non-forecasting task families (anomaly/pattern
+detection, change-points, spectral analysis, decomposition, classification,
+activity recognition) first-class, and removes surfaces that returned
+misleading results.
+
+### Changed (numerical defaults)
+
+- `segment_changepoint` standardizes the series by a robust noise scale (MAD
+  of first differences), so changepoints no longer depend on units. The
+  default cost is now `normal` (was `rbf`, which is quadratic-time). The default
+  penalty is `3·log(n)` (`2·log(n)` for `rbf`), multiplied by `(1+ρ)/(1−ρ)` for
+  lag-1 autocorrelation ρ. Above 500 samples, candidates use
+  `jump = ceil(n/500)`. User penalties are in standardized units. Results
+  report `settings` and the algorithm that actually ran (`requested_method`
+  when PELT is replaced by binary segmentation for a fixed segment count).
+- `detect_periodicity` detrends, tests peaks against an AR(1) red-noise
+  background (Bonferroni, `alpha=0.01`), requires a prominent autocorrelation
+  peak at the same lag and at least `min_cycles=3` cycles, and merges adjacent
+  bins. Trends, random walks, and level shifts now report `detected: false` and
+  `dominant_period: null` instead of the record length. New fields: `detected`,
+  `p_value`, `alpha`, `candidate_period`, `sample_rate`, `detrend`,
+  `min_cycles`, `assessed`. `confidence` remains the peak's power share.
+- STL/MSTL/Holt-Winters auto-period use that test, round instead of truncating,
+  and raise `ValueError` when no significant period exists. MSTL no longer
+  falls back to STL silently. Results carry `period_source`.
+- `find_discords`/`find_motifs` default `exclusion_zone` to `m` (was `m // 2`);
+  motif exclusion covers both pair members. Both return result objects
+  (`DiscordSearchResult`, `MotifSearchResult`) with settings and warnings.
+  Discords add `robust_z`.
+- `compare_classifiers` ranks by `balanced_accuracy` by default (`rank_metric`)
+  and scores every classifier from its predictions.
+- `activity-recognition` holds out whole groups (`--group-col`) or label
+  segments before window selection and reports a single held-out score, not
+  the best selection score. Majority labeling purges training windows that
+  share samples with test windows. The best window is the best-scoring one
+  that keeps every class.
+
+### Added
+
+- `tool run <tool> --input <file> --value-col <col> [--time-col <t>]` for every
+  tool with a `series` parameter, with time-axis diagnostics (median step,
+  regularity, gaps, reordering) in `input.series`. A regular numeric time
+  column sets `sample_rate` when the tool has one.
+- `inspect-series` is task-neutral. It reports `time_axis`, significance-tested
+  periodicity, a change-point `regime_screen` (with the `patterns` extra), and
+  next steps across task families. A forecasting recommendation is one section.
+- `--group-col` for `activity-recognition`; `eval.json` reports
+  `chance_balanced_accuracy`; new flags `score_at_or_below_chance` and
+  `non_monotonic_time`.
+- Skills `anomaly-detection`, `segmentation`, and `spectral-analysis`.
+  `skills validate` rejects unknown tool or workflow names.
+- `tool search` matches task words and synonyms (for example `anomaly`,
+  `regime`, `spectrum`).
+- Classification results report balanced accuracy, macro-F1, a confusion
+  matrix, and labels; ROCKET-family classifiers accept `random_state`, and
+  window selection seeds them.
+- `data/synthetic_signals.csv` (50 Hz, known period, shifts, and anomaly) with
+  its generator.
+
+### Fixed
+
+- Activity holdout selection continues past the requested fraction until its
+  class constraints hold. Majority windows cannot cross returning groups
+  (A–B–A). Final fitting honors training balance/caps without balancing the
+  holdout; resume fingerprints include group assignments and column names.
+- Inspection preserves periodicity/regime warnings in its quality status and
+  artifacts, and distinguishes unassessable detrended constants. Tool warnings
+  and quality flags promote otherwise `ok` results to `review`.
+- Periodicity uses the stated Bonferroni formula and preserves detections when
+  amplitudes are rescaled to small physical units. MSTL handles a single
+  explicit or auto-detected seasonal component.
+- Time-axis diagnostics subtract large integer coordinates before float
+  conversion. Motif pairs cannot reuse excluded neighbors, and parameter
+  echoes bound ragged/object sequences as well as numeric arrays.
+- Change-point, FLUSS, periodicity, autocorrelation, PSD, peaks, recurrence,
+  matrix-profile, and coherence tools no longer return `ok` with empty or
+  wrong answers on errors, too-short input, non-finite values, or multichannel
+  arrays. They fail with a validation error. Unknown ROCKET variants and
+  segmentation algorithms are rejected instead of silently replaced.
+- Tool runs always set `quality_status` (`ok`/`review`); analysis results carry
+  `warnings` (e.g. FLUSS returning fewer boundaries than requested, recurrence
+  decimation, Holt-Winters fallback, dropped non-finite values).
+- Coherence and correlation reject unequal lengths instead of truncating.
+  Single-peak regularity is `undefined`, not "quasi-periodic".
+- `forecast-series` flags `irregular_sampling` when the time column has gaps.
+- The CLI envelope summarizes arrays longer than 16 values in `input.params`
+  instead of echoing them. `analyze_recurrence` and `analyze_matrix_profile`
+  return full matrices/profiles only on request.
+- Tests run in temporary working directories and no longer write run
+  directories into the checkout's `outputs/`.
+
+### Removed
+
+- The 24 `*_with_data` tools and `tool run --run/--var`. They loaded data only
+  by bundled run/variable name (by default a 5-row-per-run fixture); use
+  `tool run <tool> --input <file>`.
+- The `ts-agents run` alias, the `ts-agents demo` command, the `demo*` tool
+  bundles, and packaged demo assets (`ts_agents/resources/demo/`). The source
+  checkout's `demo/*.sh` scripts use workflows and tools.
+
 ## [0.4.0] - 2026-10-25
 
 ### Removed
@@ -32,10 +132,6 @@ All notable changes to this project will be documented in this file.
   errors are not marked retryable.
 - Demo scripts preserve the selected dependency profile with `uv run --no-sync`
   and use the same interpreter for data preparation and result summaries.
-
-
-### Fixed
-
 - Forecast evaluation rejects nonfinite inputs/predictions and invalid primary
   scores; numeric time coordinates no longer become dates near 1970.
   Comparisons retain failed methods alongside valid scores.

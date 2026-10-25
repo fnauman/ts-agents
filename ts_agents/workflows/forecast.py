@@ -166,6 +166,13 @@ def _run_forecast_series(
     )
     if not rmse_ranking:
         quality_flags.append("ranking_unavailable")
+    time_axis = series_input.time_axis or {}
+    if time_axis.get("regular") is False:
+        # Forecast models and seasonal lags assume equally spaced samples.
+        quality_flags.append("irregular_sampling")
+        warnings_list.extend(time_axis.get("warnings") or [])
+    elif time_axis.get("reordered"):
+        warnings_list.extend(time_axis.get("warnings") or [])
     if failed_methods:
         warnings_list.append(
             "Some forecast methods failed: "

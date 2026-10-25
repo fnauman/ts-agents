@@ -8,7 +8,7 @@ from typing import Optional, Literal, Tuple
 import numpy as np
 
 from ..base import ClassificationResult
-from .utils import ensure_3d
+from .utils import classification_metrics, ensure_3d
 
 
 def _knn_fallback_warning(context: str, exc: Exception) -> str:
@@ -109,16 +109,13 @@ def knn_classify(
             pass
 
     # Compute accuracy if test labels provided
-    accuracy = None
-    if y_test is not None:
-        y_test = np.asarray(y_test)
-        accuracy = float(np.mean(predictions == y_test))
+    metrics = classification_metrics(y_test, predictions)
 
     return ClassificationResult(
         method=f"knn_{distance}",
         predictions=predictions,
         probabilities=probabilities,
-        accuracy=accuracy,
+        **metrics,
     )
 
 
@@ -142,15 +139,13 @@ def _fallback_knn_classify(
     predictions = clf.predict(X_test_2d)
     probabilities = clf.predict_proba(X_test_2d)
 
-    accuracy = None
-    if y_test is not None:
-        accuracy = float(np.mean(predictions == y_test))
+    metrics = classification_metrics(y_test, predictions)
 
     return ClassificationResult(
         method="knn_euclidean_fallback",
         predictions=predictions,
         probabilities=probabilities,
-        accuracy=accuracy,
+        **metrics,
         warnings=[warning_message] if warning_message else [],
     )
 

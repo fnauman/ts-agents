@@ -132,6 +132,14 @@ class TestROCKETClassification:
         assert len(result.predictions) == 10
         assert result.accuracy is not None
 
+    def test_rocket_classify_rejects_unknown_variant(self):
+        """An unknown variant must not silently run the default classifier."""
+        from ts_agents.core.classification import rocket_classify
+
+        X, y = create_synthetic_data(n_samples=8, n_timepoints=20)
+        with pytest.raises(ValueError, match="Unknown ROCKET variant 'bogus'"):
+            rocket_classify(X[:6], y[:6], X[6:], y[6:], variant="bogus")
+
     def test_rocket_classify_falls_back_when_aeon_runtime_breaks(self, monkeypatch):
         from ts_agents.core.classification import rocket_classify
         pytest.importorskip("sklearn")
@@ -262,3 +270,19 @@ class TestCompareClassifiers:
             hivecote_classify(X_train, y_train, X_test, y_test)
         with pytest.raises(RuntimeError, match="backend failed"):
             compare_classifiers(X_train, y_train, X_test, y_test, classifiers=["knn_euclidean", "rocket"])
+
+
+def test_classification_metrics_expose_minority_class_failure():
+    """Accuracy alone hides a classifier that never predicts the minority class."""
+    from ts_agents.core.classification.utils import classification_metrics
+
+    y_true = np.array([0] * 9 + [1])
+    y_pred = np.zeros(10, dtype=int)
+
+    metrics = classification_metrics(y_true, y_pred)
+
+    assert metrics["accuracy"] == pytest.approx(0.9)
+    assert metrics["balanced_accuracy"] == pytest.approx(0.5)
+    assert metrics["f1_score"] == pytest.approx((2 * 0.9 / 1.9 + 0.0) / 2)
+    assert metrics["labels"] == [0, 1]
+    assert metrics["confusion_matrix"].tolist() == [[9, 0], [1, 0]]

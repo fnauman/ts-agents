@@ -33,37 +33,6 @@ class TestHelperFunctions:
         assert isinstance(processed["series"], np.ndarray)
         assert list(processed["series"]) == [1, 2, 3, 4, 5]
 
-    def test_args_schema_does_not_force_sample_rate_for_coherence_with_data(self):
-        """Legacy aliases should not be shadowed by an injected sample_rate default."""
-        from ts_agents.tools.registry import ToolRegistry
-        from ts_agents.tools.wrappers import _create_args_schema
-
-        tool = ToolRegistry.get("compute_coherence_with_data")
-        args_schema = _create_args_schema(tool)
-
-        if hasattr(args_schema, "model_fields"):
-            sample_rate_default = args_schema.model_fields["sample_rate"].default
-            data = args_schema(
-                variable1="a",
-                unique_id1="run1",
-                variable2="b",
-                unique_id2="run2",
-                fs=2.5,
-            ).model_dump()
-        else:  # pragma: no cover - pydantic v1 compatibility
-            sample_rate_default = args_schema.__fields__["sample_rate"].default
-            data = args_schema(
-                variable1="a",
-                unique_id1="run1",
-                variable2="b",
-                unique_id2="run2",
-                fs=2.5,
-            ).dict()
-
-        assert sample_rate_default is None
-        assert data["sample_rate"] is None
-        assert data["fs"] == 2.5
-
     def test_format_result_simple_types(self):
         """Test formatting simple result types."""
         from ts_agents.tools.registry import ToolRegistry
@@ -205,7 +174,7 @@ class TestBatchCreation:
 
         tools = create_all_deepagent_tools(categories=[ToolCategory.DECOMPOSITION])
 
-        assert len(tools) >= 4  # At least 4 decomposition tools
+        assert len(tools) == 3  # STL, MSTL, Holt-Winters
         # All should be for decomposition category
         for tool in tools:
             assert "decompose" in tool["name"] or "filter" in tool["name"]

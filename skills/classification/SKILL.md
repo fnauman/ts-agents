@@ -9,7 +9,6 @@ metadata:
   tasks: [classification, supervised-learning, tsc]
   ts_agents:
     tool_category: classification
-    prefers_with_data_tools: false
     preferred_tools: [rocket_classify, knn_classify, compare_classifiers]
 ---
 
@@ -20,9 +19,15 @@ Time series classification (TSC) is supervised learning where:
 - inputs: many labeled time series (`X_train`, `y_train`)
 - output: predicted labels for new series (`X_test`)
 
-In ts-agents, current classification tools are **array-based** (not `*_with_data`), so you usually:
-1) build arrays in Python
+In ts-agents, collection classifiers are **array-based**, so you usually:
+1) build arrays in Python (or JSON for `--input-json`)
 2) call `knn_classify`, `rocket_classify`, `hivecote_classify`, or `compare_classifiers`
+
+Results report `accuracy`, `balanced_accuracy`, macro `f1_score`, and a
+`confusion_matrix` with `labels`. Lead with balanced accuracy on imbalanced
+data; `compare_classifiers` ranks by it by default (`rank_metric`). Pass
+`random_state` to ROCKET-family classifiers for reproducible kernels; unknown
+variants are rejected.
 
 ## Choose a classifier (practical rubric)
 - **ROCKET / MiniRocket / MultiRocket**: strong default; fast; good starting point.
@@ -47,7 +52,7 @@ Core tools:
 
 CLI example:
 ```bash
-uv run ts-agents tool run select_window_size_from_csv \
+ts-agents tool run select_window_size_from_csv \
   --param csv_path=data/labeled_stream.csv \
   --param value_columns=value \
   --param label_column=label \
@@ -56,7 +61,7 @@ uv run ts-agents tool run select_window_size_from_csv \
   --param metric=balanced_accuracy \
   --param classifier=minirocket
 
-uv run ts-agents tool run evaluate_windowed_classifier_from_csv \
+ts-agents tool run evaluate_windowed_classifier_from_csv \
   --param csv_path=data/labeled_stream.csv \
   --param value_columns=value \
   --param label_column=label \
@@ -66,7 +71,10 @@ uv run ts-agents tool run evaluate_windowed_classifier_from_csv \
 ```
 
 Practical tips:
-- If you see too few windows, reduce `window_size`, reduce `stride`, or use `labeling=majority`.
+- Streams that concatenate subjects or sessions need subject-wise evaluation:
+  use the `activity-recognition` workflow with `--group-col`.
+- If you see too few windows, reduce `window_size`, reduce `stride`, or use `labeling=majority`
+  (training windows overlapping test windows are purged).
 - For class imbalance, keep `balance=segment_cap` and tune `max_windows_per_segment`.
 
 ## Python workflow (recommended)
@@ -81,8 +89,8 @@ y_train = np.array([0]*25 + [1]*25)
 X_test  = np.random.randn(10, 200)
 y_test  = np.random.randint(0, 2, size=10)
 
-res = rocket_classify(X_train, y_train, X_test, y_test, variant="minirocket")
-print(res.accuracy)
+res = rocket_classify(X_train, y_train, X_test, y_test, variant="minirocket", random_state=0)
+print(res.balanced_accuracy, res.f1_score)
 
 cmp = compare_classifiers(X_train, y_train, X_test, y_test, classifiers=["rocket", "knn_dtw"])
 print(cmp)
@@ -93,7 +101,7 @@ You *can* pass arrays via `--param` as JSON, but it’s usually cumbersome. Pref
 
 ## Tool discovery (future-proofing)
 ```bash
-uv run ts-agents tool list --category classification --json
+ts-agents tool list --category classification --json
 ```
 
 ## Output expectations

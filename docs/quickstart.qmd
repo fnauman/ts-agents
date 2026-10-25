@@ -85,7 +85,9 @@ ts-agents workflow run forecast-series \
 ```
 
 Check `outputs/inspect/` and `outputs/forecast/` for JSON, plots, CSVs, and
-Markdown reports. If you omit `--output-dir`, each workflow run creates a
+Markdown reports. The 10-point inspect series is too short for the periodicity
+test, so that run reports `quality_status: degraded` with the
+`periodicity_not_assessed` quality flag. If you omit `--output-dir`, each workflow run creates a
 unique run directory under `outputs/<workflow>/` and writes `run_manifest.json`
 plus the generated artifacts there.
 
@@ -146,26 +148,36 @@ Only the requested checkpoint downloads (into `HF_HOME`). See
 ts-agents tool run describe_series \
   --input-json '{"series":[1,2,3,4,5]}'
 
+# Source checkout: load one column of a file into the tool's `series`
+# (data/synthetic_signals.csv is a 50 Hz table with known answers)
+uv run ts-agents tool run detect_periodicity \
+  --input data/synthetic_signals.csv --time-col t --value-col periodic \
+  --json \
+  --save outputs/periodicity.json
+
 # Forecasting extra: save the structured forecast payload as JSON
-uv run ts-agents tool run forecast_theta_with_data \
-  --run Re200Rm200 --var bx001_real \
-  --param horizon=12 \
+uv run ts-agents tool run forecast_theta \
+  --input data/synthetic_signals.csv --value-col periodic \
+  --param horizon=25 \
   --json \
   --save outputs/theta.json
 
-# Plot-producing tool: save the payload and read artifact paths from JSON
-uv run ts-agents tool run stl_decompose_with_data \
-  --run Re200Rm200 --var bx001_real \
-  --json \
-  --save outputs/stl.json
+# Find tools by task words (anomaly, regime, spectrum, ...)
+ts-agents tool search anomaly
 ```
 
-For current low-level plot-producing tools, inspect `result.artifacts[*].path`
-in the saved JSON rather than expecting extracted PNGs. `--extract-images`
-only applies to saved legacy outputs that still contain `[IMAGE_DATA:...]`
-tokens. If you want forecast plots, CSVs, and Markdown reports, prefer
-`workflow run forecast-series --output-dir ...` or omit `--output-dir` and let
-the workflow create a run-scoped directory under `outputs/forecast/`.
+`--input` accepts CSV, TSV, parquet, JSON, or JSONL and fills the `series`
+parameter; `--value-col` picks the column. With `--time-col`, rows are ordered
+by time, gaps or irregular sampling are reported in `input.warnings`, and a
+regular numeric time column sets `sample_rate` for tools that accept one (here
+50 Hz, so the detected period is reported in seconds). Every tool run reports
+`quality_status` `ok`, or `review` when the result or the input has warnings.
+
+Tools return structured data, not plots. If you want plots, CSVs, and Markdown
+reports, prefer workflows such as
+`workflow run forecast-series --input data.csv --value-col y --horizon 12 --output-dir ...`,
+or omit `--output-dir` and let the workflow create a run-scoped directory under
+`outputs/forecast/`.
 
 ## External agents
 
@@ -174,9 +186,10 @@ LLM report generation were removed in 0.4.0; workflow reports are scripted.
 Activity recognition, classification, anomaly/pattern detection, forecasting,
 decomposition, and spectral analysis remain available.
 
-Compatibility note: `ts-agents run ...` and `ts-agents demo ...` remain
-available in 0.4.0 and emit deprecation warnings. Prefer
-`ts-agents tool run ...` and `ts-agents workflow run ...`.
+The deprecated `ts-agents run ...` and `ts-agents demo ...` aliases, the
+`tool run --run/--var` flags, and the `*_with_data` tools are removed in 0.5.0
+(unreleased). Use `ts-agents tool run <tool> --input <file> --value-col <col>`
+and `ts-agents workflow run ...` instead.
 
 ## Next steps
 

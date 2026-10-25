@@ -192,7 +192,7 @@ def test_local_backend_formats_tool_payload_with_artifacts():
         )
 
     result = backend.execute(
-        "detect_peaks_with_data",
+        "detect_peaks",
         lambda: fake_tool(),
         {},
         ExecutionContext(),

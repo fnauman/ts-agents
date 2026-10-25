@@ -2,15 +2,15 @@
 name: time-series-decomposition
 description: >
   Decompose a time series into trend/seasonal/residual components (STL, MSTL, Holt-Winters).
-  Use when the user asks about trend, seasonality, detrending, or wants residuals for anomaly detection/forecasting.
-compatibility: "Best with the ts-agents repo + CLI (`ts-agents`)."
+  Use when the user asks about trend, seasonality, detrending, or wants residuals for anomaly
+  detection, spectral analysis, or forecasting.
+compatibility: "ts-agents CLI (`ts-agents`) with the `decomposition` extra."
 metadata:
   domain: time-series
   tasks: [decomposition, trend, seasonality, detrending]
   ts_agents:
     tool_category: decomposition
-    prefers_with_data_tools: true
-    preferred_tools: [detect_periodicity_with_data, stl_decompose_with_data, mstl_decompose_with_data, holt_winters_decompose_with_data]
+    preferred_tools: [detect_periodicity, stl_decompose, mstl_decompose, holt_winters_decompose]
   claude_code:
     allowed-tools: [Bash, Read, Write, Edit, Glob, Grep]
     disable-model-invocation: false
@@ -21,55 +21,58 @@ metadata:
 ## When to use
 Use decomposition when you need to:
 - separate **trend** and **seasonality**
-- inspect the **residual** (noise) component
-- detrend / deseasonalize before other analyses (anomalies, spectral slope, etc.)
-- pick forecasting strategies based on observed components
+- inspect the **residual** component (e.g., for anomaly detection)
+- detrend or deseasonalize before spectral analysis
+- pick forecasting strategies from observed components
 
-## Pick a method (simple rubric)
-1. **STL** (`stl_decompose_with_data`): best default for a single dominant seasonality.
-2. **MSTL** (`mstl_decompose_with_data`): when there are multiple seasonalities (e.g., daily + weekly).
-3. **Holt-Winters decomposition** (`holt_winters_decompose_with_data`): forecasting-oriented decomposition; supports additive/multiplicative components.
+## Pick a method
+1. **STL** (`stl_decompose`): default for one dominant seasonality.
+2. **MSTL** (`mstl_decompose`): several seasonalities (e.g., daily + weekly).
+3. **Holt-Winters** (`holt_winters_decompose`): forecasting-oriented; supports
+   additive/multiplicative components. If the fit fails, the result is labeled
+   `holt_winters_fallback` with a warning explaining why — report that.
 
-## Step-by-step workflow
-### 0) Decide (or estimate) the seasonal period
-If the user didn’t specify a period:
+## Workflow
+### 0) Establish the period from evidence
 ```bash
-uv run ts-agents tool run detect_periodicity_with_data --run <RUN_ID> --var <VARIABLE> --param n_top=3
+ts-agents tool run detect_periodicity --input data.csv --value-col value --json
 ```
 
-Use the most plausible period as `period` for STL/Holt-Winters.
+Use `dominant_period` (samples) only when `detected` is true. If it is false,
+there is no significant seasonality: say so, and only decompose with a period
+the user supplies from domain knowledge (e.g., 24 for hourly data with a daily
+cycle). Without `period`, the decomposition tools auto-detect with the same test
+and fail with an explanation rather than guessing.
 
 ### 1) Run STL (default)
 ```bash
-uv run ts-agents tool run stl_decompose_with_data --run <RUN_ID> --var <VARIABLE> --param period=<PERIOD> --param robust=true
+ts-agents tool run stl_decompose --input data.csv --value-col value --param period=24 --param robust=true --json
 ```
-
-Notes:
-- `robust=true` is usually safer with outliers.
 
 ### 2) Run MSTL (multiple seasonalities)
-If you have multiple periods (e.g., `[24, 168]`):
 ```bash
-uv run ts-agents tool run mstl_decompose_with_data --run <RUN_ID> --var <VARIABLE> --param periods=[24,168]
+ts-agents tool run mstl_decompose --input data.csv --value-col value --param periods=[24,168] --json
+```
+Every period must be at most half the series length.
+
+### 3) Run Holt-Winters
+```bash
+ts-agents tool run holt_winters_decompose --input data.csv --value-col value --param period=24 --param trend=add --param seasonal=add --json
 ```
 
-### 3) Run Holt-Winters decomposition (additive/multiplicative)
-```bash
-uv run ts-agents tool run holt_winters_decompose_with_data --run <RUN_ID> --var <VARIABLE> --param period=<PERIOD> --param trend=add --param seasonal=add
-```
+Results include `period_source` (`user` or `auto`). Component arrays are as
+long as the input; for long series, read the summary metrics
+(`residual_variance`, `seasonal_strength`) first.
 
-## Tool discovery (future-proofing)
-List current decomposition tools and parameters:
+## Tool discovery
 ```bash
-uv run ts-agents tool list --category decomposition --json
+ts-agents tool list --category decomposition --json
 ```
 
 ## Output expectations
 Summarize:
-- period(s) used
-- whether seasonality/trend is strong or weak
+- period(s) used and where they came from (detected with p-value, or user-supplied)
+- whether seasonality/trend is strong or weak (`seasonal_strength`)
 - residual behavior (variance, obvious outliers)
-- recommended next step:
-  - forecast on original vs residual
-  - anomaly detection on residual
-  - spectral analysis on residual (if trend dominates the spectrum)
+- the recommended next step: forecast, anomaly detection on residuals, or
+  spectral analysis on the residual
