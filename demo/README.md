@@ -3,8 +3,8 @@
 These shell scripts and VHS tapes record short terminal demos. They use the
 current `ts-agents workflow run ...` and `ts-agents tool run ...` commands.
 The `ts-agents demo ...` command, the packaged demo assets, and the `demo`,
-`demo_windowing`, and `demo_forecasting` tool bundles are removed in 0.5.0
-(unreleased); run the scripts below or the equivalent workflow commands.
+`demo_windowing`, and `demo_forecasting` tool bundles are removed in 0.4.1;
+run the scripts below or the equivalent workflow commands.
 
 | Demo | Script | Tape | Output dir |
 |------|--------|------|------------|

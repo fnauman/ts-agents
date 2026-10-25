@@ -187,8 +187,8 @@ Activity recognition, classification, anomaly/pattern detection, forecasting,
 decomposition, and spectral analysis remain available.
 
 The deprecated `ts-agents run ...` and `ts-agents demo ...` aliases, the
-`tool run --run/--var` flags, and the `*_with_data` tools are removed in 0.5.0
-(unreleased). Use `ts-agents tool run <tool> --input <file> --value-col <col>`
+`tool run --run/--var` flags, and the `*_with_data` tools are removed in 0.4.1.
+Use `ts-agents tool run <tool> --input <file> --value-col <col>`
 and `ts-agents workflow run ...` instead.
 
 ## Next steps

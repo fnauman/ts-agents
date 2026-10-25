@@ -4,7 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-Planned as 0.5.0. Makes the non-forecasting task families (anomaly/pattern
+## [0.4.1] - 2026-10-25
+
+Makes the non-forecasting task families (anomaly/pattern
 detection, change-points, spectral analysis, decomposition, classification,
 activity recognition) first-class, and removes surfaces that returned
 misleading results.

@@ -9,7 +9,7 @@ NeuralForecast with NHITS, and zero-shot foundation models (FMs) through
 is always available. These capabilities are available from version 0.3.0:
 
 ```bash
-python -m pip install "ts-agents[ml,neural,foundation,viz]==0.4.0"
+python -m pip install "ts-agents[ml,neural,foundation,viz]==0.4.1"
 ts-agents workflow show forecast-panel --json
 ```
 
