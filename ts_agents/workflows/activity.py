@@ -44,8 +44,19 @@ def run_activity_recognition_workflow(
     output_dir_mode: str = "explicit",
     defer_finalization: bool = False,
 ) -> ToolPayload:
-    """Run window-size selection and evaluation on a labeled sensor stream."""
-    from ts_agents.core.windowing import evaluate_windowed_classifier, select_window_size
+    """Run window-size selection and a held-out evaluation on a labeled stream.
+
+    Whole groups (``stream_input.group_values``, e.g. subjects) or, without
+    groups, whole label segments are held out first. Window size is selected
+    with grouped splits on the remaining data only, and the reported score
+    comes from one fit on that data scored on the untouched holdout.
+    """
+    from ts_agents.core.windowing import (
+        contiguous_block_ids,
+        evaluate_windowed_classifier_holdout,
+        select_window_size,
+        split_holdout_units,
+    )
 
     workflow_name = "activity-recognition"
     output_path = ensure_output_dir(output_dir)
@@ -56,10 +67,20 @@ def run_activity_recognition_workflow(
     candidate_windows = _normalize_window_sizes(window_sizes)
     preparation = (stream_input.provenance.get("stream_ref") or {}).get("preparation")
     label_source = (stream_input.provenance.get("stream_ref") or {}).get("label_source")
+    groups = stream_input.group_values
+
+    holdout_mask = split_holdout_units(
+        stream_input.labels,
+        groups=groups,
+        test_size=test_size,
+        seed=seed,
+    )
+    pool = ~holdout_mask
+    block_ids = contiguous_block_ids(holdout_mask, groups)
 
     selection = select_window_size(
-        stream_input.values,
-        stream_input.labels,
+        stream_input.values[pool],
+        stream_input.labels[pool],
         window_sizes=candidate_windows,
         metric=selected_metric,
         classifier=selected_classifier,
@@ -70,21 +91,29 @@ def run_activity_recognition_workflow(
         n_splits=n_splits,
         test_size=test_size,
         seed=seed,
+        groups=block_ids[pool],
     )
-    evaluation = evaluate_windowed_classifier(
+    evaluation = evaluate_windowed_classifier_holdout(
         stream_input.values,
         stream_input.labels,
+        holdout_mask=holdout_mask,
+        groups=groups,
         window_size=int(selection.best_window_size),
         metric=selected_metric,
         classifier=selected_classifier,
         labeling=selected_labeling,
-        balance=selected_balance,
-        max_windows_per_segment=max_windows_per_segment,
         stride=stride,
-        n_splits=n_splits,
-        test_size=test_size,
         seed=seed,
     )
+    holdout_summary = {
+        "unit": "group" if groups is not None else "label_segment",
+        "group_column": stream_input.group_column,
+        "held_out_groups": (
+            sorted({str(value) for value in np.asarray(groups)[holdout_mask]}) if groups is not None else None
+        ),
+        "held_out_timepoints": int(holdout_mask.sum()),
+        "total_timepoints": int(holdout_mask.size),
+    }
 
     selection_payload = to_jsonable(selection)
     evaluation_payload = to_jsonable(evaluation)
@@ -104,6 +133,19 @@ def run_activity_recognition_workflow(
     )
     if warnings and "classifier_backend_warning" not in quality_flags:
         quality_flags.append("classifier_backend_warning")
+
+    time_order = (stream_input.provenance.get("stream_ref") or {}).get("time_order") or {}
+    if time_order.get("backward_steps"):
+        if time_order.get("within_groups"):
+            advice = "Check for timestamp resets or unsorted rows within each group."
+        else:
+            advice = "Pass --group-col if the stream concatenates subjects or sessions."
+        warnings.append(
+            f"Time column decreases {time_order['backward_steps']} time(s) "
+            f"{'within groups' if time_order.get('within_groups') else 'across the stream'}; "
+            f"rows were used in input order. {advice}"
+        )
+        quality_flags.append("non_monotonic_time")
     score = evaluation_payload.get("score")
     summary_data = {
         "workflow": workflow_name,
@@ -122,6 +164,8 @@ def run_activity_recognition_workflow(
         "stride_requested": stride,
         "n_splits": int(n_splits),
         "seed": int(seed),
+        "group_column": stream_input.group_column,
+        "holdout": holdout_summary,
         "best_window_size": int(selection.best_window_size),
         "score": float(score) if isinstance(score, (int, float)) else None,
         "preparation": preparation,
@@ -233,6 +277,7 @@ def run_activity_recognition_workflow(
             "n_splits": n_splits,
             "test_size": test_size,
             "seed": seed,
+            "group_col": stream_input.group_column,
             "skip_plots": skip_plots,
         },
         resumed=resumed,
@@ -318,13 +363,23 @@ def _activity_quality_flags(
         flags.append("evaluation_dropped_classes")
 
     selection_requested_splits = ((selection_payload.get("details") or {}).get("n_splits"))
-    evaluation_valid_splits = evaluation_payload.get("n_splits")
+    best_valid_splits = best_window_diagnostics.get("valid_split_count")
     if (
         isinstance(selection_requested_splits, int)
-        and isinstance(evaluation_valid_splits, int)
-        and evaluation_valid_splits < selection_requested_splits
+        and isinstance(best_valid_splits, int)
+        and best_valid_splits < selection_requested_splits
     ):
         flags.append("fewer_valid_splits_than_requested")
+
+    details = evaluation_payload.get("details") or {}
+    chance = details.get("chance_balanced_accuracy")
+    if (
+        evaluation_payload.get("metric") == "balanced_accuracy"
+        and isinstance(chance, (int, float))
+        and isinstance(evaluation_payload.get("score"), (int, float))
+        and float(evaluation_payload["score"]) <= float(chance)
+    ):
+        flags.append("score_at_or_below_chance")
 
     classification = evaluation_payload.get("classification") or {}
     confusion = classification.get("confusion_matrix")
@@ -484,11 +539,13 @@ def _build_report(
         f"- **Labeling**: `{labeling}`",
         f"- **Balance**: `{balance}`",
         f"- **Stride**: {stride if stride is not None else 'auto (window_size // 2)' }",
-        f"- **Grouped Splits**: {n_splits}",
+        f"- **Selection Splits**: {n_splits} (grouped, non-held-out data only)",
+        f"- **Holdout**: {_describe_holdout(stream_input, evaluation_payload)}",
         "",
         "#### Results",
-        f"- **Best Window Size**: {selection_payload.get('best_window_size')}",
-        f"- **Workflow Score**: {_format_metric(evaluation_payload.get('score'))}",
+        f"- **Best Window Size**: {selection_payload.get('best_window_size')} samples",
+        f"- **Held-out Score**: {_format_metric(evaluation_payload.get('score'))}",
+        f"- **Chance (balanced accuracy)**: {_format_metric((evaluation_payload.get('details') or {}).get('chance_balanced_accuracy'))}",
         f"- **Accuracy**: {_format_metric(classification.get('accuracy'))}",
         f"- **Macro F1**: {_format_metric(classification.get('f1_score'))}",
         f"- **Retained Classes**: {retained_classes}",
@@ -534,10 +591,12 @@ def _build_quality_note(
 
     if "fewer_valid_splits_than_requested" in quality_flags:
         requested = (selection_payload.get("details") or {}).get("n_splits")
-        observed = evaluation_payload.get("n_splits")
+        observed = best_window_diagnostics.get("valid_split_count")
         notes.append(
-            f"Requested {requested} grouped split(s), but only {observed} valid evaluation split(s) were available."
+            f"Requested {requested} grouped selection split(s), but only {observed} were valid for the best window."
         )
+    if "score_at_or_below_chance" in quality_flags:
+        notes.append("Held-out balanced accuracy is at or below chance for the held-out classes.")
 
     classification = evaluation_payload.get("classification") or {}
     confusion = classification.get("confusion_matrix")
@@ -557,6 +616,15 @@ def _build_quality_note(
     if notes:
         return " ".join(notes)
     return "No obvious pathologies detected in the reported classification metrics."
+
+
+def _describe_holdout(stream_input: LabeledStreamInput, evaluation_payload: dict[str, Any]) -> str:
+    details = evaluation_payload.get("details") or {}
+    unit = f"whole `{stream_input.group_column}` groups" if stream_input.group_column else "whole label segments"
+    return (
+        f"{unit}; {details.get('n_holdout_windows', 'n/a')} held-out windows, "
+        f"{details.get('n_train_windows', 'n/a')} training windows"
+    )
 
 
 def _describe_preparation(stream_input: LabeledStreamInput) -> str:

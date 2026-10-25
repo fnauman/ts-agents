@@ -1,6 +1,7 @@
 import base64
 import argparse
 import io
+import math
 import json
 import os
 from pathlib import Path
@@ -118,7 +119,9 @@ def test_unknown_workflow_error_uses_generic_hint(capsys):
 
 
 def test_workflow_run_inspect_series_accepts_stdin_json(monkeypatch, capsys, tmp_path):
-    monkeypatch.setattr(sys, "stdin", io.StringIO('{"series":[1,2,3,4,5]}'))
+    # Long enough for every diagnostic to run, so the run is a clean "ok".
+    series = [round(math.sin(index / 3.0), 4) for index in range(64)]
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"series": series})))
 
     output_dir = tmp_path / "inspect"
     code = run(
@@ -165,8 +168,33 @@ def test_workflow_run_inspect_series_accepts_stdin_json(monkeypatch, capsys, tmp
     assert manifest_payload["execution"]["backend_actual"] == "local"
     assert manifest_payload["execution"]["fallback_allowed"] is False
     assert manifest_payload["execution"]["fallback_used"] is False
-    assert payload["result"]["data"]["autocorrelation"]["max_lag"] == 4
-    assert payload["result"]["data"]["autocorrelation"]["requested_max_lag"] == 8
+    assert payload["result"]["data"]["autocorrelation"]["max_lag"] == 16
+    assert payload["result"]["data"]["autocorrelation"]["requested_max_lag"] == 16
+
+
+def test_workflow_run_inspect_series_flags_gaps_and_finds_no_period_in_random_walk(capsys, tmp_path):
+    rng = np.random.default_rng(3)
+    walk = np.cumsum(rng.standard_normal(500))
+    keep = np.r_[0:200, 260:500]
+    csv_path = tmp_path / "walk.csv"
+    csv_path.write_text("t,value\n" + "\n".join(f"{t},{v}" for t, v in zip(keep, walk[keep])))
+
+    code = run(
+        ["workflow", "run", "inspect-series", "--input", str(csv_path), "--time-col", "t",
+         "--output-dir", str(tmp_path / "out"), "--skip-plots", "--json"]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    data = payload["result"]["data"]
+    assert payload["quality_status"] == "degraded"
+    assert "irregular_sampling" in data["quality_flags"]
+    assert data["time_axis"]["gap_count"] == 1
+    # A random walk has no period; the record length must not be reported as one.
+    assert data["periodicity"]["detected"] is False
+    assert data["periodicity"]["dominant_period"] is None
+    assert "seasonality_detected" in data["forecast_recommendation"]["preconditions_missing"]
+    assert data["regime_screen"]["ran"] is True
 
 
 def test_workflow_run_manifest_sync_write_failure_is_reported(monkeypatch, capsys, tmp_path):
@@ -177,7 +205,7 @@ def test_workflow_run_manifest_sync_write_failure_is_reported(monkeypatch, capsy
     original_write_manifest = lifecycle.write_manifest
 
     def flaky_write_manifest(path, manifest):
-        if manifest["status"] == "ok":
+        if manifest["status"] in {"ok", "degraded"}:
             raise OSError("disk full")
         return original_write_manifest(path, manifest)
 
@@ -642,7 +670,7 @@ def test_failed_resume_retains_creation_time(tmp_path, capsys, monkeypatch):
     path.write_text(json.dumps(original))
     write = lifecycle.write_manifest
     def fail_finalization(path, manifest):
-        if manifest["status"] == "ok":
+        if manifest["status"] in {"ok", "degraded"}:
             raise OSError("controlled finalization error")
         write(path, manifest)
     monkeypatch.setattr(lifecycle, "write_manifest", fail_finalization)
@@ -1823,6 +1851,18 @@ def test_workflow_run_forecast_series_classifies_importerror_by_error_type(
     assert payload["error"]["code"] == "dependency_error"
 
 
+def _hold_out_second_half(monkeypatch, windowing):
+    """Make the activity holdout deterministic for tiny mocked streams."""
+    import numpy as np
+
+    def fake_split(labels, **kwargs):
+        mask = np.zeros(len(labels), dtype=bool)
+        mask[len(labels) // 2:] = True
+        return mask
+
+    monkeypatch.setattr(windowing, "split_holdout_units", fake_split)
+
+
 def test_workflow_run_activity_recognition_writes_expected_files(monkeypatch, capsys, tmp_path):
     import ts_agents.core.windowing as windowing
 
@@ -1864,7 +1904,8 @@ def test_workflow_run_activity_recognition_writes_expected_files(monkeypatch, ca
             }
 
     monkeypatch.setattr(windowing, "select_window_size", lambda *args, **kwargs: FakeSelection())
-    monkeypatch.setattr(windowing, "evaluate_windowed_classifier", lambda *args, **kwargs: FakeEval())
+    monkeypatch.setattr(windowing, "evaluate_windowed_classifier_holdout", lambda *args, **kwargs: FakeEval())
+    _hold_out_second_half(monkeypatch, windowing)
 
     csv_path = tmp_path / "stream.csv"
     csv_path.write_text(
@@ -1964,7 +2005,8 @@ def test_workflow_run_activity_recognition_surfaces_effective_backend_provenance
             }
 
     monkeypatch.setattr(windowing, "select_window_size", lambda *args, **kwargs: FakeSelection())
-    monkeypatch.setattr(windowing, "evaluate_windowed_classifier", lambda *args, **kwargs: FakeEval())
+    monkeypatch.setattr(windowing, "evaluate_windowed_classifier_holdout", lambda *args, **kwargs: FakeEval())
+    _hold_out_second_half(monkeypatch, windowing)
 
     csv_path = tmp_path / "stream.csv"
     csv_path.write_text(
@@ -2049,7 +2091,8 @@ def test_workflow_run_activity_recognition_sanitizes_nan_scores_and_surfaces_qua
             }
 
     monkeypatch.setattr(windowing, "select_window_size", lambda *args, **kwargs: FakeSelection())
-    monkeypatch.setattr(windowing, "evaluate_windowed_classifier", lambda *args, **kwargs: FakeEval())
+    monkeypatch.setattr(windowing, "evaluate_windowed_classifier_holdout", lambda *args, **kwargs: FakeEval())
+    _hold_out_second_half(monkeypatch, windowing)
 
     csv_path = tmp_path / "stream.csv"
     csv_path.write_text(
@@ -2165,7 +2208,8 @@ def test_workflow_run_activity_recognition_continues_when_plot_generation_fails(
         raise ValueError("plot payload incomplete")
 
     monkeypatch.setattr(windowing, "select_window_size", lambda *args, **kwargs: FakeSelection())
-    monkeypatch.setattr(windowing, "evaluate_windowed_classifier", lambda *args, **kwargs: FakeEval())
+    monkeypatch.setattr(windowing, "evaluate_windowed_classifier_holdout", lambda *args, **kwargs: FakeEval())
+    _hold_out_second_half(monkeypatch, windowing)
     monkeypatch.setattr(activity_workflow, "_plot_window_selection", raise_plot_error)
 
     csv_path = tmp_path / "stream.csv"
@@ -2276,7 +2320,8 @@ def test_workflow_run_activity_recognition_threads_new_windowing_controls(
         return FakeEval()
 
     monkeypatch.setattr(windowing, "select_window_size", fake_select_window_size)
-    monkeypatch.setattr(windowing, "evaluate_windowed_classifier", fake_evaluate_windowed_classifier)
+    monkeypatch.setattr(windowing, "evaluate_windowed_classifier_holdout", fake_evaluate_windowed_classifier)
+    _hold_out_second_half(monkeypatch, windowing)
 
     csv_path = tmp_path / "stream.csv"
     csv_path.write_text(
@@ -2316,7 +2361,8 @@ def test_workflow_run_activity_recognition_threads_new_windowing_controls(
     assert observed["selection_kwargs"]["n_splits"] == 5
     assert observed["evaluation_kwargs"]["labeling"] == "majority"
     assert observed["evaluation_kwargs"]["stride"] == 16
-    assert observed["evaluation_kwargs"]["n_splits"] == 5
+    assert "n_splits" not in observed["evaluation_kwargs"]
+    assert observed["evaluation_kwargs"]["holdout_mask"].any()
     assert payload["result"]["data"]["labeling"] == "majority"
     assert payload["result"]["data"]["stride_requested"] == 16
     assert payload["result"]["data"]["n_splits"] == 5
@@ -2388,7 +2434,8 @@ def test_workflow_run_activity_recognition_report_surfaces_retention_drops(
             }
 
     monkeypatch.setattr(windowing, "select_window_size", lambda *args, **kwargs: FakeSelection())
-    monkeypatch.setattr(windowing, "evaluate_windowed_classifier", lambda *args, **kwargs: FakeEval())
+    monkeypatch.setattr(windowing, "evaluate_windowed_classifier_holdout", lambda *args, **kwargs: FakeEval())
+    _hold_out_second_half(monkeypatch, windowing)
 
     csv_path = tmp_path / "stream.csv"
     csv_path.write_text(
@@ -2478,7 +2525,8 @@ def test_workflow_run_activity_recognition_surfaces_classifier_backend_warnings(
             }
 
     monkeypatch.setattr(windowing, "select_window_size", lambda *args, **kwargs: FakeSelection())
-    monkeypatch.setattr(windowing, "evaluate_windowed_classifier", lambda *args, **kwargs: FakeEval())
+    monkeypatch.setattr(windowing, "evaluate_windowed_classifier_holdout", lambda *args, **kwargs: FakeEval())
+    _hold_out_second_half(monkeypatch, windowing)
 
     csv_path = tmp_path / "stream.csv"
     csv_path.write_text(

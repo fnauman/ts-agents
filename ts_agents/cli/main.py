@@ -301,27 +301,6 @@ def _parse_param_entries(
     return params
 
 
-def _apply_run_var_args(
-    params: Dict[str, Any],
-    param_types: Dict[str, str],
-    run_value: Optional[str],
-    var_value: Optional[str],
-) -> Dict[str, Any]:
-    if run_value:
-        if "unique_id" in param_types and "unique_id" not in params:
-            params["unique_id"] = run_value
-        if "run_id" in param_types and "run_id" not in params:
-            params["run_id"] = run_value
-
-    if var_value:
-        if "variable_name" in param_types and "variable_name" not in params:
-            params["variable_name"] = var_value
-        if "variable" in param_types and "variable" not in params:
-            params["variable"] = var_value
-
-    return params
-
-
 def _suggest_tool_names(tool_name: str, candidate_names: List[str], limit: int = 3) -> List[str]:
     """Suggest nearby tool names for typo recovery."""
     if not tool_name:
@@ -349,20 +328,14 @@ def _build_run_example_command(
     required: List[str],
     param_types: Dict[str, str],
 ) -> str:
-    parts = [f"uv run ts-agents tool run {tool_name}"]
+    parts = [f"ts-agents tool run {tool_name}"]
 
-    # Prefer CLI shorthands where available.
-    if "unique_id" in required:
-        parts.append("--run Re200Rm200")
-    if "run_id" in required and "unique_id" not in required:
-        parts.append("--run Re200Rm200")
-    if "variable_name" in required:
-        parts.append("--var bx001_real")
-    if "variable" in required and "variable_name" not in required:
-        parts.append("--var bx001_real")
+    # A single `series` parameter can come straight from a file.
+    if "series" in required:
+        parts.append("--input data.csv --value-col value")
 
     for name in required:
-        if name in {"unique_id", "run_id", "variable_name", "variable"}:
+        if name == "series":
             continue
         placeholder = _build_param_placeholder(name, param_types.get(name, "str"))
         param_value = f"{name}={placeholder}"
@@ -389,7 +362,7 @@ def _raise_missing_required_error(
         f"Missing required parameters for '{tool_name}': {missing_text}\n"
         f"Required parameters: {required_text}\n"
         f"Example:\n  {example}\n"
-        f"Tip: inspect tool parameters with:\n  uv run ts-agents tool list --json"
+        f"Tip: inspect tool parameters with:\n  ts-agents tool show {tool_name} --json"
     )
 
 
@@ -404,9 +377,9 @@ def _raise_unknown_tool_error(tool_name: str) -> NoReturn:
         hint = ""
     raise ValueError(
         f"Tool '{tool_name}' not found.{hint}\n"
-        f"Tip: list tools with:\n"
-        f"  uv run ts-agents tool list\n"
-        f"  uv run ts-agents tool list --json"
+        f"Tip: find tools with:\n"
+        f"  ts-agents tool search <task words> --json\n"
+        f"  ts-agents tool list --json"
     )
 
 
@@ -419,7 +392,7 @@ def _raise_unknown_workflow_error(workflow_name: str) -> NoReturn:
     raise ValueError(
         f"Workflow '{workflow_name}' not found.{hint}\n"
         f"Tip: inspect workflows with:\n"
-        f"  uv run ts-agents workflow list"
+        f"  ts-agents workflow list"
     )
 
 
@@ -485,18 +458,28 @@ def _add_tool_run_args(parser: argparse.ArgumentParser) -> None:
         help="Tool parameter in key=value form (repeatable)",
     )
     parser.add_argument(
-        "--run",
-        dest="run_id",
+        "--input",
         type=str,
         default=None,
-        help="Run ID (maps to unique_id/run_id)",
+        help=(
+            "CSV, TSV, parquet, JSON, or JSONL file supplying the `series` parameter "
+            "(single-series tools only). Use --value-col/--time-col to select columns."
+        ),
     )
     parser.add_argument(
-        "--var",
-        dest="variable",
+        "--value-col",
         type=str,
         default=None,
-        help="Variable name (maps to variable_name/variable)",
+        help="Value column for --input (inferred when there is a single numeric column)",
+    )
+    parser.add_argument(
+        "--time-col",
+        type=str,
+        default=None,
+        help=(
+            "Time column for --input: rows are ordered by it, sampling is checked, and a regular "
+            "numeric time step sets `sample_rate` when the tool has one and it was not given"
+        ),
     )
     parser.add_argument(
         "--approve",
@@ -525,8 +508,6 @@ def _command_label(args: argparse.Namespace) -> str:
         return f"runs {args.runs_command}"
     if args.command == "jobs":
         return f"jobs {args.jobs_command}"
-    if args.command == "run":
-        return "tool run"
     return args.command
 
 
@@ -557,8 +538,6 @@ def _command_target_name(args: argparse.Namespace, exc: Optional[Exception] = No
     if args.command == "data":
         if getattr(args, "data_command", None) == "export-panel":
             return getattr(args, "dataset", None)
-    if args.command == "run":
-        return getattr(args, "tool", None)
     if isinstance(exc, ToolError):
         return exc.tool_name
     return None
@@ -629,16 +608,6 @@ def _command_input_payload(args: argparse.Namespace) -> Dict[str, Any]:
             for k, v in vars(args).items()
             if k not in {"json", "save", "extract_images", "_ts_raw_argv"}
         }
-    if args.command == "demo":
-        return {k: v for k, v in vars(args).items() if k not in {"json", "save", "extract_images"}}
-    if args.command == "agent":
-        return {
-            "type": args.type,
-            "model": args.model,
-            "tool_bundle": args.tool_bundle,
-        }
-    if args.command == "run":
-        return getattr(args, "_ts_input_payload", {})
     return {}
 
 
@@ -801,6 +770,15 @@ def _quality_payload(result: Any) -> Tuple[Optional[str], Optional[bool], Option
 def _success_envelope(args: argparse.Namespace, result: Any) -> CLIEnvelope:
     execution = _execution_payload(getattr(args, "_ts_execution_result", None))
     quality_status, degraded, requires_review = _quality_payload(result)
+    if args.command == "tool" and getattr(args, "tool_command", None) == "run":
+        # Every tool run reports a quality status; input-side caveats such as
+        # irregular sampling require review even when the analysis is clean.
+        if quality_status is None:
+            quality_status, degraded, requires_review = "ok", False, False
+        if (getattr(args, "_ts_input_payload", {}) or {}).get("warnings"):
+            requires_review = True
+            if quality_status == "ok":
+                quality_status = "review"
     if execution and (execution.metadata or {}).get("fallback_used"):
         requires_review = True
         quality_status = "degraded" if degraded else "review"
@@ -1001,7 +979,7 @@ def _infer_command_label_from_argv(argv: List[str]) -> str:
         return "ts-agents"
 
     command = argv[0]
-    if command in {"tool", "workflow", "autoresearch", "data", "sandbox", "skills", "agent", "demo", "capabilities"}:
+    if command in {"tool", "workflow", "autoresearch", "data", "sandbox", "skills", "capabilities"}:
         if len(argv) > 1 and not argv[1].startswith("-"):
             return f"{command} {argv[1]}"
     return command
@@ -1028,9 +1006,6 @@ def _infer_target_name_from_argv(argv: List[str]) -> Optional[str]:
         if len(argv) > 2 and argv[1] == "show" and not argv[2].startswith("-"):
             return argv[2]
         return None
-
-    if command in {"run", "demo"} and len(argv) > 1 and not argv[1].startswith("-"):
-        return argv[1]
 
     return None
 
@@ -1296,8 +1271,8 @@ def _add_jobs_subcommands(subparsers: argparse._SubParsersAction) -> None:
         "start",
         help="Start a ts-agents command as a detached background job",
         epilog=(
-            "Example: ts-agents jobs start -- workflow run forecast "
-            "--input data/demo.csv --json"
+            "Example: ts-agents jobs start -- workflow run forecast-series "
+            "--input data/short_real.csv --time-col ds --value-col bx001_real --horizon 3 --json"
         ),
     )
     start_parser.add_argument(
@@ -1417,34 +1392,17 @@ def _add_tool_subcommands(subparsers: argparse._SubParsersAction) -> None:
         help="Run a tool by name",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "Examples:\n"
-            "  uv run ts-agents tool run forecast_theta_with_data --run Re200Rm200 --var bx001_real --param horizon=12\n"
-            "  uv run ts-agents tool run describe_series --input-json '{\"series\": [1,2,3,4]}'\n"
-            "  echo '{\"series\": [1,2,3,4]}' | uv run ts-agents tool run describe_series --stdin\n"
-            "  uv run ts-agents tool run compare_forecasts_with_data --run Re200Rm200 --var bx001_real --param models=arima,theta --json\n"
-            "  uv run ts-agents tool run describe_series_with_data --run Re200Rm200 --var bx001_real"
+            "Examples (data/synthetic_signals.csv is a 50 Hz known-answer table):\n"
+            "  ts-agents tool search anomaly --json\n"
+            "  ts-agents tool run detect_periodicity --input data/synthetic_signals.csv --time-col t --value-col periodic --json\n"
+            "  ts-agents tool run segment_changepoint --input data/synthetic_signals.csv --value-col regime --json\n"
+            "  ts-agents tool run find_discords --input data/synthetic_signals.csv --value-col anomaly --param m=100 --json\n"
+            "  ts-agents tool run forecast_theta --input data/synthetic_signals.csv --value-col periodic --param horizon=25 --json\n"
+            "  ts-agents tool run describe_series --input-json '{\"series\": [1,2,3,4]}'\n"
+            "  echo '{\"series\": [1,2,3,4]}' | ts-agents tool run describe_series --stdin"
         ),
     )
     _add_tool_run_args(run_parser)
-
-
-def _add_run_subcommands(subparsers: argparse._SubParsersAction) -> None:
-    run_parser = subparsers.add_parser(
-        "run",
-        help="Deprecated compatibility alias for 'tool run'",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Deprecated compatibility alias for 'ts-agents tool run'. Prefer 'ts-agents tool run' in new scripts.\n\n"
-            "Examples:\n"
-            "  uv run ts-agents tool run forecast_theta_with_data --run Re200Rm200 --var bx001_real --param horizon=12\n"
-            "  uv run ts-agents tool run describe_series --input-json '{\"series\": [1,2,3,4]}'\n"
-            "  uv run ts-agents tool run compare_forecasts_with_data --run Re200Rm200 --var bx001_real --param models=arima,theta --json\n"
-            "  uv run ts-agents tool run stl_decompose_with_data --run Re200Rm200 --var bx001_real --save outputs/stl.md"
-        ),
-    )
-    _add_tool_run_args(run_parser)
-
-
 
 
 def _add_skills_subcommands(subparsers: argparse._SubParsersAction) -> None:
@@ -1795,6 +1753,15 @@ def _add_workflow_subcommands(subparsers: argparse._SubParsersAction) -> None:
         help="Label column containing per-timepoint activity labels",
     )
     activity_parser.add_argument(
+        "--group-col",
+        type=str,
+        default=None,
+        help=(
+            "Subject/session column. Windows never span groups and whole groups are held out "
+            "for the final score (leave-subject-out)."
+        ),
+    )
+    activity_parser.add_argument(
         "--labels-input",
         type=str,
         default=None,
@@ -1966,249 +1933,6 @@ def _add_autoresearch_subcommands(subparsers: argparse._SubParsersAction) -> Non
     _add_sandbox_execution_args(run_parser)
     _add_output_args(run_parser)
 
-def _resolve_runtime_path(path: str) -> Path:
-    from ts_agents.runtime_paths import resolve_existing_path
-
-    resolved = resolve_existing_path(path)
-    return resolved if resolved is not None else Path(path)
-
-
-def _default_demo_csv_path() -> str:
-    return str(_resolve_runtime_path("data/demo_labeled_stream.csv"))
-
-
-def _resolve_required_runtime_path(path: str) -> Path:
-    resolved = _resolve_runtime_path(path)
-    if not resolved.exists():
-        raise FileNotFoundError(f"Required runtime resource not found: {path}")
-    return resolved
-
-
-def _add_demo_subcommands(subparsers: argparse._SubParsersAction) -> None:
-    demo_parser = subparsers.add_parser(
-        "demo",
-        help="Deprecated compatibility demos layered over the workflow surface",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Deprecated compatibility surface. Prefer 'ts-agents workflow run ...' for new automation.\n\n"
-            "Examples:\n"
-            "  uv run ts-agents demo window-classification --no-llm\n"
-            "  uv run ts-agents demo forecasting --no-llm\n"
-            "  uv run ts-agents demo forecasting --run-id Re200Rm200 --variable bx001_real --horizon 1 --no-llm"
-        ),
-    )
-    demo_sub = demo_parser.add_subparsers(dest="demo_command", required=True)
-
-    window_parser = demo_sub.add_parser(
-        "window-classification",
-        help="Run the window-size selection + evaluation demo",
-    )
-    window_parser.add_argument(
-        "--csv-path",
-        type=str,
-        default=_default_demo_csv_path(),
-        help="Path to labeled-stream CSV (defaults to bundled demo dataset)",
-    )
-    window_parser.add_argument(
-        "--no-generate",
-        action="store_true",
-        help="Skip synthetic data generation step",
-    )
-    window_parser.add_argument(
-        "--scenario",
-        type=str,
-        default="stairs",
-        help="Synthetic data scenario (gait | stairs | industrial, default: stairs)",
-    )
-    window_parser.add_argument(
-        "--hz",
-        type=int,
-        default=20,
-        help="Synthetic data sampling rate (Hz)",
-    )
-    window_parser.add_argument(
-        "--minutes",
-        type=float,
-        default=4,
-        help="Synthetic data duration in minutes",
-    )
-    window_parser.add_argument(
-        "--seed",
-        type=int,
-        default=1337,
-        help="Random seed for generation and evaluation",
-    )
-    window_parser.add_argument(
-        "--value-columns",
-        type=str,
-        default="x,y,z",
-        help="Comma-separated value columns (default: x,y,z)",
-    )
-    window_parser.add_argument(
-        "--label-column",
-        type=str,
-        default="label",
-        help="Label column name (default: label)",
-    )
-    window_parser.add_argument(
-        "--window-sizes",
-        type=str,
-        default="32,64,96,128,160",
-        help="Comma-separated candidate window sizes",
-    )
-    window_parser.add_argument(
-        "--metric",
-        type=str,
-        default="balanced_accuracy",
-        help="Metric: accuracy | balanced_accuracy | f1_macro",
-    )
-    window_parser.add_argument(
-        "--classifier",
-        type=str,
-        default="auto",
-        help="Classifier: auto | minirocket | rocket | knn",
-    )
-    window_parser.add_argument(
-        "--labeling",
-        type=str,
-        default="strict",
-        help="Window labeling: strict | majority",
-    )
-    window_parser.add_argument(
-        "--balance",
-        type=str,
-        default="segment_cap",
-        help="Balancing: none | undersample | segment_cap",
-    )
-    window_parser.add_argument(
-        "--max-windows-per-segment",
-        type=int,
-        default=25,
-        help="Cap windows per segment when balance=segment_cap",
-    )
-    window_parser.add_argument(
-        "--test-size",
-        type=float,
-        default=0.25,
-        help="Test fraction per split",
-    )
-    window_parser.add_argument(
-        "--stride",
-        type=int,
-        default=None,
-        help="Window stride (default: window_size // 2 for each candidate)",
-    )
-    window_parser.add_argument(
-        "--n-splits",
-        type=int,
-        default=3,
-        help="Number of grouped splits for window selection and final evaluation",
-    )
-    window_parser.add_argument(
-        "--output-dir",
-        type=str,
-        default="outputs/demo",
-        help="Output directory for demo artifacts",
-    )
-    window_parser.add_argument(
-        "--report-path",
-        type=str,
-        default="outputs/demo/report.md",
-        help="Path to write the demo report (default: outputs/demo/report.md)",
-    )
-    window_parser.add_argument(
-        "--no-llm",
-        action="store_true",
-        help="Compatibility flag; demos always run scripted",
-    )
-
-    window_parser.add_argument(
-        "--print-report",
-        action="store_true",
-        help="Print the demo report in the CLI output",
-    )
-    window_parser.add_argument(
-        "--skip-plots",
-        action="store_true",
-        help="Skip plot generation",
-    )
-    _add_output_args(window_parser)
-
-    forecasting_parser = demo_sub.add_parser(
-        "forecasting",
-        help="Run the forecasting comparison demo",
-    )
-    forecasting_parser.add_argument(
-        "--run-id",
-        type=str,
-        default="Re200Rm200",
-        help="Run ID to forecast (default: Re200Rm200)",
-    )
-    forecasting_parser.add_argument(
-        "--variable",
-        type=str,
-        default="bx001_real",
-        help="Variable name to forecast (default: bx001_real)",
-    )
-    forecasting_parser.add_argument(
-        "--horizon",
-        type=int,
-        default=1,
-        help="Forecast horizon (default: 1, chosen for tiny built-in test dataset)",
-    )
-    forecasting_parser.add_argument(
-        "--validation-size",
-        type=int,
-        default=None,
-        help="Validation size for holdout comparison (default: horizon)",
-    )
-    forecasting_parser.add_argument(
-        "--methods",
-        type=str,
-        default="arima,theta",
-        help="Comma-separated methods to compare (default: arima,theta)",
-    )
-    data_group = forecasting_parser.add_mutually_exclusive_group()
-    data_group.add_argument(
-        "--use-test-data",
-        action="store_true",
-        help="Force use of test data",
-    )
-    data_group.add_argument(
-        "--full-data",
-        action="store_true",
-        help="Force use of full dataset",
-    )
-    forecasting_parser.add_argument(
-        "--output-dir",
-        type=str,
-        default="outputs/demo",
-        help="Output directory for demo artifacts",
-    )
-    forecasting_parser.add_argument(
-        "--report-path",
-        type=str,
-        default="outputs/demo/forecasting_report.md",
-        help="Path to write the forecasting demo report (default: outputs/demo/forecasting_report.md)",
-    )
-    forecasting_parser.add_argument(
-        "--no-llm",
-        action="store_true",
-        help="Compatibility flag; demos always run scripted",
-    )
-
-    forecasting_parser.add_argument(
-        "--print-report",
-        action="store_true",
-        help="Print the demo report in the CLI output",
-    )
-    forecasting_parser.add_argument(
-        "--skip-plots",
-        action="store_true",
-        help="Skip plot generation",
-    )
-    _add_output_args(forecasting_parser)
-
 def build_parser(*, exit_on_error: bool = True) -> argparse.ArgumentParser:
     parser = TSArgumentParser(
         prog="ts-agents",
@@ -2226,8 +1950,6 @@ def build_parser(*, exit_on_error: bool = True) -> argparse.ArgumentParser:
     _add_sandbox_subcommands(subparsers)
     _add_skills_subcommands(subparsers)
     _add_data_subcommands(subparsers)
-    _add_run_subcommands(subparsers)
-    _add_demo_subcommands(subparsers)
 
     return parser
 
@@ -2499,17 +2221,14 @@ def _handle_data_command(args: argparse.Namespace) -> Tuple[Any, str]:
     return result, "\n".join(text_lines)
 
 
-def _tool_supports_bundled_run(tool: Any) -> bool:
-    param_names = {param.name for param in tool.parameters}
-    run_names = {"unique_id", "run_id"}
-    variable_names = {"variable_name", "variable"}
-    return bool(param_names & run_names) and bool(param_names & variable_names)
+def _tool_accepts_series_file(tool: Any) -> bool:
+    return any(param.name == "series" for param in tool.parameters)
 
 
 def _tool_input_modes(tool: Any) -> List[str]:
     modes = ["param_flags", "input_json", "stdin_json"]
-    if _tool_supports_bundled_run(tool):
-        modes.append("bundled_run_shorthand")
+    if _tool_accepts_series_file(tool):
+        modes.append("series_file")
     return modes
 
 
@@ -2531,19 +2250,15 @@ def _tool_cli_templates(tool: Any) -> List[str]:
 
 
 def _tool_status_contract(tool: Any) -> Dict[str, Any]:
-    if tool.name.endswith("_with_data"):
-        return {
-            "result_shape": "ToolPayload wrapper",
-            "status_field": "Inspect `result.status` for `ok` vs `degraded` outcomes.",
-            "warnings_field": "Inspect `result.warnings` for non-fatal caveats.",
-            "artifact_field": "Inspect `result.artifacts` for generated files.",
-        }
-
     return {
         "result_shape": "Core analysis result",
-        "status_field": "Core tool results do not use a standard nested status field.",
-        "warnings_field": None,
+        "status_field": (
+            "Inspect top-level `quality_status`: `ok`, or `review` when `result.warnings` "
+            "or `input.warnings` (e.g. irregular sampling) are present."
+        ),
+        "warnings_field": "Inspect `result.warnings` for caveats about what actually ran.",
         "artifact_field": None,
+        "errors": "Invalid, too-short, non-finite, or multichannel input fails with `ok: false`.",
     }
 
 
@@ -2657,8 +2372,18 @@ def _capabilities_status_contract() -> Dict[str, Any]:
             "quality_flags_path": "If present, inspect `result.data.quality_flags` for workflow-specific quality issues.",
         },
         "tool_results": {
-            "core_tools": "Core tool results return the raw analysis payload.",
-            "wrapper_tools": "Many `_with_data` tools return a ToolPayload with `status`, `warnings`, `artifacts`, and `provenance`.",
+            "core_tools": (
+                "Tool results return the core analysis payload; analysis results carry `warnings`. "
+                "Top-level `quality_status` is `ok` or `review` for every tool run."
+            ),
+            "input_echo": (
+                "Arrays longer than 16 values are echoed in `input.params` as length/hash summaries, "
+                "not raw values."
+            ),
+            "series_file_input": (
+                "`tool run <tool> --input file --value-col col [--time-col t]` loads the `series` "
+                "parameter; `input.series` reports the source and sampling diagnostics."
+            ),
         },
     }
 
@@ -2727,7 +2452,7 @@ def _handle_capabilities_command(args: argparse.Namespace) -> Tuple[Any, str]:
             "Start with `workflow list --json` for public workflows.",
             "Use `workflow show --json` before `workflow run` to inspect availability, options, artifacts, and source contracts.",
             "Use `autoresearch show --json` before `autoresearch run` to inspect loop datasets, models, metrics, and budgets.",
-            "Use `tool search --json` and `tool show --json` for lower-level execution.",
+            "Use `tool search <task words> --json` (for example anomaly, changepoint, spectrum) and `tool show --json` for lower-level analysis tools; pass data with `tool run --input`.",
             "Always inspect top-level quality fields plus `result.status`, `warnings`, and workflow `quality_flags` rather than relying on exit code 0 alone.",
         ],
         "workflows": workflows,
@@ -3000,6 +2725,89 @@ def _handle_tool_command(args: argparse.Namespace) -> Tuple[Any, str]:
     raise ValueError(f"Unknown tool command: {args.tool_command}")
 
 
+_ECHO_ARRAY_LIMIT = 16
+
+
+def _describe_params(value: Any) -> Any:
+    """Echo parameters, summarizing long arrays by length, shape, and hash."""
+    import hashlib
+
+    import numpy as np
+
+    if isinstance(value, dict):
+        return {key: _describe_params(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, np.ndarray)):
+        try:
+            array = np.asarray(value)
+        except (TypeError, ValueError):
+            array = None
+        if array is None or array.dtype == object or array.size <= _ECHO_ARRAY_LIMIT:
+            return to_jsonable(value)
+        contiguous = np.ascontiguousarray(array)
+        flat = contiguous.reshape(-1)
+        return {
+            "summary": "array",
+            "shape": list(array.shape),
+            "dtype": str(array.dtype),
+            "sha256": hashlib.sha256(contiguous.tobytes()).hexdigest(),
+            "head": to_jsonable(flat[:3].tolist()),
+            "tail": to_jsonable(flat[-3:].tolist()),
+        }
+    return to_jsonable(value)
+
+
+def _load_tool_series_file(
+    args: argparse.Namespace,
+    metadata: Any,
+    params: Dict[str, Any],
+) -> Tuple[Optional[Dict[str, Any]], List[str]]:
+    """Fill the `series` parameter from --input and report sampling caveats."""
+    input_path = getattr(args, "input", None)
+    if not input_path:
+        if getattr(args, "value_col", None) or getattr(args, "time_col", None):
+            raise ValueError("--value-col and --time-col require --input.")
+        return None, []
+    if not _tool_accepts_series_file(metadata):
+        raise ValueError(
+            f"--input supplies a single `series`; tool '{metadata.name}' has no `series` parameter. "
+            "Pass its parameters with --param or --input-json."
+        )
+    if "series" in params:
+        raise ValueError("Pass the series either with --input or as a parameter, not both.")
+
+    from ts_agents.cli.input_parsing import load_series_input
+
+    series_input = load_series_input(
+        input_path=input_path,
+        time_col=getattr(args, "time_col", None),
+        value_col=getattr(args, "value_col", None),
+    )
+    params["series"] = series_input.series
+    time_axis = series_input.time_axis
+    warnings = list((time_axis or {}).get("warnings") or [])
+    sample_rate_source = None
+    if any(param.name == "sample_rate" for param in metadata.parameters):
+        if "sample_rate" in params:
+            sample_rate_source = "parameter"
+        elif time_axis and time_axis.get("sample_rate"):
+            params["sample_rate"] = time_axis["sample_rate"]
+            sample_rate_source = "time_column"
+        else:
+            sample_rate_source = "default (1 sample per unit; results in samples)"
+            if time_axis and time_axis.get("kind") == "datetime":
+                warnings.append(
+                    "Datetime time axis: sample_rate was not derived, so frequencies/periods are per "
+                    f"sample; one sample = {time_axis.get('median_step', 'n/a')} seconds (median step)."
+                )
+    payload = {
+        "source": series_input.provenance.get("series_ref", {}),
+        "length": int(len(series_input.series)),
+        "time_axis": time_axis,
+        "sample_rate_source": sample_rate_source,
+    }
+    return payload, warnings
+
+
 def _handle_run_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]:
     from ts_agents.cli.input_parsing import load_tool_params_from_json
     from ts_agents.tools.registry import ToolRegistry
@@ -3020,14 +2828,14 @@ def _handle_run_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]:
     )
     params = dict(input_params)
     params.update(_parse_param_entries(args.param, param_types))
-    params = _apply_run_var_args(params, param_types, args.run_id, args.variable)
+    series_payload, input_warnings = _load_tool_series_file(args, metadata, params)
     allow_fallback = getattr(args, "allow_fallback", False)
     fallback_backend = getattr(args, "fallback_backend", None) or "local"
     args._ts_input_payload = {
-        "params": params,
+        "params": _describe_params(params),
         "input_source": input_source,
-        "run_id": args.run_id,
-        "variable": args.variable,
+        "series": series_payload,
+        "warnings": input_warnings,
         "sandbox": args.sandbox or os.environ.get("TS_AGENTS_SANDBOX_MODE") or "local",
         "allow_fallback": allow_fallback,
         "fallback_backend": fallback_backend,
@@ -3422,408 +3230,6 @@ def _split_int_csv(raw: str) -> List[int]:
     return [int(part) for part in _split_csv(raw)]
 
 
-def _find_tool_payload(tool_calls: List[Any], tool_name: str) -> Optional[Dict[str, Any]]:
-    for call in reversed(tool_calls):
-        if call.tool_name == tool_name and call.result_payload is not None:
-            return call.result_payload
-    return None
-
-
-def _resolve_demo_report_path(
-    args: argparse.Namespace,
-    default_report_path: str = "outputs/demo/report.md",
-):
-    from pathlib import Path
-
-    output_dir = Path(args.output_dir)
-    report_path = Path(args.report_path)
-    default_report_path_obj = Path(default_report_path)
-
-    if report_path == default_report_path_obj and output_dir != default_report_path_obj.parent:
-        return output_dir / default_report_path_obj.name
-    return report_path
-
-
-def _format_metric_value(value: Any) -> str:
-    if isinstance(value, (int, float)):
-        return f"{value:.4f}"
-    return "N/A"
-
-
-def _build_demo_window_report(
-    *,
-    csv_path: str,
-    classifier: str,
-    selection_payload: Dict[str, Any],
-    eval_payload: Dict[str, Any],
-) -> str:
-    classification = eval_payload.get("classification") or {}
-
-    best_window = selection_payload.get("best_window_size")
-    metric = eval_payload.get("metric", "metric")
-    score = eval_payload.get("score")
-    accuracy = classification.get("accuracy")
-    f1_macro = classification.get("f1_score")
-    classifier_used = classification.get("method") or eval_payload.get("classifier") or classifier
-
-    notes: List[str] = []
-    confusion = classification.get("confusion_matrix")
-    if isinstance(confusion, list):
-        active_true_classes = 0
-        for row in confusion:
-            if isinstance(row, list) and any(v != 0 for v in row):
-                active_true_classes += 1
-        if active_true_classes <= 1:
-            notes.append("Test split appears single-class.")
-
-    if (
-        isinstance(score, (int, float))
-        and isinstance(accuracy, (int, float))
-        and isinstance(f1_macro, (int, float))
-        and score == 1.0
-        and accuracy == 1.0
-        and f1_macro == 1.0
-    ):
-        notes.append("All reported metrics are perfect; verify split balance and leakage assumptions.")
-
-    note_text = " ".join(notes) if notes else "No obvious pathologies detected in reported metrics."
-
-    lines = [
-        "### Report on Windowed Classification",
-        "",
-        f"- **Dataset Path**: `{csv_path}`",
-        f"- **Classifier Used**: {classifier_used}",
-        f"- **Best Window Size**: {best_window}",
-        f"- **Metric + Score**: {metric} - {_format_metric_value(score)}",
-        f"- **Accuracy**: {_format_metric_value(accuracy)}",
-        f"- **Macro F1**: {_format_metric_value(f1_macro)}",
-        "",
-        note_text,
-    ]
-    return "\n".join(lines)
-
-
-def _build_demo_forecasting_report(
-    *,
-    run_id: str,
-    variable_name: str,
-    horizon: int,
-    methods: List[str],
-    comparison_payload: Dict[str, Any],
-) -> str:
-    rankings = comparison_payload.get("rankings") or {}
-    rmse_ranking = rankings.get("rmse") or []
-    best_method = rmse_ranking[0] if rmse_ranking else "N/A"
-    recommendation = comparison_payload.get("recommendation") or "No recommendation generated."
-
-    method_lines: List[str] = []
-    metrics = comparison_payload.get("metrics") or {}
-    for method in methods:
-        method_metric = metrics.get(method)
-        if not isinstance(method_metric, dict):
-            method_lines.append(f"- `{method}`: no metrics available")
-            continue
-        if "error" in method_metric:
-            method_lines.append(f"- `{method}`: error - {method_metric['error']}")
-            continue
-        method_lines.append(
-            f"- `{method}`: RMSE={_format_metric_value(method_metric.get('rmse'))}, "
-            f"MAE={_format_metric_value(method_metric.get('mae'))}, "
-            f"MAPE={_format_metric_value(method_metric.get('mape'))}%"
-        )
-
-    lines = [
-        "### Report on Forecasting Demo",
-        "",
-        f"- **Run ID**: `{run_id}`",
-        f"- **Variable**: `{variable_name}`",
-        f"- **Horizon**: {horizon}",
-        f"- **Compared Methods**: {', '.join(methods)}",
-        f"- **Best Method (RMSE)**: {best_method}",
-        "",
-        "#### Metrics",
-        *method_lines,
-        "",
-        "#### Recommendation",
-        recommendation,
-    ]
-    return "\n".join(lines)
-
-
-def _run_forecasting_demo_comparison(args: argparse.Namespace):
-    from pathlib import Path
-    import warnings
-
-    from ts_agents import data_access
-    from ts_agents.cli.output import render_output, to_jsonable, write_output
-    from ts_agents.core.comparison import compare_forecasting_methods, plot_forecast_comparison
-
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    use_test_data = _resolve_use_test_data(args)
-    methods = _split_csv(args.methods) if args.methods else ["arima", "theta"]
-    if not methods:
-        methods = ["arima", "theta"]
-
-    series = data_access.get_series(
-        run_id=args.run_id,
-        variable_name=args.variable,
-        use_test_data=use_test_data,
-    )
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)
-        comparison = compare_forecasting_methods(
-            series,
-            horizon=args.horizon,
-            methods=methods,
-            validation_size=args.validation_size,
-        )
-
-    comparison_payload = to_jsonable(comparison)
-    comparison_path = output_dir / "forecast_comparison.json"
-    write_output(render_output(comparison_payload, json_output=True), str(comparison_path))
-
-    plot_path = output_dir / "forecast_comparison.png"
-    if not args.skip_plots:
-        fig = plot_forecast_comparison(comparison, series)
-        fig.savefig(str(plot_path), format="png")
-        plot_lib = _get_plot_lib()
-        plot_lib.close(fig)
-
-    rmse_ranking = (comparison_payload.get("rankings") or {}).get("rmse") or []
-    best_method = rmse_ranking[0] if rmse_ranking else None
-
-    return {
-        "series": series,
-        "methods": methods,
-        "comparison_payload": comparison_payload,
-        "comparison_path": comparison_path,
-        "plot_path": plot_path,
-        "best_method": best_method,
-        "output_dir": output_dir,
-    }
-
-
-def _get_plot_lib():
-    import matplotlib.pyplot as plt
-
-    return plt
-
-
-
-
-def _generate_demo_data(args: argparse.Namespace, csv_path: Path) -> None:
-    import subprocess
-
-    if args.no_generate:
-        return
-
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    synth_script = _resolve_required_runtime_path("data/make_synthetic_labeled_stream.py")
-    cmd = [
-        sys.executable,
-        str(synth_script),
-        "--scenario",
-        args.scenario,
-        "--hz",
-        str(args.hz),
-        "--minutes",
-        str(args.minutes),
-        "--seed",
-        str(args.seed),
-        "--out",
-        str(csv_path),
-    ]
-    subprocess.run(cmd, check=True)
-
-
-def _run_demo_window_classification_scripted(args: argparse.Namespace) -> Dict[str, Any]:
-    from pathlib import Path
-
-    from ts_agents.cli.input_parsing import load_labeled_stream_input
-    from ts_agents.cli.output import write_output
-    from ts_agents.workflows.activity import run_activity_recognition_workflow
-
-    labeling = getattr(args, "labeling", "strict")
-    stride = getattr(args, "stride", None)
-    n_splits = getattr(args, "n_splits", 3)
-    csv_path = Path(args.csv_path)
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    _generate_demo_data(args, csv_path)
-
-    value_columns = _split_csv(args.value_columns)
-    workflow_input = load_labeled_stream_input(
-        input_path=str(csv_path),
-        time_col=None,
-        value_cols=value_columns,
-        label_col=args.label_column,
-    )
-    payload = run_activity_recognition_workflow(
-        workflow_input,
-        output_dir=str(output_dir),
-        window_sizes=_split_int_csv(args.window_sizes) if args.window_sizes else None,
-        metric=args.metric,
-        classifier=args.classifier,
-        labeling=labeling,
-        balance=args.balance,
-        max_windows_per_segment=args.max_windows_per_segment,
-        test_size=args.test_size,
-        stride=stride,
-        n_splits=n_splits,
-        seed=args.seed,
-        skip_plots=args.skip_plots,
-    )
-    selection_payload = payload.data["window_selection"]
-    eval_payload = payload.data["evaluation"]
-    classifier = payload.data["classifier_used"]
-
-    report = _build_demo_window_report(
-        csv_path=str(csv_path),
-        classifier=classifier,
-        selection_payload=selection_payload,
-        eval_payload=eval_payload,
-    )
-    report_path = _resolve_demo_report_path(args)
-    write_output(report, str(report_path))
-
-    return {
-        "csv_path": str(csv_path),
-        "output_dir": str(output_dir),
-        "best_window_size": int(payload.data["best_window_size"]),
-        "metric": str(eval_payload["metric"]),
-        "score": float(eval_payload["score"]),
-        "classifier": classifier,
-        "window_selection_path": str(output_dir / "window_selection.json"),
-        "eval_path": str(output_dir / "eval.json"),
-        "window_scores_plot": (
-            str(output_dir / "window_scores.png")
-            if (output_dir / "window_scores.png").exists()
-            else None
-        ),
-        "confusion_matrix_plot": (
-            str(output_dir / "confusion_matrix.png")
-            if (output_dir / "confusion_matrix.png").exists()
-            else None
-        ),
-        "report_path": str(report_path),
-        "report": report,
-        "mode": "scripted",
-    }
-
-
-
-
-def _run_demo_forecasting_scripted(args: argparse.Namespace) -> Dict[str, Any]:
-    from pathlib import Path
-
-    from ts_agents.cli.input_parsing import load_series_input
-    from ts_agents.cli.output import write_output
-    from ts_agents.workflows.forecast import run_forecast_series_workflow
-
-    series_input = load_series_input(
-        run_id=args.run_id,
-        variable_name=args.variable,
-        use_test_data=_resolve_use_test_data(args),
-    )
-    payload = run_forecast_series_workflow(
-        series_input,
-        output_dir=args.output_dir,
-        horizon=args.horizon,
-        methods=_split_csv(args.methods),
-        validation_size=args.validation_size,
-        skip_plots=args.skip_plots,
-        report_mode="scripted",
-    )
-    workflow_output_dir = Path(args.output_dir)
-    report = _as_demo_forecasting_report((workflow_output_dir / "report.md").read_text())
-    report_path = _resolve_demo_report_path(
-        args,
-        default_report_path="outputs/demo/forecasting_report.md",
-    )
-    write_output(report, str(report_path))
-
-    return {
-        "run_id": args.run_id,
-        "variable": args.variable,
-        "horizon": int(args.horizon),
-        "methods": payload.data.get("methods", []),
-        "output_dir": str(workflow_output_dir),
-        "comparison_path": str(workflow_output_dir / "forecast_comparison.json"),
-        "forecast_comparison_plot": (
-            str(workflow_output_dir / "forecast_comparison.png")
-            if (workflow_output_dir / "forecast_comparison.png").exists()
-            else None
-        ),
-        "best_method": payload.data.get("best_method"),
-        "report_path": str(report_path),
-        "report": report,
-        "mode": "scripted",
-    }
-
-
-
-
-def _as_demo_forecasting_report(report: str) -> str:
-    return report.replace(
-        "### Report on Forecast-Series Workflow",
-        "### Report on Forecasting Demo",
-        1,
-    )
-
-
-def _handle_demo_command(args: argparse.Namespace) -> Tuple[Any, str]:
-    if args.demo_command == "window-classification":
-        result = _run_demo_window_classification_scripted(args)
-        lines = [
-            "Demo complete.",
-            f"- Data: {result['csv_path']}",
-            f"- Output dir: {result['output_dir']}",
-            f"- Best window size: {result['best_window_size']}",
-            f"- {result['metric']}: {result['score']:.4f}",
-        ]
-        text = "\n".join(lines)
-        if getattr(args, "print_report", False) and result.get("report"):
-            text = text + "\n\n" + result["report"]
-        return result, text
-
-    if args.demo_command == "forecasting":
-        result = _run_demo_forecasting_scripted(args)
-
-        best_method_text = result["best_method"] if result["best_method"] else "N/A"
-        lines = [
-            "Demo complete.",
-            f"- Run ID: {result['run_id']}",
-            f"- Variable: {result['variable']}",
-            f"- Horizon: {result['horizon']}",
-            f"- Best method (RMSE): {best_method_text}",
-            f"- Output dir: {result['output_dir']}",
-        ]
-        text = "\n".join(lines)
-        if getattr(args, "print_report", False) and result.get("report"):
-            text = text + "\n\n" + result["report"]
-        return result, text
-
-    raise ValueError(f"Unknown demo command: {args.demo_command}")
-
-
-def _emit_deprecation_warning(args: argparse.Namespace) -> None:
-    if args.command == "run":
-        print(
-            "Warning: `ts-agents run` is deprecated; prefer `ts-agents tool run`.",
-            file=sys.stderr,
-        )
-        return
-    if args.command == "demo":
-        print(
-            "Warning: `ts-agents demo` is a legacy compatibility surface; prefer `ts-agents workflow run` for new automation.",
-            file=sys.stderr,
-        )
-
-
 def run(argv: Optional[List[str]] = None) -> int:
     from ts_agents.config import load_user_env
 
@@ -3854,7 +3260,6 @@ def run(argv: Optional[List[str]] = None) -> int:
         raise
 
     args._ts_raw_argv = raw_argv
-    _emit_deprecation_warning(args)
 
     try:
         if getattr(args, "extract_images", None) and not getattr(args, "save", None):
@@ -3866,8 +3271,6 @@ def run(argv: Optional[List[str]] = None) -> int:
             result, text = _handle_data_command(args)
         elif args.command == "tool":
             result, text = _handle_tool_command(args)
-        elif args.command == "run":
-            result, text = _handle_run_command(args)
         elif args.command == "sandbox":
             result, text = _handle_sandbox_command(args)
         elif args.command == "skills":
@@ -3880,8 +3283,6 @@ def run(argv: Optional[List[str]] = None) -> int:
             result, text = _handle_runs_command(args)
         elif args.command == "jobs":
             result, text = _handle_jobs_command(args)
-        elif args.command == "demo":
-            result, text = _handle_demo_command(args)
         else:
             parser.error("Unknown command")
             return 2

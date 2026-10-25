@@ -1,7 +1,7 @@
+import argparse
 import io
 import json
 import sys
-from types import SimpleNamespace
 
 import pytest
 
@@ -39,31 +39,30 @@ def test_parse_union_str_list_from_json():
 
 def test_suggest_tool_names_returns_close_matches():
     suggestions = _suggest_tool_names(
-        "forecast_thta_with_data",
+        "forecast_thta",
         [
-            "forecast_theta_with_data",
-            "forecast_ets_with_data",
-            "stl_decompose_with_data",
+            "forecast_theta",
+            "forecast_ets",
+            "stl_decompose",
         ],
     )
-    assert "forecast_theta_with_data" in suggestions
+    assert "forecast_theta" in suggestions
 
 
-def test_build_run_example_command_uses_run_var_shorthands():
+def test_build_run_example_command_uses_series_file_input():
     command = _build_run_example_command(
-        "forecast_theta_with_data",
-        required=["variable_name", "unique_id"],
-        param_types={"variable_name": "str", "unique_id": "str"},
+        "forecast_theta",
+        required=["series"],
+        param_types={"series": "np.ndarray"},
     )
-    assert "uv run ts-agents tool run forecast_theta_with_data" in command
-    assert "--run Re200Rm200" in command
-    assert "--var bx001_real" in command
+    assert command.startswith("ts-agents tool run forecast_theta")
+    assert "--input data.csv --value-col value" in command
     assert "--param" not in command
 
 
 def test_build_run_example_command_quotes_dict_params_shell_safe():
     command = _build_run_example_command(
-        "compare_series_stats_with_data",
+        "compare_series_stats",
         required=["series_dict"],
         param_types={"series_dict": "dict"},
     )
@@ -73,30 +72,21 @@ def test_build_run_example_command_quotes_dict_params_shell_safe():
 def test_missing_required_error_includes_actionable_example():
     with pytest.raises(ValueError) as exc_info:
         _raise_missing_required_error(
-            tool_name="compare_forecasts_with_data",
+            tool_name="compare_forecasts",
             param_types={
-                "variable_name": "str",
-                "unique_id": "str",
+                "series": "np.ndarray",
+                "horizon": "int",
                 "models": "list",
             },
-            required=["variable_name", "unique_id"],
-            provided={"variable_name": "bx001_real"},
+            required=["series", "horizon"],
+            provided={"horizon": 3},
         )
 
     message = str(exc_info.value)
-    assert "Missing required parameters for 'compare_forecasts_with_data'" in message
+    assert "Missing required parameters for 'compare_forecasts'" in message
     assert "Required parameters:" in message
     assert "Example:" in message
-    assert "uv run ts-agents tool run compare_forecasts_with_data" in message
-
-
-def test_run_help_includes_examples(capsys):
-    parser = build_parser()
-    with pytest.raises(SystemExit):
-        parser.parse_args(["run", "--help"])
-    output = capsys.readouterr().out
-    assert "Examples:" in output
-    assert "tool run forecast_theta_with_data" in output
+    assert "ts-agents tool run compare_forecasts --input data.csv" in message
 
 
 def test_tool_run_help_includes_examples(capsys):
@@ -104,19 +94,16 @@ def test_tool_run_help_includes_examples(capsys):
     with pytest.raises(SystemExit):
         parser.parse_args(["tool", "run", "--help"])
     output = capsys.readouterr().out
-    assert "Examples:" in output
-    assert "tool run forecast_theta_with_data" in output
+    assert "Examples" in output
+    assert "tool run detect_periodicity --input" in output
+    assert "tool search anomaly" in output
 
 
-
-
-def test_demo_help_includes_examples(capsys):
-    parser = build_parser()
-    with pytest.raises(SystemExit):
-        parser.parse_args(["demo", "--help"])
-    output = capsys.readouterr().out
-    assert "Examples:" in output
-    assert "demo forecasting --no-llm" in output
+@pytest.mark.parametrize("command", ["run", "demo"])
+def test_removed_legacy_commands_are_rejected(command):
+    parser = build_parser(exit_on_error=False)
+    with pytest.raises(argparse.ArgumentError):
+        parser.parse_args([command, "--help"])
 
 
 def test_workflow_help_includes_examples(capsys):
@@ -247,18 +234,18 @@ def test_sandbox_help_includes_commands(capsys):
 
 
 def test_unknown_tool_error_includes_suggestions(capsys):
-    code = run(["run", "forecast_thta_with_data", "--run", "Re200Rm200", "--var", "bx001_real"])
+    code = run(["tool", "run", "forecast_thta", "--param", "horizon=3"])
     assert code == 2
     err = capsys.readouterr().err
     assert "Did you mean:" in err
-    assert "forecast_theta_with_data" in err
+    assert "forecast_theta" in err
 
 
 def test_missing_required_error_is_actionable(capsys):
-    code = run(["run", "forecast_theta_with_data", "--var", "bx001_real"])
+    code = run(["tool", "run", "forecast_theta", "--param", "horizon=3"])
     assert code == 2
     err = capsys.readouterr().err
-    assert "Missing required parameters for 'forecast_theta_with_data'" in err
+    assert "Missing required parameters for 'forecast_theta'" in err
     assert "Example:" in err
 
 
@@ -266,6 +253,7 @@ def test_parser_accepts_extract_images_with_save():
     parser = build_parser()
     args = parser.parse_args(
         [
+            "tool",
             "run",
             "describe_series",
             "--param",
@@ -400,79 +388,28 @@ def test_run_extracts_images_in_json_without_breaking_json(monkeypatch, tmp_path
     assert "disk full" in failure["error"]["message"]
 
 
-def test_cli_compare_forecasts_accepts_methods_alias(monkeypatch, capsys):
+def test_cli_compare_forecasts_surfaces_tool_failure(monkeypatch, capsys, tmp_path):
     import importlib
-    import numpy as np
     import ts_agents.core.forecasting as forecasting
-    import ts_agents.tools.agent_tools as agent_tools
 
     cli_main = importlib.import_module("ts_agents.cli.main")
-    observed = {}
+    csv_path = tmp_path / "series.csv"
+    csv_path.write_text("value\n0.1\n0.12\n0.15\n0.14\n0.16\n")
 
-    monkeypatch.setattr(
-        agent_tools,
-        "_get_series_data",
-        lambda variable_name, unique_id: np.array([1.0, 2.0, 3.0, 4.0]),
-    )
-
-    def fake_compare_forecasts(series, horizon=10, test_size=None, models=None):
-        observed["horizon"] = horizon
-        observed["models"] = models
-        return {"best_model": "theta", "metrics": {"theta": {"rmse": 0.1}}}
-
-    monkeypatch.setattr(forecasting, "compare_forecasts", fake_compare_forecasts)
-
-    code = cli_main.run(
-        [
-            "run",
-            "compare_forecasts_with_data",
-            "--run",
-            "Re200Rm200",
-            "--var",
-            "bx001_real",
-            "--param",
-            "methods=arima,theta",
-            "--param",
-            "horizon=12",
-        ]
-    )
-
-    assert code == 0
-    assert observed["horizon"] == 12
-    assert observed["models"] == ["arima", "theta"]
-    output = capsys.readouterr().out
-    assert "Error in Compare Forecasts" not in output
-
-
-def test_cli_compare_forecasts_surfaces_tool_failure(monkeypatch, capsys):
-    import importlib
-    import numpy as np
-    import ts_agents.core.forecasting as forecasting
-    import ts_agents.tools.agent_tools as agent_tools
-
-    cli_main = importlib.import_module("ts_agents.cli.main")
-
-    monkeypatch.setattr(
-        agent_tools,
-        "_get_series_data",
-        lambda variable_name, unique_id: np.array([0.1, 0.12, 0.15, 0.14, 0.16]),
-    )
-
-    def fake_compare_forecasts(series, horizon=10, test_size=None, models=None):
+    def fake_compare_forecasts(series, horizon=10, test_size=None, models=None, **kwargs):
         raise ValueError("number sections must be larger than 0")
 
     monkeypatch.setattr(forecasting, "compare_forecasts", fake_compare_forecasts)
 
     code = cli_main.run(
         [
+            "tool",
             "run",
-            "compare_forecasts_with_data",
-            "--run",
-            "Re200Rm200",
-            "--var",
-            "bx001_real",
+            "compare_forecasts",
+            "--input",
+            str(csv_path),
             "--param",
-            "methods=arima,theta",
+            "models=arima,theta",
             "--param",
             "horizon=12",
         ]
@@ -484,22 +421,25 @@ def test_cli_compare_forecasts_surfaces_tool_failure(monkeypatch, capsys):
 
 
 def test_tool_show_json_returns_envelope(capsys):
-    code = run(["tool", "show", "forecast_theta_with_data", "--json"])
+    code = run(["tool", "show", "forecast_theta", "--json"])
 
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["schema_version"] == "1.0"
     assert payload["ok"] is True
     assert payload["command"] == "tool show"
-    assert payload["name"] == "forecast_theta_with_data"
-    assert payload["result"]["name"] == "forecast_theta_with_data"
+    assert payload["name"] == "forecast_theta"
+    assert payload["result"]["name"] == "forecast_theta"
     assert "input_schema" in payload["result"]
     assert "availability" in payload["result"]
     assert "input_modes" in payload["result"]
     assert "cli_templates" in payload["result"]
     assert "status_contract" in payload["result"]
     assert payload["result"]["writes_artifacts"] is False
-    assert "bundled_run_shorthand" in payload["result"]["input_modes"]
+    assert "series_file" in payload["result"]["input_modes"]
+    assert payload["result"]["cli_templates"][1].startswith(
+        "ts-agents tool run forecast_theta --input data.csv --value-col value"
+    )
 
 
 def test_tool_show_json_reports_optional_backend_for_seasonal_naive(capsys):
@@ -517,7 +457,7 @@ def test_tool_show_json_reports_optional_backend_for_seasonal_naive(capsys):
 
 def test_tool_show_json_foundation_extras_match_availability(capsys):
     # torch belongs to both neural and foundation; the FM tool needs only foundation.
-    code = run(["tool", "show", "forecast_foundation_with_data", "--json"])
+    code = run(["tool", "show", "forecast_foundation", "--json"])
 
     assert code == 0
     result = json.loads(capsys.readouterr().out)["result"]
@@ -603,17 +543,29 @@ def test_tool_show_json_omits_install_hint_for_optional_backend_when_backend_mis
 
 
 def test_tool_show_json_unknown_tool_is_typed(capsys):
-    code = run(["tool", "show", "forecast_tetha_with_data", "--json"])
+    code = run(["tool", "show", "forecast_tetha", "--json"])
 
     assert code == 2
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is False
     assert payload["command"] == "tool show"
-    assert payload["name"] == "forecast_tetha_with_data"
+    assert payload["name"] == "forecast_tetha"
     assert payload["error"]["code"] == "validation_error"
-    assert "Tool 'forecast_tetha_with_data' not found." in payload["error"]["message"]
+    assert "Tool 'forecast_tetha' not found." in payload["error"]["message"]
     assert "Did you mean:" in payload["error"]["message"]
-    assert "forecast_theta_with_data" in payload["error"]["message"]
+    assert "forecast_theta" in payload["error"]["message"]
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [("anomaly", "find_discords"), ("regime", "segment_changepoint"), ("spectrum", "compute_psd")],
+)
+def test_tool_search_matches_task_words(capsys, query, expected):
+    code = run(["tool", "search", query, "--json"])
+
+    assert code == 0
+    names = [tool["name"] for tool in json.loads(capsys.readouterr().out)["result"]["tools"]]
+    assert expected in names
 
 
 def test_tool_search_json_returns_envelope(capsys):
@@ -717,21 +669,6 @@ def test_tool_run_rejects_fallback_backend_without_allow_fallback(capsys):
     assert "--fallback-backend requires --allow-fallback" in payload["error"]["message"]
 
 
-def test_run_alias_emits_deprecation_warning(monkeypatch, capsys):
-    import importlib
-
-    cli_main = importlib.import_module("ts_agents.cli.main")
-
-    monkeypatch.setattr(cli_main, "_handle_run_command", lambda args: ({"ok": True}, "compat result"))
-
-    code = cli_main.run(["run", "describe_series", "--param", "series=[1,2,3]"])
-
-    assert code == 0
-    captured = capsys.readouterr()
-    assert "compat result" in captured.out
-    assert "`ts-agents run` is deprecated" in captured.err
-
-
 def test_workflow_parser_rejects_conflicting_primary_sources():
     parser = build_parser()
     with pytest.raises(SystemExit):
@@ -784,115 +721,82 @@ def test_activity_workflow_parser_accepts_separate_labels_and_windowing_controls
     assert args.n_splits == 5
 
 
-def test_tool_run_json_includes_artifact_refs_for_payload_wrappers(
-    monkeypatch,
-    capsys,
-    tmp_path,
-):
-    import importlib
+def test_tool_run_series_file_derives_sample_rate_and_summarizes_input(capsys, tmp_path):
     import numpy as np
-    import ts_agents.core.spectral as spectral
-    import ts_agents.tools.agent_tools as agent_tools
 
-    cli_main = importlib.import_module("ts_agents.cli.main")
+    t = np.arange(400) / 50.0
+    values = np.sin(2 * np.pi * 5.0 * t)
+    csv_path = tmp_path / "signal.csv"
+    csv_path.write_text("t,value\n" + "\n".join(f"{a},{b}" for a, b in zip(t, values)))
 
-    class _DummyAxis:
-        def plot(self, *args, **kwargs):
-            return None
-
-        def loglog(self, *args, **kwargs):
-            return None
-
-        def set_xlabel(self, *args, **kwargs):
-            return None
-
-        def set_ylabel(self, *args, **kwargs):
-            return None
-
-        def set_title(self, *args, **kwargs):
-            return None
-
-    class _DummyPlotLib:
-        def subplots(self, *args, **kwargs):
-            return object(), _DummyAxis()
-
-        def tight_layout(self):
-            return None
-
-        def savefig(self, buf, format="png"):
-            buf.write(b"png")
-
-        def close(self, fig):
-            return None
-
-    monkeypatch.setenv("TS_AGENTS_TOOL_ARTIFACT_DIR", str(tmp_path))
-    monkeypatch.setattr(
-        agent_tools,
-        "_get_series_data",
-        lambda variable_name, unique_id: np.array([1.0, 0.5, 0.25, 0.125]),
-    )
-    monkeypatch.setattr(agent_tools, "_get_plt", lambda: _DummyPlotLib())
-    monkeypatch.setattr(
-        spectral,
-        "compute_psd",
-        lambda series, sample_rate=1.0, method="welch", nperseg=None: SimpleNamespace(
-            frequencies=np.array([0.25, 0.5]),
-            psd=np.array([1.0, 0.5]),
-            spectral_slope=-1.75,
-        ),
+    code = run(
+        ["tool", "run", "detect_periodicity", "--input", str(csv_path), "--time-col", "t", "--json"]
     )
 
-    code = cli_main.run(
-        [
-            "tool",
-            "run",
-            "compute_psd_with_data",
-            "--run",
-            "Re200Rm200",
-            "--var",
-            "bx001_real",
-            "--json",
-        ]
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["quality_status"] == "ok"
+    assert payload["input"]["series"]["sample_rate_source"] == "time_column"
+    assert payload["input"]["series"]["time_axis"]["regular"] is True
+    # Long arrays are echoed as summaries, not raw values.
+    assert payload["input"]["params"]["series"]["shape"] == [400]
+    assert "sha256" in payload["input"]["params"]["series"]
+    # A 5 Hz sine sampled at 50 Hz has a 0.2 s period in time-column units.
+    assert payload["result"]["detected"] is True
+    assert payload["result"]["dominant_period"] == pytest.approx(0.2, rel=1e-3)
+
+
+def test_tool_run_series_file_flags_gaps_for_review(capsys, tmp_path):
+    rows = [f"{index},{index % 7}" for index in list(range(0, 50)) + list(range(80, 130))]
+    csv_path = tmp_path / "gapped.csv"
+    csv_path.write_text("t,value\n" + "\n".join(rows))
+
+    code = run(
+        ["tool", "run", "describe_series", "--input", str(csv_path), "--time-col", "t", "--json"]
     )
 
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
-    assert payload["name"] == "compute_psd_with_data"
-    assert payload["result"]["artifacts"][0]["path"].startswith(str(tmp_path))
-    assert payload["result"]["artifacts"][0]["mime_type"] == "image/png"
+    assert payload["quality_status"] == "review"
+    assert payload["requires_review"] is True
+    assert payload["input"]["series"]["time_axis"]["gap_count"] == 1
+    assert "Irregular sampling" in payload["input"]["warnings"][0]
 
 
-def test_tool_run_json_dependency_error_is_typed(monkeypatch, capsys):
+def test_tool_run_rejects_series_file_for_tools_without_series(capsys, tmp_path):
+    csv_path = tmp_path / "signal.csv"
+    csv_path.write_text("value\n1\n2\n3\n")
+
+    code = run(["tool", "run", "compute_coherence", "--input", str(csv_path), "--json"])
+
+    assert code == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert "has no `series` parameter" in payload["error"]["message"]
+
+
+def test_tool_run_json_dependency_error_is_typed(monkeypatch, capsys, tmp_path):
     import importlib
-    import numpy as np
-    import ts_agents.core.forecasting as forecasting
-    import ts_agents.tools.agent_tools as agent_tools
+    from ts_agents.tools.registry import ToolRegistry
 
     cli_main = importlib.import_module("ts_agents.cli.main")
-
-    monkeypatch.setattr(
-        agent_tools,
-        "_get_series_data",
-        lambda variable_name, unique_id: np.array([1.0, 2.0, 3.0, 4.0]),
-    )
+    csv_path = tmp_path / "series.csv"
+    csv_path.write_text("value\n1\n2\n3\n4\n")
 
     def fake_forecast_theta(series, horizon=10, level=None, season_length=None):
         raise ImportError(
             'Statistical forecasting requires optional dependencies. Install with: pip install "ts-agents[forecasting]"'
         )
 
-    monkeypatch.setattr(forecasting, "forecast_theta", fake_forecast_theta)
+    monkeypatch.setattr(ToolRegistry.get("forecast_theta"), "core_function", fake_forecast_theta)
 
     code = cli_main.run(
         [
             "tool",
             "run",
-            "forecast_theta_with_data",
-            "--run",
-            "Re200Rm200",
-            "--var",
-            "bx001_real",
+            "forecast_theta",
+            "--input",
+            str(csv_path),
             "--json",
         ]
     )
@@ -901,7 +805,7 @@ def test_tool_run_json_dependency_error_is_typed(monkeypatch, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is False
     assert payload["command"] == "tool run"
-    assert payload["name"] == "forecast_theta_with_data"
+    assert payload["name"] == "forecast_theta"
     assert payload["error"]["code"] == "dependency_error"
 
 

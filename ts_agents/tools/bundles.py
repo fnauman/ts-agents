@@ -1,12 +1,9 @@
 """Tool Bundles - Curated sets of tools for different use cases.
 
 This module provides predefined bundles of tools:
-- demo: Meta-bundle combining the windowing and forecasting demo workflows
-- demo_windowing: Focused tools for the windowing demo workflow
-- demo_forecasting: Focused tools for the forecasting demo workflow
-- minimal: 5 core tools for baseline testing
-- standard: 15 tools for typical analysis
-- full: 25+ tools for comprehensive analysis
+- minimal: one entry point per task family (5 tools)
+- standard: well-rounded set across task families
+- full: comprehensive set
 - all: Every registered tool
 
 Plus specialized bundles:
@@ -32,169 +29,160 @@ from .registry import (
 # Bundle Definitions
 # =============================================================================
 
-# Demo bundle: Focused toolset for the window-size selection demo
-DEMO_WINDOWING_BUNDLE = [
-    # Windowing (hero demo)
-    "select_window_size_from_csv",
-    "evaluate_windowed_classifier_from_csv",
-]
-
-# Demo bundle: Focused toolset for forecasting demo workflows
-DEMO_FORECASTING_BUNDLE = [
-    "describe_series_with_data",
-    "forecast_theta_with_data",
-    "compare_forecasts_with_data",
-]
-
-# Meta-bundle: combines both demo tracks.
-DEMO_BUNDLE = list(dict.fromkeys(DEMO_WINDOWING_BUNDLE + DEMO_FORECASTING_BUNDLE))
-
-# Minimal bundle: Just enough tools for basic analysis
+# Minimal bundle: one entry point per task family
 MINIMAL_BUNDLE = [
-    "describe_series_with_data",      # Basic statistics
-    "detect_peaks_with_data",         # Peak detection
-    "stl_decompose_with_data",        # Decomposition
-    "forecast_arima_with_data",       # Forecasting
-    "detect_periodicity_with_data",   # Spectral
+    "describe_series",          # Statistics
+    "detect_periodicity",       # Spectral
+    "segment_changepoint",      # Regime changes
+    "find_discords",            # Anomalies
+    "forecast_theta",           # Forecasting
 ]
 
 # Standard bundle: Well-rounded set for typical analysis
 STANDARD_BUNDLE = [
     # Statistics
-    "describe_series_with_data",
-    "compare_series_stats_with_data",
+    "describe_series",
+    "compute_autocorrelation",
 
     # Decomposition
-    "stl_decompose_with_data",
-    "mstl_decompose_with_data",
+    "stl_decompose",
+    "mstl_decompose",
 
-    # Patterns
-    "detect_peaks_with_data",
-    "count_peaks_with_data",
-    "analyze_matrix_profile_with_data",
-    "find_motifs_with_data",
+    # Patterns, anomalies, regimes
+    "detect_peaks",
+    "find_motifs",
+    "find_discords",
+    "segment_changepoint",
 
     # Forecasting
-    "forecast_arima_with_data",
-    "forecast_ets_with_data",
-    "forecast_seasonal_naive_with_data",
-    "forecast_theta_with_data",
+    "forecast_seasonal_naive",
+    "forecast_theta",
+    "compare_forecasts",
+
+    # Classification
+    "compare_classifiers",
 
     # Spectral
-    "compute_psd_with_data",
-    "detect_periodicity_with_data",
-    "compute_coherence_with_data",
-
+    "compute_psd",
+    "detect_periodicity",
+    "compute_coherence",
 ]
 
 # Full bundle: Comprehensive set for in-depth analysis
 FULL_BUNDLE = [
     # Statistics
-    "describe_series_with_data",
-    "compute_autocorrelation_with_data",
-    "compare_series_stats_with_data",
+    "describe_series",
+    "compute_autocorrelation",
+    "compare_series_stats",
 
     # Decomposition - all methods
-    "stl_decompose_with_data",
-    "mstl_decompose_with_data",
-    "holt_winters_decompose_with_data",
+    "stl_decompose",
+    "mstl_decompose",
+    "holt_winters_decompose",
 
     # Patterns - all methods
-    "detect_peaks_with_data",
-    "count_peaks_with_data",
-    "analyze_recurrence_with_data",
-    "analyze_matrix_profile_with_data",
-    "find_motifs_with_data",
-    "find_discords_with_data",
-    "segment_changepoint_with_data",
-    "segment_fluss_with_data",
+    "detect_peaks",
+    "count_peaks",
+    "analyze_recurrence",
+    "analyze_matrix_profile",
+    "find_motifs",
+    "find_discords",
+    "segment_changepoint",
+    "segment_fluss",
 
     # Forecasting - all methods
-    "forecast_arima_with_data",
-    "forecast_ets_with_data",
-    "forecast_seasonal_naive_with_data",
-    "forecast_theta_with_data",
-    "forecast_ensemble_with_data",
-    "compare_forecasts_with_data",
+    "forecast_arima",
+    "forecast_ets",
+    "forecast_seasonal_naive",
+    "forecast_theta",
+    "forecast_ensemble",
+    "compare_forecasts",
     # Optional extras: Darts zero-shot FMs [foundation]; panel GBM/NHITS/FM families
-    "forecast_foundation_with_data",
+    "forecast_foundation",
     "forecast_panel_from_csv",
 
-    # Classification
+    # Classification and labeled streams
     "knn_classify",
     "rocket_classify",
     "compare_classifiers",
+    "select_window_size_from_csv",
+    "evaluate_windowed_classifier_from_csv",
 
     # Spectral - all methods
-    "compute_psd_with_data",
-    "detect_periodicity_with_data",
-    "compute_coherence_with_data",
-
+    "compute_psd",
+    "detect_periodicity",
+    "compute_coherence",
 ]
 
-# Orchestrator bundle: Tools for the orchestrator agent (high-level)
+# Orchestrator bundle: overview and comparison tools across task families
 ORCHESTRATOR_BUNDLE = [
     # Overview tools
-    "describe_series_with_data",
-    "detect_periodicity_with_data",
+    "describe_series",
+    "detect_periodicity",
+    "segment_changepoint",
+    "find_discords",
 
     # Comparison tools
-    "compare_series_stats_with_data",
-    "compare_forecasts_with_data",
+    "compare_series_stats",
+    "compare_forecasts",
     "compare_classifiers",
 
     # High-level analysis
-    "stl_decompose_with_data",
-    "forecast_ensemble_with_data",
-    "analyze_matrix_profile_with_data",
+    "stl_decompose",
+    "forecast_ensemble",
+    "analyze_matrix_profile",
 ]
 
 
-# Category-specific bundles (dynamically populated)
+# Category-specific bundles
 CATEGORY_BUNDLES: Dict[str, List[str]] = {
     "data": [
         "get_series",
     ],
     "decomposition": [
-        "stl_decompose_with_data",
-        "mstl_decompose_with_data",
-        "holt_winters_decompose_with_data",
+        "stl_decompose",
+        "mstl_decompose",
+        "holt_winters_decompose",
     ],
     "forecasting": [
-        "forecast_arima_with_data",
-        "forecast_ets_with_data",
-        "forecast_seasonal_naive_with_data",
-        "forecast_theta_with_data",
-        "forecast_ensemble_with_data",
-        "compare_forecasts_with_data",
-        "forecast_foundation_with_data",
+        "forecast_arima",
+        "forecast_ets",
+        "forecast_seasonal_naive",
+        "forecast_theta",
+        "forecast_ensemble",
+        "compare_forecasts",
+        "forecast_foundation",
         "forecast_panel_from_csv",
     ],
     "patterns": [
-        "detect_peaks_with_data",
-        "count_peaks_with_data",
-        "analyze_recurrence_with_data",
-        "analyze_matrix_profile_with_data",
-        "find_motifs_with_data",
-        "find_discords_with_data",
-        "segment_changepoint_with_data",
-        "segment_fluss_with_data",
+        "detect_peaks",
+        "count_peaks",
+        "analyze_recurrence",
+        "analyze_matrix_profile",
+        "find_motifs",
+        "find_discords",
+        "segment_changepoint",
+        "segment_fluss",
     ],
     "classification": [
         "knn_classify",
         "rocket_classify",
         "hivecote_classify",
         "compare_classifiers",
+        "select_window_size",
+        "select_window_size_from_csv",
+        "evaluate_windowed_classifier",
+        "evaluate_windowed_classifier_from_csv",
     ],
     "spectral": [
-        "compute_psd_with_data",
-        "detect_periodicity_with_data",
-        "compute_coherence_with_data",
+        "compute_psd",
+        "detect_periodicity",
+        "compute_coherence",
     ],
     "statistics": [
-        "describe_series_with_data",
-        "compute_autocorrelation_with_data",
-        "compare_series_stats_with_data",
+        "describe_series",
+        "compute_autocorrelation",
+        "compare_series_stats",
     ],
 }
 
@@ -209,8 +197,8 @@ def get_bundle(name: str) -> List[ToolMetadata]:
     Parameters
     ----------
     name : str
-        Bundle name: "demo", "demo_windowing", "demo_forecasting",
-        "minimal", "standard", "full", "all", "orchestrator", or a category name
+        Bundle name: "minimal", "standard", "full", "all", "orchestrator",
+        or a category name
 
     Returns
     -------
@@ -226,13 +214,7 @@ def get_bundle(name: str) -> List[ToolMetadata]:
     """
     name = name.lower()
 
-    if name == "demo":
-        tool_names = DEMO_BUNDLE
-    elif name == "demo_windowing":
-        tool_names = DEMO_WINDOWING_BUNDLE
-    elif name == "demo_forecasting":
-        tool_names = DEMO_FORECASTING_BUNDLE
-    elif name == "minimal":
+    if name == "minimal":
         tool_names = MINIMAL_BUNDLE
     elif name == "standard":
         tool_names = STANDARD_BUNDLE
@@ -246,7 +228,7 @@ def get_bundle(name: str) -> List[ToolMetadata]:
         tool_names = CATEGORY_BUNDLES[name]
     else:
         raise ValueError(
-            f"Unknown bundle: {name}. Available: demo, demo_windowing, demo_forecasting, minimal, standard, full, all, "
+            f"Unknown bundle: {name}. Available: minimal, standard, full, all, "
             f"orchestrator, {', '.join(CATEGORY_BUNDLES.keys())}"
         )
 
@@ -274,13 +256,7 @@ def get_bundle_names(name: str) -> List[str]:
     """
     name = name.lower()
 
-    if name == "demo":
-        return list(DEMO_BUNDLE)
-    elif name == "demo_windowing":
-        return list(DEMO_WINDOWING_BUNDLE)
-    elif name == "demo_forecasting":
-        return list(DEMO_FORECASTING_BUNDLE)
-    elif name == "minimal":
+    if name == "minimal":
         return list(MINIMAL_BUNDLE)
     elif name == "standard":
         return list(STANDARD_BUNDLE)
@@ -305,9 +281,6 @@ def list_available_bundles() -> List[str]:
         Available bundle names
     """
     return [
-        "demo",
-        "demo_windowing",
-        "demo_forecasting",
         "minimal",
         "standard",
         "full",
@@ -331,34 +304,19 @@ def get_bundle_summary() -> Dict[str, Dict[str, Any]]:
     ...     print(f"{name}: {info['count']} tools")
     """
     return {
-        "demo": {
-            "count": len(DEMO_BUNDLE),
-            "description": f"Meta-bundle covering both demo tracks ({len(DEMO_BUNDLE)} tools)",
-            "tools": DEMO_BUNDLE,
-        },
-        "demo_windowing": {
-            "count": len(DEMO_WINDOWING_BUNDLE),
-            "description": f"Focused windowing essentials for LLM-first demo ({len(DEMO_WINDOWING_BUNDLE)} tools)",
-            "tools": DEMO_WINDOWING_BUNDLE,
-        },
-        "demo_forecasting": {
-            "count": len(DEMO_FORECASTING_BUNDLE),
-            "description": f"Focused forecasting demo tools ({len(DEMO_FORECASTING_BUNDLE)} tools)",
-            "tools": DEMO_FORECASTING_BUNDLE,
-        },
         "minimal": {
             "count": len(MINIMAL_BUNDLE),
-            "description": "Core tools for baseline testing (5 tools)",
+            "description": f"One entry point per task family ({len(MINIMAL_BUNDLE)} tools)",
             "tools": MINIMAL_BUNDLE,
         },
         "standard": {
             "count": len(STANDARD_BUNDLE),
-            "description": "Well-rounded set for typical analysis (15 tools)",
+            "description": f"Well-rounded set across task families ({len(STANDARD_BUNDLE)} tools)",
             "tools": STANDARD_BUNDLE,
         },
         "full": {
             "count": len(FULL_BUNDLE),
-            "description": "Comprehensive set for in-depth analysis (25+ tools)",
+            "description": f"Comprehensive set for in-depth analysis ({len(FULL_BUNDLE)} tools)",
             "tools": FULL_BUNDLE,
         },
         "all": {
@@ -483,44 +441,30 @@ def get_subagent_bundle(subagent_name: str) -> List[ToolMetadata]:
     """
     subagent_bundles = {
         "decomposition": [
-            "stl_decompose_with_data",
-            "mstl_decompose_with_data",
-            "holt_winters_decompose_with_data",
-            "detect_periodicity_with_data",
-            "describe_series_with_data",
+            "stl_decompose",
+            "mstl_decompose",
+            "holt_winters_decompose",
+            "detect_periodicity",
+            "describe_series",
         ],
         "forecasting": [
-            "forecast_arima_with_data",
-            "forecast_ets_with_data",
-            "forecast_seasonal_naive_with_data",
-            "forecast_theta_with_data",
-            "forecast_ensemble_with_data",
-            "compare_forecasts_with_data",
-            "forecast_foundation_with_data",
+            "forecast_arima",
+            "forecast_ets",
+            "forecast_seasonal_naive",
+            "forecast_theta",
+            "forecast_ensemble",
+            "compare_forecasts",
+            "forecast_foundation",
             "forecast_panel_from_csv",
-            "detect_periodicity_with_data",
+            "detect_periodicity",
         ],
-        "patterns": [
-            "detect_peaks_with_data",
-            "count_peaks_with_data",
-            "analyze_recurrence_with_data",
-            "analyze_matrix_profile_with_data",
-            "find_motifs_with_data",
-            "find_discords_with_data",
-            "segment_changepoint_with_data",
-            "segment_fluss_with_data",
-        ],
-        "classification": [
-            "knn_classify",
-            "rocket_classify",
-            "hivecote_classify",
-            "compare_classifiers",
-        ],
+        "patterns": list(CATEGORY_BUNDLES["patterns"]),
+        "classification": list(CATEGORY_BUNDLES["classification"]),
         "turbulence": [
-            "compute_psd_with_data",
-            "compute_coherence_with_data",
-            "detect_periodicity_with_data",
-            "describe_series_with_data",
+            "compute_psd",
+            "compute_coherence",
+            "detect_periodicity",
+            "describe_series",
         ],
     }
 

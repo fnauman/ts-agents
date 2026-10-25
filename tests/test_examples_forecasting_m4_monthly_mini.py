@@ -13,7 +13,7 @@ import pytest
 
 
 def _load_example_module():
-    module_path = Path("examples/forecasting_m4_monthly_mini.py")
+    module_path = Path(__file__).resolve().parents[1] / "examples/forecasting_m4_monthly_mini.py"
     spec = importlib.util.spec_from_file_location(
         "forecasting_m4_monthly_mini",
         module_path,

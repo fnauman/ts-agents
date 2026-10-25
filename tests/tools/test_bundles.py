@@ -6,31 +6,13 @@ import pytest
 class TestBundles:
     """Tests for tool bundles."""
 
-    def test_get_demo_meta_bundle(self):
-        """Test that demo bundle combines windowing and forecasting demo tools."""
-        from ts_agents.tools.bundles import (
-            get_bundle_names,
-            DEMO_BUNDLE,
-            DEMO_WINDOWING_BUNDLE,
-            DEMO_FORECASTING_BUNDLE,
-        )
+    def test_minimal_bundle_covers_each_task_family(self):
+        """The smallest bundle offers one entry point per non-forecasting family too."""
+        from ts_agents.tools.bundles import get_bundle_names
 
-        names = get_bundle_names("demo")
-
-        expected = list(dict.fromkeys(DEMO_WINDOWING_BUNDLE + DEMO_FORECASTING_BUNDLE))
-        assert names == expected
-        assert names == list(DEMO_BUNDLE)
-
-    def test_get_demo_focused_bundles(self):
-        """Test that focused demo bundles are available independently."""
-        from ts_agents.tools.bundles import (
-            get_bundle_names,
-            DEMO_WINDOWING_BUNDLE,
-            DEMO_FORECASTING_BUNDLE,
-        )
-
-        assert get_bundle_names("demo_windowing") == list(DEMO_WINDOWING_BUNDLE)
-        assert get_bundle_names("demo_forecasting") == list(DEMO_FORECASTING_BUNDLE)
+        names = set(get_bundle_names("minimal"))
+        assert {"detect_periodicity", "segment_changepoint", "find_discords"} <= names
+        assert not any(name.endswith("_with_data") for name in get_bundle_names("all"))
 
     def test_get_minimal_bundle(self):
         """Test getting minimal bundle."""
@@ -109,9 +91,7 @@ class TestBundles:
 
         bundles = list_available_bundles()
 
-        assert "demo" in bundles
-        assert "demo_windowing" in bundles
-        assert "demo_forecasting" in bundles
+        assert not any(name.startswith("demo") for name in bundles)
         assert "minimal" in bundles
         assert "standard" in bundles
         assert "full" in bundles
@@ -124,9 +104,6 @@ class TestBundles:
 
         summary = get_bundle_summary()
 
-        assert "demo" in summary
-        assert "demo_windowing" in summary
-        assert "demo_forecasting" in summary
         assert "minimal" in summary
         assert "standard" in summary
         assert "full" in summary
@@ -141,13 +118,13 @@ class TestBundles:
         """Heavy optional-extra tools join full/forecasting bundles but stay out of light ones."""
         from ts_agents.tools.bundles import get_bundle, get_bundle_names, get_subagent_bundle
 
-        new_tools = {"forecast_foundation_with_data", "forecast_panel_from_csv"}
+        new_tools = {"forecast_foundation", "forecast_panel_from_csv"}
 
         assert new_tools <= set(get_bundle_names("full"))
         assert new_tools <= set(get_bundle_names("forecasting"))
         assert new_tools <= {tool.name for tool in get_subagent_bundle("forecasting")}
         assert new_tools <= {tool.name for tool in get_bundle("forecasting")}
-        for light in ("minimal", "standard", "demo", "demo_forecasting", "orchestrator"):
+        for light in ("minimal", "standard", "orchestrator"):
             assert not new_tools & set(get_bundle_names(light)), light
 
 
@@ -232,7 +209,7 @@ class TestSubagentBundles:
         assert len(tools) > 0
         tool_names = [t.name for t in tools]
         assert any("forecast" in name for name in tool_names)
-        assert "forecast_seasonal_naive_with_data" in tool_names
+        assert "forecast_seasonal_naive" in tool_names
 
     def test_get_patterns_subagent_bundle(self):
         """Test getting patterns subagent bundle."""
@@ -242,12 +219,7 @@ class TestSubagentBundles:
 
         assert len(tools) > 0
         tool_names = [t.name for t in tools]
-        assert (
-            "detect_peaks" in tool_names or
-            "detect_peaks_with_data" in tool_names or
-            "analyze_matrix_profile" in tool_names or
-            "analyze_matrix_profile_with_data" in tool_names
-        )
+        assert {"detect_peaks", "find_discords", "segment_changepoint"} <= set(tool_names)
 
     def test_get_classification_subagent_bundle(self):
         """Test getting classification subagent bundle."""
@@ -267,12 +239,7 @@ class TestSubagentBundles:
 
         assert len(tools) > 0
         tool_names = [t.name for t in tools]
-        assert (
-            "compute_psd" in tool_names or
-            "compute_psd_with_data" in tool_names or
-            "compute_coherence" in tool_names or
-            "compute_coherence_with_data" in tool_names
-        )
+        assert {"compute_psd", "compute_coherence"} <= set(tool_names)
 
     def test_invalid_subagent_name(self):
         """Test that invalid subagent name raises error."""

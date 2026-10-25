@@ -348,6 +348,7 @@ def _load_activity_workflow_input(args: Any):
         labels_time_col=getattr(args, "labels_time_col", None),
         label_start_col=getattr(args, "labels_start_col", None),
         label_end_col=getattr(args, "labels_end_col", None),
+        group_col=getattr(args, "group_col", None),
     )
 
 
@@ -813,6 +814,12 @@ _WORKFLOWS = {
         options=[
             WorkflowOption("output_dir", "string", "Output directory for workflow artifacts.", default="outputs/activity"),
             WorkflowOption("label_col", "string", "Label column containing activity labels.", default="label"),
+            WorkflowOption(
+                "group_col",
+                "string",
+                "Subject/session column. Windows never span groups and whole groups are held out for the final score.",
+                default=None,
+            ),
             WorkflowOption("labels_input", "string", "Optional separate labels file.", default=None),
             WorkflowOption("labels_input_json", "string", "Optional separate labels JSON payload or file path.", default=None),
             WorkflowOption("labels_time_col", "string", "Time column in separate labels input for pointwise joins.", default=None),
@@ -860,9 +867,14 @@ _WORKFLOWS = {
             ),
             WorkflowOption("max_windows_per_segment", "integer", "Cap windows per segment when balance=segment_cap.", default=25),
             WorkflowOption("stride", "integer", "Window stride; defaults to window_size // 2.", default=None),
-            WorkflowOption("n_splits", "integer", "Number of grouped splits for selection and evaluation.", default=3),
-            WorkflowOption("test_size", "number", "Test fraction per split.", default=0.25),
-            WorkflowOption("seed", "integer", "Random seed for selection and evaluation.", default=1337),
+            WorkflowOption("n_splits", "integer", "Number of grouped splits used for window-size selection.", default=3),
+            WorkflowOption(
+                "test_size",
+                "number",
+                "Fraction held out for the final score (whole groups or label segments) and per selection split.",
+                default=0.25,
+            ),
+            WorkflowOption("seed", "integer", "Random seed for the holdout, selection splits, and ROCKET kernels.", default=1337),
             WorkflowOption("skip_plots", "boolean", "Skip plot generation.", default=False),
         ],
         artifacts=[

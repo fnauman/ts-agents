@@ -157,6 +157,8 @@ class ToolMetadata:
         Artifact kinds produced by the tool
     prior_diagnostics : List[ToolPreconditionHint], optional
         Precondition hints for the tool
+    tags : List[str], optional
+        Task words and synonyms matched by :meth:`ToolRegistry.search`
     """
     name: str
     description: str
@@ -176,6 +178,8 @@ class ToolMetadata:
     optional_dependency_note: Optional[str] = None
     artifact_kinds: List[str] = field(default_factory=list)
     prior_diagnostics: List[ToolPreconditionHint] = field(default_factory=list)
+    # Task words and synonyms used by `tool search` (e.g. "anomaly" for discords).
+    tags: List[str] = field(default_factory=list)
 
     def get_signature(self) -> str:
         """Get function signature as string."""
@@ -295,6 +299,49 @@ def tool_availability(tool: ToolMetadata) -> Dict[str, Any]:
         "optional_features": optional_features,
         "install_hint": tool_install_hint(tool) if missing_required else None,
     }
+
+
+_DEFAULT_TOOL_TAGS: Dict[str, List[str]] = {
+    "find_discords": ["anomaly", "anomalies", "outlier", "novelty", "unusual", "event", "fault"],
+    "analyze_matrix_profile": ["anomaly", "outlier", "motif", "repeating", "pattern", "similarity"],
+    "find_motifs": ["repeating", "recurring", "pattern", "similarity"],
+    "detect_peaks": ["events", "spikes", "oscillation", "cycles"],
+    "count_peaks": ["events", "spikes", "oscillation", "cycles"],
+    "segment_changepoint": ["regime", "segmentation", "shift", "break", "change", "level", "variance"],
+    "segment_fluss": ["regime", "segmentation", "change", "pattern"],
+    "analyze_recurrence": ["dynamics", "nonlinear", "determinism", "rqa"],
+    "compute_psd": ["spectrum", "frequency", "fourier", "power", "turbulence", "slope"],
+    "detect_periodicity": ["seasonality", "seasonal", "cycle", "frequency", "spectrum", "period"],
+    "compute_coherence": ["spectrum", "frequency", "cross", "correlation", "multichannel", "channels"],
+    "describe_series": ["summary", "profile", "quality", "missing"],
+    "compute_autocorrelation": ["acf", "lag", "memory", "dependence"],
+    "compare_series_stats": ["summary", "compare", "multichannel"],
+    "stl_decompose": ["trend", "seasonality", "seasonal", "residual"],
+    "mstl_decompose": ["trend", "seasonality", "seasonal", "multiple"],
+    "holt_winters_decompose": ["trend", "seasonality", "smoothing"],
+    "knn_classify": ["classification", "label", "dtw", "nearest"],
+    "rocket_classify": ["classification", "label", "kernels"],
+    "hivecote_classify": ["classification", "label", "ensemble"],
+    "compare_classifiers": ["classification", "label", "benchmark"],
+    "select_window_size": ["activity", "recognition", "har", "sensor", "classification", "window"],
+    "select_window_size_from_csv": ["activity", "recognition", "har", "sensor", "classification", "window"],
+    "evaluate_windowed_classifier": ["activity", "recognition", "har", "sensor", "classification"],
+    "evaluate_windowed_classifier_from_csv": ["activity", "recognition", "har", "sensor", "classification"],
+    "forecast_panel_from_csv": ["panel", "multiple", "series", "prediction"],
+}
+
+
+def _search_terms(text: str) -> List[str]:
+    import re
+
+    return [word for word in re.split(r"[^a-z0-9]+", text.lower()) if word]
+
+
+def _term_matches(term: str, word: str) -> bool:
+    if term == word:
+        return True
+    stem = term[: max(4, len(term) - 3)]
+    return len(stem) >= 4 and word.startswith(stem)
 
 
 def _python_type_to_json_type(type_str: str) -> str:
@@ -497,7 +544,7 @@ class ToolRegistry:
             Matching tools
         """
         cls._ensure_initialized()
-        query = query.lower()
+        terms = _search_terms(query)
         results = []
 
         for tool in cls._tools.values():
@@ -510,9 +557,13 @@ class ToolRegistry:
                 if _COST_ORDER.index(tool.cost) > _COST_ORDER.index(max_cost):
                     continue
 
-            # Text search
-            if (query in tool.name.lower() or
-                query in tool.description.lower()):
+            # Every query term must match the name, description, category,
+            # or a tag (prefix match on word stems, so "anomaly" finds
+            # "anomalies" and "spectrum" finds "spectral").
+            haystack = _search_terms(
+                " ".join([tool.name, tool.description, tool.category.value, *tool.tags])
+            )
+            if terms and all(any(_term_matches(term, word) for word in haystack) for term in terms):
                 results.append(tool)
 
         return results
@@ -613,34 +664,10 @@ def _register_default_tools() -> None:
         evaluate_windowed_classifier_from_csv,
     )
 
-    # With-data wrappers (variable_name/run_id)
+    # Tool-layer adapters for foundation models and file-backed panels.
     from .agent_tools import (
-        stl_decompose_with_data,
-        mstl_decompose_with_data,
-        holt_winters_decompose_with_data,
-        forecast_arima_with_data,
-        forecast_ets_with_data,
-        forecast_theta_with_data,
-        forecast_seasonal_naive_with_data,
         forecast_foundation,
-        forecast_foundation_with_data,
         forecast_panel_from_csv,
-        forecast_ensemble_with_data,
-        compare_forecasts_with_data,
-        detect_peaks_with_data,
-        count_peaks_with_data,
-        analyze_recurrence_with_data,
-        analyze_matrix_profile_with_data,
-        find_motifs_with_data,
-        find_discords_with_data,
-        segment_changepoint_with_data,
-        segment_fluss_with_data,
-        compute_psd_with_data,
-        detect_periodicity_with_data,
-        compute_coherence_with_data,
-        describe_series_with_data,
-        compute_autocorrelation_with_data,
-        compare_series_stats_with_data,
     )
 
     def _register_tool(
@@ -661,6 +688,7 @@ def _register_default_tools() -> None:
         timeout_seconds: Optional[int] = None,
         memory_mb: Optional[int] = None,
         disk_mb: Optional[int] = None,
+        tags: Optional[List[str]] = None,
     ) -> None:
         # None keeps the ToolMetadata defaults; heavy tools raise their sandbox limits.
         limits = {
@@ -687,50 +715,9 @@ def _register_default_tools() -> None:
             optional_dependency_note=optional_dependency_note,
             artifact_kinds=list(artifact_kinds or []),
             prior_diagnostics=list(prior_diagnostics or []),
+            tags=list(tags or _DEFAULT_TOOL_TAGS.get(name, [])),
             **limits,
         ))
-
-    def _register_with_data(
-        base_name: str,
-        description: str,
-        category: ToolCategory,
-        cost: ComputationalCost,
-        core_function,
-        dependencies,
-        parameters,
-        examples,
-        returns: str,
-        optional_dependencies=None,
-        install_hint: Optional[str] = None,
-        optional_dependency_note: Optional[str] = None,
-        artifact_kinds: Optional[List[str]] = None,
-        prior_diagnostics: Optional[List[ToolPreconditionHint]] = None,
-        timeout_seconds: Optional[int] = None,
-        memory_mb: Optional[int] = None,
-        disk_mb: Optional[int] = None,
-    ) -> None:
-        resolved_artifact_kinds = artifact_kinds
-        if resolved_artifact_kinds is None and dependencies and "matplotlib" in dependencies:
-            resolved_artifact_kinds = ["image"]
-        _register_tool(
-            name=f"{base_name}_with_data",
-            description=f"{description} (loads data by run/variable)",
-            category=category,
-            cost=cost,
-            core_function=core_function,
-            dependencies=dependencies,
-            optional_dependencies=optional_dependencies,
-            parameters=parameters,
-            examples=examples,
-            returns=f"ToolPayload with structured data and optional artifact refs ({returns})",
-            install_hint=install_hint,
-            optional_dependency_note=optional_dependency_note,
-            artifact_kinds=resolved_artifact_kinds,
-            prior_diagnostics=prior_diagnostics,
-            timeout_seconds=timeout_seconds,
-            memory_mb=memory_mb,
-            disk_mb=disk_mb,
-        )
 
     def _hint(kind: str, name: str, reason: str) -> ToolPreconditionHint:
         return ToolPreconditionHint(kind=kind, name=name, reason=reason)
@@ -767,7 +754,10 @@ def _register_default_tools() -> None:
     # ---------------------------------------------------------------------
     _register_tool(
         name="stl_decompose",
-        description="Decompose time series using STL (Seasonal-Trend LOESS).",
+        description=(
+            "Decompose time series using STL (Seasonal-Trend LOESS). Without a period, "
+            "auto-detection fails rather than guessing when no significant period exists."
+        ),
         category=ToolCategory.DECOMPOSITION,
         cost=ComputationalCost.LOW,
         core_function=stl_decompose,
@@ -779,22 +769,6 @@ def _register_default_tools() -> None:
         ],
         examples=["Decompose a series to extract trend and seasonality"],
         returns="DecompositionResult with trend, seasonal, residual components",
-    )
-    _register_with_data(
-        base_name="stl_decompose",
-        description="Decompose time series using STL (Seasonal-Trend LOESS).",
-        category=ToolCategory.DECOMPOSITION,
-        cost=ComputationalCost.LOW,
-        core_function=stl_decompose_with_data,
-        dependencies=["statsmodels", "matplotlib"],
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to analyze"),
-            ToolParameter("unique_id", "str", "Run ID"),
-            ToolParameter("period", "int", "Seasonal period", optional=True),
-            ToolParameter("robust", "bool", "Use robust fitting", optional=True, default=True),
-        ],
-        examples=["Decompose bx001_real for Re105Rm105"],
-        returns="DecompositionResult with plot",
     )
 
     _register_tool(
@@ -812,21 +786,6 @@ def _register_default_tools() -> None:
         examples=["Decompose series with daily and weekly seasonality"],
         returns="DecompositionResult with trend, seasonal, residual components",
     )
-    _register_with_data(
-        base_name="mstl_decompose",
-        description="Multi-seasonal STL decomposition for series with multiple periodicities.",
-        category=ToolCategory.DECOMPOSITION,
-        cost=ComputationalCost.MEDIUM,
-        core_function=mstl_decompose_with_data,
-        dependencies=["statsmodels", "matplotlib"],
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to analyze"),
-            ToolParameter("unique_id", "str", "Run ID"),
-            ToolParameter("periods", "list", "List of seasonal periods", optional=True),
-        ],
-        examples=["Decompose series with multiple seasonalities"],
-        returns="DecompositionResult with plot",
-    )
 
     _register_tool(
         name="holt_winters_decompose",
@@ -843,23 +802,6 @@ def _register_default_tools() -> None:
         ],
         examples=["Decompose series for forecasting"],
         returns="DecompositionResult with trend, seasonal, residual components",
-    )
-    _register_with_data(
-        base_name="holt_winters_decompose",
-        description="Holt-Winters exponential smoothing decomposition.",
-        category=ToolCategory.DECOMPOSITION,
-        cost=ComputationalCost.LOW,
-        core_function=holt_winters_decompose_with_data,
-        dependencies=["statsmodels", "matplotlib"],
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to analyze"),
-            ToolParameter("unique_id", "str", "Run ID"),
-            ToolParameter("period", "int", "Seasonal period", optional=True),
-            ToolParameter("trend", "str", "Trend type: add or mul", optional=True, default="add"),
-            ToolParameter("seasonal", "str", "Seasonal type: add or mul", optional=True, default="add"),
-        ],
-        examples=["Decompose series for forecasting"],
-        returns="DecompositionResult with plot",
     )
 
     # ---------------------------------------------------------------------
@@ -893,34 +835,6 @@ def _register_default_tools() -> None:
             ),
         ],
     )
-    _register_with_data(
-        base_name="forecast_arima",
-        description="Forecast using AutoARIMA.",
-        category=ToolCategory.FORECASTING,
-        cost=ComputationalCost.HIGH,
-        core_function=forecast_arima_with_data,
-        dependencies=["statsforecast"],
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to forecast"),
-            ToolParameter("unique_id", "str", "Run ID"),
-            ToolParameter("horizon", "int", "Forecast horizon", optional=True, default=10),
-            ToolParameter("season_length", "int", "Seasonal period", optional=True),
-        ],
-        examples=["Forecast bx001_real for next 20 steps"],
-        returns="ForecastResult with structured forecast data",
-        prior_diagnostics=[
-            _hint(
-                "workflow",
-                "inspect-series",
-                "Inspect period, lag structure, and baseline recommendations before choosing ARIMA.",
-            ),
-            _hint(
-                "tool",
-                "detect_periodicity_with_data",
-                "Estimate season_length before fitting seasonal statistical models.",
-            ),
-        ],
-    )
 
     _register_tool(
         name="forecast_ets",
@@ -938,22 +852,6 @@ def _register_default_tools() -> None:
         examples=["Forecast with Exponential Smoothing"],
         returns="ForecastResult with predictions",
     )
-    _register_with_data(
-        base_name="forecast_ets",
-        description="Forecast using AutoETS (Exponential Smoothing).",
-        category=ToolCategory.FORECASTING,
-        cost=ComputationalCost.MEDIUM,
-        core_function=forecast_ets_with_data,
-        dependencies=["statsforecast"],
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to forecast"),
-            ToolParameter("unique_id", "str", "Run ID"),
-            ToolParameter("horizon", "int", "Forecast horizon", optional=True, default=10),
-            ToolParameter("season_length", "int", "Seasonal period", optional=True),
-        ],
-        examples=["Forecast with Exponential Smoothing"],
-        returns="ForecastResult with structured forecast data",
-    )
 
     _register_tool(
         name="forecast_theta",
@@ -970,29 +868,6 @@ def _register_default_tools() -> None:
         ],
         examples=["Forecast using Theta method"],
         returns="ForecastResult with predictions",
-        prior_diagnostics=[
-            _hint(
-                "workflow",
-                "inspect-series",
-                "Use inspect-series first so Theta is chosen as an informed baseline rather than a blind default.",
-            ),
-        ],
-    )
-    _register_with_data(
-        base_name="forecast_theta",
-        description="Forecast using AutoTheta method.",
-        category=ToolCategory.FORECASTING,
-        cost=ComputationalCost.LOW,
-        core_function=forecast_theta_with_data,
-        dependencies=["statsforecast"],
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to forecast"),
-            ToolParameter("unique_id", "str", "Run ID"),
-            ToolParameter("horizon", "int", "Forecast horizon", optional=True, default=10),
-            ToolParameter("season_length", "int", "Seasonal period", optional=True),
-        ],
-        examples=["Forecast using Theta method"],
-        returns="ForecastResult with structured forecast data",
         prior_diagnostics=[
             _hint(
                 "workflow",
@@ -1022,27 +897,6 @@ def _register_default_tools() -> None:
         ],
         examples=["Forecast by repeating the last seasonal cycle"],
         returns="ForecastResult with predictions",
-    )
-    _register_with_data(
-        base_name="forecast_seasonal_naive",
-        description="Forecast using the Seasonal Naive baseline.",
-        category=ToolCategory.FORECASTING,
-        cost=ComputationalCost.LOW,
-        core_function=forecast_seasonal_naive_with_data,
-        dependencies=[],
-        optional_dependencies=["statsforecast"],
-        optional_dependency_note=(
-            "StatsForecast enables optimized seasonal-naive execution and interval support; "
-            "a dependency-light fallback remains available without it."
-        ),
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to forecast"),
-            ToolParameter("unique_id", "str", "Run ID"),
-            ToolParameter("horizon", "int", "Forecast horizon", optional=True, default=10),
-            ToolParameter("season_length", "int", "Seasonal period", optional=True),
-        ],
-        examples=["Forecast by repeating the last seasonal cycle"],
-        returns="ForecastResult with structured forecast data",
     )
 
     foundation_names = foundation_methods("series")
@@ -1086,40 +940,6 @@ def _register_default_tools() -> None:
         examples=["Zero-shot Chronos-2 forecast of the next 24 steps"],
         returns="ForecastResult with point predictions (no intervals)",
         prior_diagnostics=foundation_prior,
-        timeout_seconds=900,
-        memory_mb=4096,
-        disk_mb=2048,
-    )
-    _register_with_data(
-        base_name="forecast_foundation",
-        description=foundation_description,
-        category=ToolCategory.FORECASTING,
-        cost=ComputationalCost.VERY_HIGH,
-        core_function=forecast_foundation_with_data,
-        dependencies=["darts", "torch", "huggingface-hub"],
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to forecast"),
-            ToolParameter("unique_id", "str", "Run ID"),
-            ToolParameter("horizon", "int", "Forecast horizon", optional=True, default=10),
-            ToolParameter(
-                "model", "str", foundation_model_help, optional=True, default=DEFAULT_FOUNDATION_MODEL
-            ),
-            ToolParameter(
-                "context_length",
-                "int",
-                "Most recent points the model conditions on (default 512; explicit values must fit the model limit)",
-                optional=True,
-            ),
-        ],
-        examples=["Zero-shot Chronos-2 forecast of bx001_real for the next 24 steps"],
-        returns="ForecastResult with checkpoint provenance",
-        prior_diagnostics=[
-            _hint(
-                "tool",
-                "forecast_seasonal_naive_with_data",
-                "Score a seasonal-naive baseline first; zero-shot accuracy varies by series.",
-            ),
-        ],
         timeout_seconds=900,
         memory_mb=4096,
         disk_mb=2048,
@@ -1209,23 +1029,6 @@ def _register_default_tools() -> None:
         examples=["Ensemble forecast for improved accuracy"],
         returns="MultiForecastResult with individual and combined forecasts",
     )
-    _register_with_data(
-        base_name="forecast_ensemble",
-        description="Ensemble forecasting combining multiple models.",
-        category=ToolCategory.FORECASTING,
-        cost=ComputationalCost.HIGH,
-        core_function=forecast_ensemble_with_data,
-        dependencies=["statsforecast"],
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to forecast"),
-            ToolParameter("unique_id", "str", "Run ID"),
-            ToolParameter("horizon", "int", "Forecast horizon", optional=True, default=10),
-            ToolParameter("models", "list", "Models to include", optional=True),
-            ToolParameter("season_length", "int", "Seasonal period", optional=True),
-        ],
-        examples=["Ensemble forecast for improved accuracy"],
-        returns="MultiForecastResult with structured forecast data",
-    )
 
     _register_tool(
         name="compare_forecasts",
@@ -1256,36 +1059,6 @@ def _register_default_tools() -> None:
             ),
         ],
     )
-    _register_with_data(
-        base_name="compare_forecasts",
-        description="Compare multiple forecasting methods on historical data.",
-        category=ToolCategory.FORECASTING,
-        cost=ComputationalCost.HIGH,
-        core_function=compare_forecasts_with_data,
-        dependencies=["statsforecast"],
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to forecast"),
-            ToolParameter("unique_id", "str", "Run ID"),
-            ToolParameter("horizon", "int", "Forecast horizon", optional=True, default=10),
-            ToolParameter("models", "list", "Models to compare", optional=True),
-            ToolParameter("methods", "list", "Alias for models (backward-compatible)", optional=True),
-            ToolParameter("season_length", "int", "Seasonal period", optional=True),
-        ],
-        examples=["Compare ARIMA vs ETS accuracy"],
-        returns="Comparison results with metrics",
-        prior_diagnostics=[
-            _hint(
-                "workflow",
-                "inspect-series",
-                "Run inspect-series first to estimate seasonality and narrow the method set before comparison.",
-            ),
-            _hint(
-                "tool",
-                "forecast_seasonal_naive_with_data",
-                "Check a cheap seasonal baseline before comparing heavier forecasting backends.",
-            ),
-        ],
-    )
 
     # ---------------------------------------------------------------------
     # Pattern Detection Tools (series-based)
@@ -1308,22 +1081,6 @@ def _register_default_tools() -> None:
         examples=["Find peaks in the signal"],
         returns="PeakResult with indices and statistics",
     )
-    _register_with_data(
-        base_name="detect_peaks",
-        description="Detect peaks (local maxima) in the time series.",
-        category=ToolCategory.PATTERNS,
-        cost=ComputationalCost.LOW,
-        core_function=detect_peaks_with_data,
-        dependencies=["scipy", "matplotlib"],
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to analyze"),
-            ToolParameter("unique_id", "str", "Run ID"),
-            ToolParameter("distance", "int", "Min distance between peaks", optional=True),
-            ToolParameter("prominence", "float", "Min peak prominence", optional=True),
-        ],
-        examples=["Find peaks in the signal"],
-        returns="PeakResult with plot",
-    )
 
     _register_tool(
         name="count_peaks",
@@ -1341,22 +1098,6 @@ def _register_default_tools() -> None:
         examples=["Count oscillations in the signal"],
         returns="Integer count of peaks",
     )
-    _register_with_data(
-        base_name="count_peaks",
-        description="Count the number of peaks in a time series.",
-        category=ToolCategory.PATTERNS,
-        cost=ComputationalCost.LOW,
-        core_function=count_peaks_with_data,
-        dependencies=["scipy"],
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to analyze"),
-            ToolParameter("unique_id", "str", "Run ID"),
-            ToolParameter("distance", "int", "Minimum distance between peaks", optional=True),
-            ToolParameter("prominence", "float", "Minimum peak prominence", optional=True),
-        ],
-        examples=["Count oscillations in the signal"],
-        returns="Integer count of peaks",
-    )
 
     _register_tool(
         name="analyze_recurrence",
@@ -1368,26 +1109,12 @@ def _register_default_tools() -> None:
         parameters=[
             ToolParameter("series", "np.ndarray", "Time series data"),
             ToolParameter("threshold", "float", "Distance threshold", optional=True),
-            ToolParameter("max_points", "int", "Max points", optional=True, default=1000),
+            ToolParameter("max_points", "int", "Max points; longer input is decimated (reported)", optional=True, default=1000),
             ToolParameter("min_line_length", "int", "Min line length", optional=True, default=2),
+            ToolParameter("include_matrix", "bool", "Return the recurrence matrix (large)", optional=True, default=False),
         ],
         examples=["Analyze recurrence patterns"],
-        returns="RecurrenceResult with metrics",
-    )
-    _register_with_data(
-        base_name="analyze_recurrence",
-        description="Generate recurrence plot and compute RQA metrics.",
-        category=ToolCategory.PATTERNS,
-        cost=ComputationalCost.MEDIUM,
-        core_function=analyze_recurrence_with_data,
-        dependencies=["scipy", "matplotlib"],
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to analyze"),
-            ToolParameter("unique_id", "str", "Run ID"),
-            ToolParameter("threshold", "float", "Distance threshold", optional=True),
-        ],
-        examples=["Analyze recurrence patterns"],
-        returns="RecurrenceResult with plot",
+        returns="RecurrenceResult with RQA metrics and downsampling details",
     )
 
     _register_tool(
@@ -1402,25 +1129,12 @@ def _register_default_tools() -> None:
             ToolParameter("m", "int", "Subsequence length", optional=True, default=50),
             ToolParameter("max_motifs", "int", "Max motifs", optional=True, default=3),
             ToolParameter("max_discords", "int", "Max discords", optional=True, default=3),
+            ToolParameter("exclusion_zone", "int", "Samples excluded around each result (default m)", optional=True),
             ToolParameter("include_subsequences", "bool", "Include subsequences", optional=True, default=False),
+            ToolParameter("include_profile", "bool", "Return the full matrix profile arrays", optional=True, default=False),
         ],
         examples=["Find motifs and anomalies using Matrix Profile"],
-        returns="MatrixProfileResult with motifs and discords",
-    )
-    _register_with_data(
-        base_name="analyze_matrix_profile",
-        description="Compute Matrix Profile to find motifs and discords.",
-        category=ToolCategory.PATTERNS,
-        cost=ComputationalCost.HIGH,
-        core_function=analyze_matrix_profile_with_data,
-        dependencies=["stumpy", "matplotlib"],
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to analyze"),
-            ToolParameter("unique_id", "str", "Run ID"),
-            ToolParameter("window_size", "int", "Subsequence window size", optional=True, default=50),
-        ],
-        examples=["Find motifs and anomalies using Matrix Profile"],
-        returns="MatrixProfileResult with plot",
+        returns="MatrixProfileResult with motifs, discords (with robust_z), and profile range",
     )
 
     _register_tool(
@@ -1434,32 +1148,19 @@ def _register_default_tools() -> None:
             ToolParameter("series", "np.ndarray", "Time series data"),
             ToolParameter("m", "int", "Subsequence length", optional=True, default=50),
             ToolParameter("max_motifs", "int", "Number of motifs", optional=True, default=3),
-            ToolParameter("exclusion_zone", "int", "Exclusion zone", optional=True),
+            ToolParameter("exclusion_zone", "int", "Samples excluded around each motif and its neighbor (default m)", optional=True),
             ToolParameter("include_subsequences", "bool", "Include subsequences", optional=True, default=False),
         ],
         examples=["Find the most common repeating pattern"],
-        returns="List of MotifResult objects",
-    )
-    _register_with_data(
-        base_name="find_motifs",
-        description="Find motifs (recurring patterns) in a time series.",
-        category=ToolCategory.PATTERNS,
-        cost=ComputationalCost.MEDIUM,
-        core_function=find_motifs_with_data,
-        dependencies=["stumpy", "matplotlib"],
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to analyze"),
-            ToolParameter("unique_id", "str", "Run ID"),
-            ToolParameter("window_size", "int", "Subsequence length", optional=True, default=50),
-            ToolParameter("n_motifs", "int", "Number of motifs", optional=True, default=3),
-        ],
-        examples=["Find the most common repeating pattern"],
-        returns="List of MotifResult objects and plot",
+        returns="MotifSearchResult with motifs and the settings used",
     )
 
     _register_tool(
         name="find_discords",
-        description="Find discords (anomalies) in a time series.",
+        description=(
+            "Find discords: the top-k most unusual subsequences (shape anomalies). "
+            "Top-k always exist, even in noise; judge them by robust_z."
+        ),
         category=ToolCategory.PATTERNS,
         cost=ComputationalCost.MEDIUM,
         core_function=find_discords,
@@ -1468,32 +1169,19 @@ def _register_default_tools() -> None:
             ToolParameter("series", "np.ndarray", "Time series data"),
             ToolParameter("m", "int", "Subsequence length", optional=True, default=50),
             ToolParameter("max_discords", "int", "Number of discords", optional=True, default=3),
-            ToolParameter("exclusion_zone", "int", "Exclusion zone", optional=True),
+            ToolParameter("exclusion_zone", "int", "Samples excluded around each discord (default m)", optional=True),
             ToolParameter("include_subsequences", "bool", "Include subsequences", optional=True, default=False),
         ],
         examples=["Find unusual patterns in the data"],
-        returns="List of DiscordResult objects",
-    )
-    _register_with_data(
-        base_name="find_discords",
-        description="Find discords (anomalies) in a time series.",
-        category=ToolCategory.PATTERNS,
-        cost=ComputationalCost.MEDIUM,
-        core_function=find_discords_with_data,
-        dependencies=["stumpy", "matplotlib"],
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to analyze"),
-            ToolParameter("unique_id", "str", "Run ID"),
-            ToolParameter("window_size", "int", "Subsequence length", optional=True, default=50),
-            ToolParameter("n_discords", "int", "Number of discords", optional=True, default=3),
-        ],
-        examples=["Find unusual patterns in the data"],
-        returns="List of DiscordResult objects and plot",
+        returns="DiscordSearchResult with discords (distance, robust_z) and the settings used",
     )
 
     _register_tool(
         name="segment_changepoint",
-        description="Segment time series by detecting changepoints.",
+        description=(
+            "Detect changepoints (regime shifts in mean/variance). Input is standardized, "
+            "so results do not depend on units."
+        ),
         category=ToolCategory.PATTERNS,
         cost=ComputationalCost.MEDIUM,
         core_function=segment_changepoint,
@@ -1502,42 +1190,21 @@ def _register_default_tools() -> None:
             ToolParameter("series", "np.ndarray", "Time series data"),
             ToolParameter("n_segments", "int", "Number of segments", optional=True),
             ToolParameter("algorithm", "str", "Algorithm: pelt/binseg/bottomup/window", optional=True, default="pelt"),
-            ToolParameter("cost_model", "str", "Cost model", optional=True, default="rbf"),
-            ToolParameter("penalty", "float", "Penalty value", optional=True),
+            ToolParameter("cost_model", "str", "Cost model: normal/rbf/l1/l2/ar/linear", optional=True, default="normal"),
+            ToolParameter("penalty", "float", "Penalty on standardized data (default 3*log(n); 2*log(n) for rbf)", optional=True),
             ToolParameter("min_size", "int", "Minimum segment size", optional=True, default=5),
+            ToolParameter("jump", "int", "Changepoint grid step (default 1 up to 500 samples, then ceil(n/500))", optional=True),
         ],
         examples=["Detect regime changes in the signal"],
-        returns="SegmentResult with changepoint locations",
-    )
-    _register_with_data(
-        base_name="segment_changepoint",
-        description="Segment time series by detecting changepoints.",
-        category=ToolCategory.PATTERNS,
-        cost=ComputationalCost.MEDIUM,
-        core_function=segment_changepoint_with_data,
-        dependencies=["ruptures", "matplotlib"],
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to analyze"),
-            ToolParameter("unique_id", "str", "Run ID"),
-            ToolParameter("n_segments", "int", "Number of segments to find", optional=True),
-            ToolParameter(
-                "n_changepoints",
-                "int",
-                "Compatibility alias for changepoints count (maps to n_segments = n_changepoints + 1)",
-                optional=True,
-            ),
-            ToolParameter("algorithm", "str", "Algorithm: pelt/binseg/bottomup/window", optional=True, default="pelt"),
-            ToolParameter("cost_model", "str", "Cost model", optional=True, default="rbf"),
-            ToolParameter("penalty", "float", "Penalty value", optional=True),
-            ToolParameter("min_size", "int", "Minimum segment size", optional=True, default=5),
-        ],
-        examples=["Detect regime changes in the signal"],
-        returns="SegmentResult with plot",
+        returns="SegmentResult with changepoints, the algorithm that ran, and effective settings",
     )
 
     _register_tool(
         name="segment_fluss",
-        description="Segment time series using FLUSS (matrix profile).",
+        description=(
+            "Segment by pattern (shape) changes using FLUSS (matrix profile). Misses pure "
+            "level shifts and ignores ~5*m samples at each edge."
+        ),
         category=ToolCategory.PATTERNS,
         cost=ComputationalCost.MEDIUM,
         core_function=segment_fluss,
@@ -1549,22 +1216,6 @@ def _register_default_tools() -> None:
         ],
         examples=["Find natural segment boundaries"],
         returns="SegmentResult with segment boundaries",
-    )
-    _register_with_data(
-        base_name="segment_fluss",
-        description="Segment time series using FLUSS (matrix profile).",
-        category=ToolCategory.PATTERNS,
-        cost=ComputationalCost.MEDIUM,
-        core_function=segment_fluss_with_data,
-        dependencies=["stumpy", "matplotlib"],
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to analyze"),
-            ToolParameter("unique_id", "str", "Run ID"),
-            ToolParameter("window_size", "int", "Subsequence length", optional=True, default=50),
-            ToolParameter("n_segments", "int", "Number of segments", optional=True, default=3),
-        ],
-        examples=["Find natural segment boundaries"],
-        returns="SegmentResult with plot",
     )
 
     # ---------------------------------------------------------------------
@@ -1586,7 +1237,7 @@ def _register_default_tools() -> None:
             ToolParameter("n_neighbors", "int", "Number of neighbors", optional=True, default=1),
         ],
         examples=["Classify time series using DTW-KNN"],
-        returns="ClassificationResult with predictions and accuracy",
+        returns="ClassificationResult with predictions, accuracy, balanced accuracy, macro-F1, and confusion matrix",
     )
 
     _register_tool(
@@ -1603,9 +1254,10 @@ def _register_default_tools() -> None:
             ToolParameter("y_test", "np.ndarray", "Test labels", optional=True),
             ToolParameter("variant", "str", "Variant: rocket/minirocket/multirocket", optional=True, default="rocket"),
             ToolParameter("n_kernels", "int", "Number of random kernels", optional=True, default=10000),
+            ToolParameter("random_state", "int", "Seed for reproducible kernels", optional=True),
         ],
         examples=["Quick classification with ROCKET"],
-        returns="ClassificationResult with predictions and accuracy",
+        returns="ClassificationResult with predictions, accuracy, balanced accuracy, macro-F1, and confusion matrix",
     )
 
     _register_tool(
@@ -1627,7 +1279,7 @@ def _register_default_tools() -> None:
             ),
         ],
         examples=["State-of-the-art classification"],
-        returns="ClassificationResult with predictions and accuracy",
+        returns="ClassificationResult with predictions, accuracy, balanced accuracy, macro-F1, and confusion matrix",
     )
 
     _register_tool(
@@ -1643,9 +1295,11 @@ def _register_default_tools() -> None:
             ToolParameter("X_test", "np.ndarray", "Test data"),
             ToolParameter("y_test", "np.ndarray", "Test labels"),
             ToolParameter("classifiers", "list", "List of classifier names", optional=True),
+            ToolParameter("rank_metric", "str", "Ranking metric: balanced_accuracy/f1_score/accuracy", optional=True, default="balanced_accuracy"),
+            ToolParameter("random_state", "int", "Seed for ROCKET-family classifiers", optional=True),
         ],
         examples=["Compare DTW-KNN vs ROCKET"],
-        returns="Comparison results with accuracy for each classifier",
+        returns="Comparison results with per-classifier metrics, ranked by rank_metric",
     )
 
     # ---------------------------------------------------------------------
@@ -1880,58 +1534,34 @@ def _register_default_tools() -> None:
         dependencies=["scipy"],
         parameters=[
             ToolParameter("series", "np.ndarray", "Time series data"),
-            ToolParameter("sample_rate", "float", "Sampling rate", optional=True, default=1.0),
+            ToolParameter("sample_rate", "float", "Samples per time unit (frequencies are cycles per that unit)", optional=True, default=1.0),
             ToolParameter("method", "str", "Method: welch or periodogram", optional=True, default="welch"),
             ToolParameter("nperseg", "int", "Segment length", optional=True),
         ],
         examples=["Compute power spectrum of the signal"],
         returns="SpectralResult with frequencies and PSD",
     )
-    _register_with_data(
-        base_name="compute_psd",
-        description="Compute Power Spectral Density using Welch's method.",
-        category=ToolCategory.SPECTRAL,
-        cost=ComputationalCost.LOW,
-        core_function=compute_psd_with_data,
-        dependencies=["scipy", "matplotlib"],
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to analyze"),
-            ToolParameter("unique_id", "str", "Run ID"),
-            ToolParameter("sampling_rate", "float", "Sampling rate", optional=True, default=1.0),
-        ],
-        examples=["Compute PSD for bx001_real"],
-        returns="SpectralResult with plot",
-    )
 
     _register_tool(
         name="detect_periodicity",
-        description="Detect dominant periodicity using FFT.",
+        description=(
+            "Detect significant periodicity: detrended FFT tested against a red-noise background "
+            "and confirmed by an autocorrelation peak. Reports no period for trends or random walks."
+        ),
         category=ToolCategory.SPECTRAL,
         cost=ComputationalCost.LOW,
         core_function=detect_periodicity,
-        dependencies=["numpy"],
+        dependencies=["numpy", "scipy"],
         parameters=[
-            ToolParameter("series", "np.ndarray", "Time series data"),
-            ToolParameter("sample_rate", "float", "Sampling rate", optional=True, default=1.0),
-            ToolParameter("top_n", "int", "Number of top periods", optional=True, default=3),
+            ToolParameter("series", "np.ndarray", "Time series data (at least 16 samples)"),
+            ToolParameter("sample_rate", "float", "Samples per time unit (periods are in that unit)", optional=True, default=1.0),
+            ToolParameter("top_n", "int", "Max significant periods to return", optional=True, default=3),
+            ToolParameter("alpha", "float", "Family-wise significance level", optional=True, default=0.01),
+            ToolParameter("min_cycles", "float", "Minimum full cycles a period must show", optional=True, default=3.0),
+            ToolParameter("detrend", "str", "linear or constant", optional=True, default="linear"),
         ],
         examples=["Detect oscillation period"],
-        returns="PeriodicityResult with dominant period",
-    )
-    _register_with_data(
-        base_name="detect_periodicity",
-        description="Detect dominant periodicity using FFT.",
-        category=ToolCategory.SPECTRAL,
-        cost=ComputationalCost.LOW,
-        core_function=detect_periodicity_with_data,
-        dependencies=["numpy", "matplotlib"],
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to analyze"),
-            ToolParameter("unique_id", "str", "Run ID"),
-            ToolParameter("n_top", "int", "Number of top periods", optional=True, default=5),
-        ],
-        examples=["Detect oscillation period"],
-        returns="PeriodicityResult with plot",
+        returns="PeriodicityResult with detected flag, dominant period (or null), p-value, and candidate",
     )
 
     _register_tool(
@@ -1943,31 +1573,12 @@ def _register_default_tools() -> None:
         dependencies=["scipy"],
         parameters=[
             ToolParameter("series1", "np.ndarray", "First time series"),
-            ToolParameter("series2", "np.ndarray", "Second time series"),
-            ToolParameter("sample_rate", "float", "Sampling rate", optional=True, default=1.0),
+            ToolParameter("series2", "np.ndarray", "Second time series (aligned, same length)"),
+            ToolParameter("sample_rate", "float", "Samples per time unit", optional=True, default=1.0),
             ToolParameter("nperseg", "int", "Segment length", optional=True),
         ],
         examples=["Compute coherence between two signals"],
         returns="CoherenceResult with frequency-dependent coherence",
-    )
-    _register_with_data(
-        base_name="compute_coherence",
-        description="Compute coherence between two signals.",
-        category=ToolCategory.SPECTRAL,
-        cost=ComputationalCost.LOW,
-        core_function=compute_coherence_with_data,
-        dependencies=["scipy", "matplotlib"],
-        parameters=[
-            ToolParameter("variable1", "str", "First variable name"),
-            ToolParameter("unique_id1", "str", "Run ID for first variable"),
-            ToolParameter("variable2", "str", "Second variable name"),
-            ToolParameter("unique_id2", "str", "Run ID for second variable"),
-            ToolParameter("sample_rate", "float", "Sampling rate", optional=True),
-            ToolParameter("sampling_rate", "float", "Compatibility alias for sample_rate", optional=True),
-            ToolParameter("fs", "float", "Compatibility alias for sample_rate", optional=True),
-        ],
-        examples=["Analyze coupling between two signals"],
-        returns="CoherenceResult with plot",
     )
 
     # ---------------------------------------------------------------------
@@ -1985,21 +1596,7 @@ def _register_default_tools() -> None:
             ToolParameter("extended", "bool", "Compute extended stats", optional=True, default=False),
         ],
         examples=["Describe basic statistics of a series"],
-        returns="DescriptiveStats with mean, std, min, max, RMS, etc.",
-    )
-    _register_with_data(
-        base_name="describe_series",
-        description="Compute descriptive statistics: mean, std, min, max, RMS, etc.",
-        category=ToolCategory.STATISTICS,
-        cost=ComputationalCost.LOW,
-        core_function=describe_series_with_data,
-        dependencies=["numpy", "scipy"],
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to analyze"),
-            ToolParameter("unique_id", "str", "Run ID"),
-        ],
-        examples=["Describe bx001_real"],
-        returns="DescriptiveStats with summary and plot",
+        returns="DescriptiveStats with mean, std, min, max, RMS, nan_count (extended adds median/skew/kurtosis)",
     )
 
     _register_tool(
@@ -2016,21 +1613,6 @@ def _register_default_tools() -> None:
         examples=["Compute autocorrelation of the signal"],
         returns="Array of autocorrelation values",
     )
-    _register_with_data(
-        base_name="compute_autocorrelation",
-        description="Compute autocorrelation function (ACF).",
-        category=ToolCategory.STATISTICS,
-        cost=ComputationalCost.LOW,
-        core_function=compute_autocorrelation_with_data,
-        dependencies=["numpy", "matplotlib"],
-        parameters=[
-            ToolParameter("variable_name", "str", "Variable name to analyze"),
-            ToolParameter("unique_id", "str", "Run ID"),
-            ToolParameter("max_lag", "int", "Maximum lag", optional=True),
-        ],
-        examples=["Compute autocorrelation of the signal"],
-        returns="Array of autocorrelation values and plot",
-    )
 
     _register_tool(
         name="compare_series_stats",
@@ -2044,18 +1626,4 @@ def _register_default_tools() -> None:
         ],
         examples=["Compare statistics across multiple series"],
         returns="Dict of DescriptiveStats by name",
-    )
-    _register_with_data(
-        base_name="compare_series_stats",
-        description="Compare statistics between multiple time series.",
-        category=ToolCategory.STATISTICS,
-        cost=ComputationalCost.LOW,
-        core_function=compare_series_stats_with_data,
-        dependencies=["numpy"],
-        parameters=[
-            ToolParameter("variables", "list", "List of variable names"),
-            ToolParameter("run_ids", "list", "List of run IDs"),
-        ],
-        examples=["Compare statistics across all runs"],
-        returns="DataFrame comparing statistics across series",
     )

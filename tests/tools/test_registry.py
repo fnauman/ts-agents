@@ -67,22 +67,17 @@ class TestToolRegistry:
         assert tool.description is not None
         assert callable(tool.core_function)
 
-    def test_compare_forecasts_with_data_has_models_and_alias(self):
-        """Test compare_forecasts_with_data parameters include models + seasonal controls."""
+    def test_bundled_data_wrapper_tools_are_removed(self):
+        """Every analysis tool takes its data directly; no bundled-run wrappers remain."""
         from ts_agents.tools.registry import ToolRegistry
 
-        tool = ToolRegistry.get("compare_forecasts_with_data")
-        param_names = [param.name for param in tool.parameters]
+        assert not [name for name in ToolRegistry.list_names() if name.endswith("_with_data")]
 
-        assert "models" in param_names
-        assert "methods" in param_names
-        assert "season_length" in param_names
-
-    def test_forecast_seasonal_naive_with_data_has_season_length(self):
+    def test_forecast_seasonal_naive_has_season_length(self):
         """Seasonal naive should be registered with its seasonal period control."""
         from ts_agents.tools.registry import ToolRegistry
 
-        tool = ToolRegistry.get("forecast_seasonal_naive_with_data")
+        tool = ToolRegistry.get("forecast_seasonal_naive")
         param_names = [param.name for param in tool.parameters]
 
         assert "season_length" in param_names
@@ -125,14 +120,14 @@ class TestToolRegistry:
         assert availability["optional_features"][0]["available"] is False
 
     def test_foundation_tools_registered_with_heavy_limits(self):
-        """Both foundation tools are VERY_HIGH cost with raised sandbox limits."""
+        """The foundation tool is VERY_HIGH cost with raised sandbox limits."""
         from ts_agents.core.forecasting.catalog import (
             DEFAULT_FOUNDATION_MODEL,
             foundation_methods,
         )
         from ts_agents.tools.registry import ComputationalCost, ToolCategory, ToolRegistry
 
-        for name in ("forecast_foundation", "forecast_foundation_with_data"):
+        for name in ("forecast_foundation",):
             tool = ToolRegistry.get(name)
             params = {param.name: param for param in tool.parameters}
 
@@ -162,7 +157,7 @@ class TestToolRegistry:
             lambda name: False if name in missing else real_available(name),
         )
 
-        availability = tool_availability(ToolRegistry.get("forecast_foundation_with_data"))
+        availability = tool_availability(ToolRegistry.get("forecast_foundation"))
 
         assert availability["available"] is False
         assert availability["missing_dependencies"] == ["darts", "torch", "huggingface-hub"]
@@ -263,50 +258,22 @@ class TestToolRegistry:
 
         assert json.loads(completed.stdout.strip().splitlines()[-1]) == []
 
-    def test_segment_changepoint_with_data_has_expected_params(self):
-        """Test segment_changepoint_with_data exposes core controls + compatibility alias."""
+    def test_segment_changepoint_exposes_scale_invariant_defaults(self):
+        """Changepoint tool documents the normal-cost default and the jump control."""
         from ts_agents.tools.registry import ToolRegistry
 
-        tool = ToolRegistry.get("segment_changepoint_with_data")
-        param_names = [param.name for param in tool.parameters]
-
-        assert "n_segments" in param_names
-        assert "n_changepoints" in param_names
-        assert "algorithm" in param_names
-        assert "cost_model" in param_names
-        assert "penalty" in param_names
-        assert "min_size" in param_names
-
-    def test_compute_coherence_with_data_has_sample_rate_aliases(self):
-        """Test compute_coherence_with_data exposes sample_rate and compatibility aliases."""
-        from ts_agents.tools.registry import ToolRegistry
-
-        tool = ToolRegistry.get("compute_coherence_with_data")
-        param_names = [param.name for param in tool.parameters]
+        tool = ToolRegistry.get("segment_changepoint")
         params_by_name = {param.name: param for param in tool.parameters}
 
-        assert "sample_rate" in param_names
-        assert "sampling_rate" in param_names
-        assert "fs" in param_names
-        assert params_by_name["sample_rate"].default is None
+        assert params_by_name["cost_model"].default == "normal"
+        assert {"n_segments", "algorithm", "penalty", "min_size", "jump"} <= set(params_by_name)
 
-    def test_compute_psd_with_data_uses_consistent_wrapper_name(self):
-        """PSD with-data tool should point at the correctly named wrapper."""
-        from ts_agents.tools.registry import ToolRegistry
-
-        tool = ToolRegistry.get("compute_psd_with_data")
-
-        assert tool.core_function.__name__ == "compute_psd_with_data"
-
-    def test_with_data_registry_params_match_wrapper_signatures(self):
-        """All _with_data registry params should be accepted by wrapper signatures."""
+    def test_registry_params_match_core_signatures(self):
+        """Every registered parameter must be accepted by the function the tool calls."""
         from ts_agents.tools.registry import ToolRegistry
 
         mismatches = []
         for tool in ToolRegistry.list_all():
-            if not tool.name.endswith("_with_data"):
-                continue
-
             sig = inspect.signature(tool.core_function)
             signature_params = sig.parameters
             has_varkw = any(

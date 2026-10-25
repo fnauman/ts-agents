@@ -27,6 +27,7 @@ class SeriesInput:
     time_values: Optional[list[Any]] = None
     time_column: Optional[str] = None
     value_column: Optional[str] = None
+    time_axis: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -43,6 +44,8 @@ class LabeledStreamInput:
     time_column: Optional[str] = None
     value_columns: list[str] = field(default_factory=list)
     label_column: str = "label"
+    group_values: Optional[np.ndarray] = None
+    group_column: Optional[str] = None
 
 
 @dataclass
@@ -239,8 +242,13 @@ def load_labeled_stream_input(
     labels_time_col: Optional[str] = None,
     label_start_col: Optional[str] = None,
     label_end_col: Optional[str] = None,
+    group_col: Optional[str] = None,
 ) -> LabeledStreamInput:
-    """Load a labeled multivariate stream for activity-recognition workflows."""
+    """Load a labeled multivariate stream for activity-recognition workflows.
+
+    ``group_col`` names a subject/session column; rows are kept in input
+    order and windows never span two groups.
+    """
     source_count = sum(
         1 for present in (bool(input_path), bool(input_json), bool(use_stdin)) if present
     )
@@ -298,6 +306,7 @@ def load_labeled_stream_input(
         time_col=time_col,
         value_cols=value_cols,
         label_col=label_col,
+        group_col=group_col,
     )
     if label_source_ref is not None:
         stream_ref = stream_input.provenance.setdefault("stream_ref", {})
@@ -799,7 +808,8 @@ def _series_input_from_json_payload(
             time_values = payload["time"] if "time" in payload else payload.get("index")
         label = payload.get("name") or payload.get("label") or "series"
         series = _coerce_series(payload["series"])
-        series, time_values = _order_series(series, time_values)
+        raw_time_values = list(time_values) if time_values is not None else None
+        series, time_values = _order_series(series, raw_time_values)
         provenance = {
             "series_ref": {
                 "source_type": source_type,
@@ -815,6 +825,7 @@ def _series_input_from_json_payload(
             time_values=list(time_values) if time_values is not None else None,
             time_column=time_col if time_col and time_values is not None else None,
             value_column=value_col or "series",
+            time_axis=describe_time_axis(time_values, reordered=time_values != raw_time_values),
         )
 
     if isinstance(payload, list) and payload and isinstance(payload[0], dict):
@@ -905,7 +916,9 @@ def _series_input_from_dataframe(
                 and df[id_column].nunique(dropna=False) != 1):
             raise ValueError("Single-series input contains multiple IDs; select one series or use forecast-panel.")
     series = _coerce_series(df[resolved_value_col].tolist())
-    series, time_values = _order_series(series, df[time_col].tolist() if time_col else None)
+    raw_time_values = df[time_col].tolist() if time_col else None
+    series, time_values = _order_series(series, raw_time_values)
+    time_axis = describe_time_axis(time_values, reordered=time_values != raw_time_values)
     return SeriesInput(
         series=series,
         source_type=source_type,
@@ -922,7 +935,83 @@ def _series_input_from_dataframe(
         time_values=time_values,
         time_column=time_col,
         value_column=resolved_value_col,
+        time_axis=time_axis,
     )
+
+
+# Relative tolerance for treating numeric time steps as equal (float grids such
+# as 0.01, 0.02, ... accumulate rounding error) and the step multiple that
+# counts as a gap.
+TIME_STEP_RTOL = 1e-6
+GAP_STEP_MULTIPLE = 1.5
+
+
+def describe_time_axis(time_values: Optional[list[Any]], *, reordered: bool = False) -> Optional[Dict[str, Any]]:
+    """Summarize sampling of an ordered time axis and list caveats.
+
+    Numeric coordinates keep their own units; datetime steps are in seconds.
+    ``regular`` is True when all steps match the median (within
+    ``TIME_STEP_RTOL`` for numeric axes) or pandas infers a calendar frequency.
+    ``sample_rate`` (1 / median step) is only reported for regular numeric axes.
+    """
+    if time_values is None:
+        return None
+    import pandas as pd
+
+    coordinates = pd.Series(time_values)
+    kind = "numeric" if pd.api.types.is_numeric_dtype(coordinates) else "datetime"
+    warnings: list[str] = []
+    summary: Dict[str, Any] = {"kind": kind, "n": int(len(coordinates)), "reordered": bool(reordered)}
+    if reordered:
+        warnings.append("Rows were not in time order; they were sorted by the time column.")
+    if len(coordinates) < 3:
+        summary.update({"regular": None, "warnings": warnings})
+        return summary
+
+    if kind == "numeric":
+        values = coordinates.to_numpy(dtype=np.float64)
+        steps = np.diff(values)
+        unit = "time column units"
+        frequency = None
+    else:
+        stamps = pd.to_datetime(coordinates, format="mixed")
+        steps = np.diff(stamps.to_numpy().astype("datetime64[ns]").astype(np.int64)) / 1e9
+        unit = "seconds"
+        frequency = pd.infer_freq(pd.DatetimeIndex(stamps)) if len(stamps) >= 3 else None
+
+    median_step = float(np.median(steps))
+    gaps = steps > GAP_STEP_MULTIPLE * median_step
+    if frequency is not None:
+        regular = True
+    else:
+        regular = bool(np.all(np.abs(steps - median_step) <= TIME_STEP_RTOL * abs(median_step)))
+    summary.update(
+        {
+            "median_step": median_step,
+            "step_unit": unit,
+            "inferred_frequency": frequency,
+            "regular": regular,
+            "gap_count": int(np.sum(gaps)) if frequency is None else 0,
+            "max_step": float(np.max(steps)),
+            "min_step": float(np.min(steps)),
+        }
+    )
+    if kind == "numeric" and regular and median_step > 0:
+        summary["sample_rate"] = 1.0 / median_step
+    if not regular:
+        if summary["gap_count"]:
+            warnings.append(
+                f"Irregular sampling: {summary['gap_count']} gap(s) longer than "
+                f"{GAP_STEP_MULTIPLE}x the median step ({median_step:g} {unit}); largest step "
+                f"{summary['max_step']:g} {unit}. Sample-index analyses treat samples as equally spaced."
+            )
+        else:
+            warnings.append(
+                f"Irregular sampling: steps range from {summary['min_step']:g} to {summary['max_step']:g} {unit}. "
+                "Sample-index analyses treat samples as equally spaced."
+            )
+    summary["warnings"] = warnings
+    return summary
 
 
 def _order_series(series, time_values):
@@ -962,13 +1051,20 @@ def _labeled_stream_input_from_dataframe(
     time_col: Optional[str],
     value_cols: Optional[list[str]],
     label_col: str,
+    group_col: Optional[str] = None,
 ) -> LabeledStreamInput:
+    if group_col and group_col not in df.columns:
+        raise ValueError(
+            f"Group column '{group_col}' not found. Available: {list(df.columns)}"
+        )
     resolved_value_cols = _resolve_value_columns(
-        df,
+        df.drop(columns=[group_col]) if group_col else df,
         value_cols=value_cols,
         time_col=time_col,
         label_col=label_col,
     )
+    if group_col and group_col in resolved_value_cols:
+        raise ValueError("The group column cannot also be a value column.")
     if label_col not in df.columns:
         raise ValueError(
             f"Label column '{label_col}' not found. Available: {list(df.columns)}"
@@ -989,6 +1085,21 @@ def _labeled_stream_input_from_dataframe(
     values = np.asarray(df[resolved_value_cols].to_numpy(), dtype=np.float64)
     if values.ndim != 2 or values.shape[0] == 0:
         raise ValueError("Activity-recognition input must contain at least one row of numeric values.")
+    if not np.isfinite(values).all():
+        raise ValueError("Activity-recognition value columns must contain only finite values.")
+
+    group_values = None
+    if group_col:
+        group_values = np.asarray(df[group_col].tolist(), dtype=object)
+        if bool(np.any(pd.isna(group_values))):
+            raise ValueError("Group column contains missing values.")
+    time_order = _time_order_summary(df[time_col].tolist() if time_col else None, group_values)
+
+    stream_ref_extra: Dict[str, Any] = {}
+    if group_col:
+        stream_ref_extra["group_column"] = group_col
+    if time_order is not None:
+        stream_ref_extra["time_order"] = time_order
 
     return LabeledStreamInput(
         values=values,
@@ -1002,6 +1113,7 @@ def _labeled_stream_input_from_dataframe(
                 "time_column": time_col,
                 "value_columns": resolved_value_cols,
                 "label_column": label_col,
+                **stream_ref_extra,
             }
         },
         input_path=input_path,
@@ -1009,7 +1121,29 @@ def _labeled_stream_input_from_dataframe(
         time_column=time_col,
         value_columns=resolved_value_cols,
         label_column=label_col,
+        group_values=group_values,
+        group_column=group_col,
     )
+
+
+def _time_order_summary(time_values: Optional[list[Any]], group_values: Optional[np.ndarray]) -> Optional[Dict[str, Any]]:
+    """Count backward time steps (within groups when given); rows are never reordered."""
+    if time_values is None:
+        return None
+    import pandas as pd
+
+    coordinates = pd.Series(time_values)
+    if not pd.api.types.is_numeric_dtype(coordinates):
+        coordinates = pd.to_datetime(coordinates, errors="coerce", format="mixed")
+    if coordinates.isna().any():
+        return {"checked": False, "reason": "time values could not be parsed"}
+    steps = coordinates.diff().iloc[1:]
+    same_group = np.ones(len(steps), dtype=bool)
+    if group_values is not None:
+        same_group = group_values[1:] == group_values[:-1]
+    zero = steps.iloc[0] * 0 if len(steps) else 0
+    backward = int(np.sum((steps < zero).to_numpy() & same_group))
+    return {"checked": True, "backward_steps": backward, "within_groups": group_values is not None}
 
 
 def _resolve_value_column(df, *, value_col: Optional[str], time_col: Optional[str]) -> str:
