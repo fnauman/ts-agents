@@ -13,6 +13,11 @@ documented below for older terminal flows.
 
 ---
 
+Before running source-checkout demos, install their analysis profile with
+`uv sync --frozen --python 3.12 --extra recommended`. Scripts use `uv run --no-sync` to preserve that
+profile and the same Python environment for preparation and summaries. No API
+key is needed. The WISDM demo uses the maintained `tool run` commands.
+
 ## Activity recognition — synthetic workflow
 
 A *30–60 second terminal walkthrough* showing:
@@ -41,7 +46,6 @@ Outputs will be written under:
 From the repo root:
 
 ```bash
-export OPENAI_API_KEY=your-key
 uv run ts-agents demo window-classification
 ```
 
@@ -139,9 +143,10 @@ Outputs from the raw compatibility alias (under `outputs/demo/` by default):
 - `forecast_comparison.png` (when plotting is available)
 ---
 
-## Demo tool bundles (for agent runs)
+## Demo tool bundles (for external runtimes)
 
-Use these with `ts-agents agent run --tool-bundle ...`:
+Inspect these with `ts-agents tool list --bundle <name>` or use the optional
+external framework wrappers:
 
 - `demo`: meta-bundle (windowing + forecasting demos)
 - `demo_windowing`: focused activity-recognition/window-size workflow

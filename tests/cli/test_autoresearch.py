@@ -345,7 +345,7 @@ def test_autoresearch_run_foundation_smoke_dry_run_writes_contract(capsys, tmp_p
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
-    assert payload["result"]["status"] == "ok"
+    assert payload["result"]["status"] == "planned"
     assert payload["result"]["warnings"] == []
     assert payload["result"]["data"]["trial_count"] == 1
     assert payload["result"]["data"]["best_config"] == {}
@@ -606,7 +606,7 @@ def test_autoresearch_foundation_smoke_preflight_reports_missing_deps(
     assert not (tmp_path / "foundation-deps").exists()
 
 
-def test_autoresearch_foundation_smoke_failed_trial_degrades(
+def test_autoresearch_foundation_smoke_total_failure_is_not_success(
     monkeypatch, capsys, tmp_path
 ):
     import ts_agents.autoresearch.executor as executor_module
@@ -632,10 +632,14 @@ def test_autoresearch_foundation_smoke_failed_trial_degrades(
         ]
     )
 
-    assert code == 0
+    assert code == 5
     payload = json.loads(capsys.readouterr().out)
-    assert payload["result"]["status"] == "degraded"
-    assert payload["result"]["data"]["best_config"] == {}
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "backend_unavailable"
+    assert payload["error"]["retryable"] is True
+    manifest = json.loads((tmp_path / "foundation-failed" / "run_manifest.json").read_text())
+    assert manifest["status"] == "failed"
+    assert manifest["best_config"] == {}
     trial = json.loads(
         (tmp_path / "foundation-failed" / "trials.jsonl").read_text().splitlines()[0]
     )
@@ -667,6 +671,16 @@ def test_autoresearch_foundation_smoke_fails_empty_holdout():
     assert "no actual holdout values" in row["error"]
 
 
+    for forecast in (np.array([np.nan, np.nan]), np.array([1.]), np.array([1., 2., 3.]), np.array([1e308, 1e308])):
+        invalid = _evaluate_forecast_trial_with_runner(
+            run_id="run", trial_index=1,
+            spec={"series_id": "M4", "phase": "holdout", "origin": 3,
+                  "train": np.array([1., 2., 3.]), "actual": np.array([4., 5.])},
+            model="seasonal_naive", task="forecasting", trial_id_prefix="forecast",
+            forecast_runner=lambda *args, **kwargs: forecast, horizon=2)
+        assert invalid["status"] == "failed"
+        assert invalid["error_type"] == "ValueError"
+
 def test_autoresearch_run_foundation_gpu_plan_materializes_plan_only_recipes(
     capsys, tmp_path
 ):
@@ -685,7 +699,7 @@ def test_autoresearch_run_foundation_gpu_plan_materializes_plan_only_recipes(
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
-    assert payload["quality_status"] == "review"
+    assert payload["quality_status"] == "plan-only"
     assert payload["result"]["status"] == "plan-only"
     assert payload["result"]["data"]["trial_count"] == 0
     assert payload["result"]["data"]["best_config"] == {}
@@ -878,8 +892,7 @@ def test_forecast_ranking_puts_nan_metrics_last():
         ]
     )
 
-    assert [row["model"] for row in ranking] == ["good", "bad"]
-    assert ranking[1]["smape"] is None
+    assert [row["model"] for row in ranking] == ["good"]
 
 
 def test_autoresearch_preserves_explicit_zero_timeout(capsys, tmp_path):
@@ -1056,7 +1069,7 @@ def test_classification_ranking_puts_missing_metric_after_real_zero():
         ]
     )
 
-    assert [row["model"] for row in ranking] == ["zero", "missing"]
+    assert [row["model"] for row in ranking] == ["zero"]
 
 
 def test_daytona_extras_context_isolated_between_loops():
@@ -1269,4 +1282,40 @@ def test_deprecated_alias_writes_notice_with_initial_manifest(monkeypatch, tmp_p
     assert len(writes) == 1
     assert writes[0]["warnings"] == result["warnings"]
     assert "deprecated" in writes[0]["warnings"][0].lower()
-    assert result["status"] == "ok"
+    assert result["status"] == "planned"
+
+
+@pytest.mark.parametrize("mode", ["docker", "daytona", "modal"])
+def test_failed_autoresearch_restores_sandbox_diagnostics(monkeypatch, tmp_path, mode):
+    from ts_agents.autoresearch import executor, runner
+    from ts_agents.core.forecasting.foundation import FoundationModelUnavailableError
+    from ts_agents.tools.executor import ExecutionContext, LocalBackend, SandboxMode
+
+    class Sandbox:
+        def is_available(self):
+            return True
+
+        def execute(self, **kwargs):
+            kwargs["params"] = {**kwargs["params"], "sandbox_artifact_dir": str(tmp_path / "remote")}
+            from ts_agents.tools.results import serialize_result
+            response = LocalBackend().execute(**kwargs)
+            response.result = serialize_result(response.result)
+            return response
+
+    def unavailable(*args, **kwargs):
+        raise FoundationModelUnavailableError("weights are not cached")
+
+    monkeypatch.setattr(runner, "_forecast_with_foundation", unavailable)
+    monkeypatch.setattr(executor, "describe_sandbox_backend", lambda *args, **kwargs: {"available": True})
+    engine = executor.AutoresearchExecutor()
+    engine.backends[SandboxMode(mode)] = Sandbox()
+    destination = tmp_path / "host"
+    result = engine.execute("foundation-smoke", {"output_dir": str(destination), "skip_plots": True},
+                            context=ExecutionContext(sandbox_mode=mode))
+    assert not result.success
+    assert (destination / "trials.jsonl").is_file()
+    manifest = json.loads((destination / "run_manifest.json").read_text())
+    assert manifest["status"] == "failed"
+    assert manifest["output_dir"] == str(destination)
+    assert result.error.details["manifest_path"] == str(destination / "run_manifest.json")
+    assert all(Path(item["path"]).is_file() for item in result.result["artifacts"])

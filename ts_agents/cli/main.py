@@ -35,15 +35,10 @@ _INSTALL_EXTRA_METADATA: Dict[str, Dict[str, Any]] = {
         "dependencies": ["matplotlib"],
         "description": "Plot artifacts and visualization helpers.",
     },
-    "ui": {
-        "install_spec": "ts-agents[ui]",
-        "dependencies": ["gradio", "matplotlib"],
-        "description": "Gradio UI and hosted/manual demo entrypoints.",
-    },
     "agents": {
         "install_spec": "ts-agents[agents]",
-        "dependencies": ["langchain", "langchain_core", "langchain_openai"],
-        "description": "Built-in agent entrypoints and orchestration adapters.",
+        "dependencies": ["langchain_core"],
+        "description": "Tool wrappers for external LangChain runtimes.",
     },
     "decomposition": {
         "install_spec": "ts-agents[decomposition]",
@@ -89,8 +84,6 @@ _INSTALL_EXTRA_METADATA: Dict[str, Dict[str, Any]] = {
 _INSTALL_PROFILE_GROUPS: Dict[str, List[str]] = {
     "recommended": [
         "classification",
-        "ui",
-        "agents",
         "viz",
         "forecasting",
         "decomposition",
@@ -99,7 +92,6 @@ _INSTALL_PROFILE_GROUPS: Dict[str, List[str]] = {
         "ml",
         "neural",
         "classification",
-        "ui",
         "agents",
         "viz",
         "forecasting",
@@ -797,7 +789,7 @@ def _quality_payload(result: Any) -> Tuple[Optional[str], Optional[bool], Option
 
     degraded = status == "degraded"
     requires_review = degraded or bool(warnings) or bool(quality_flags)
-    if status in {"ok", "degraded"}:
+    if status in {"ok", "degraded", "planned", "plan-only"}:
         quality_status = status
     elif requires_review:
         quality_status = "review"
@@ -809,6 +801,9 @@ def _quality_payload(result: Any) -> Tuple[Optional[str], Optional[bool], Option
 def _success_envelope(args: argparse.Namespace, result: Any) -> CLIEnvelope:
     execution = _execution_payload(getattr(args, "_ts_execution_result", None))
     quality_status, degraded, requires_review = _quality_payload(result)
+    if execution and (execution.metadata or {}).get("fallback_used"):
+        requires_review = True
+        quality_status = "degraded" if degraded else "review"
     return CLIEnvelope(
         ok=True,
         command=_command_label(args),
@@ -1450,47 +1445,6 @@ def _add_run_subcommands(subparsers: argparse._SubParsersAction) -> None:
     _add_tool_run_args(run_parser)
 
 
-def _add_agent_subcommands(subparsers: argparse._SubParsersAction) -> None:
-    agent_parser = subparsers.add_parser("agent", help="Agent workflows")
-    agent_sub = agent_parser.add_subparsers(dest="agent_command", required=True)
-
-    run_parser = agent_sub.add_parser(
-        "run",
-        help="Run a single agent prompt",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  uv run ts-agents agent run \"Find peaks in bx001_real for Re200Rm200\"\n"
-            "  uv run ts-agents agent run --type simple --tool-bundle demo \"Run the windowing demo workflow\"\n"
-            "  uv run ts-agents agent run --type deep --approval auto \"Compare forecasting methods for bx001_real\""
-        ),
-    )
-    run_parser.add_argument("prompt", type=str, help="Prompt to send")
-    run_parser.add_argument(
-        "--type",
-        choices=["simple", "deep"],
-        default="simple",
-        help="Agent type (default: simple)",
-    )
-    run_parser.add_argument(
-        "--model",
-        type=str,
-        default=None,
-        help="Override model name",
-    )
-    run_parser.add_argument(
-        "--tool-bundle",
-        type=str,
-        default="standard",
-        help="Tool bundle for simple agent",
-    )
-    run_parser.add_argument(
-        "--approval",
-        choices=["off", "auto", "prompt"],
-        default="off",
-        help="Deep agent approval handling (default: off)",
-    )
-    _add_output_args(run_parser)
 
 
 def _add_skills_subcommands(subparsers: argparse._SubParsersAction) -> None:
@@ -2165,14 +2119,9 @@ def _add_demo_subcommands(subparsers: argparse._SubParsersAction) -> None:
     window_parser.add_argument(
         "--no-llm",
         action="store_true",
-        help="Run the scripted demo without an LLM (no API key required)",
+        help="Compatibility flag; demos always run scripted",
     )
-    window_parser.add_argument(
-        "--model",
-        type=str,
-        default=None,
-        help="OpenAI model override for LLM demo",
-    )
+
     window_parser.add_argument(
         "--print-report",
         action="store_true",
@@ -2245,14 +2194,9 @@ def _add_demo_subcommands(subparsers: argparse._SubParsersAction) -> None:
     forecasting_parser.add_argument(
         "--no-llm",
         action="store_true",
-        help="Run the scripted forecasting demo without an LLM (no API key required)",
+        help="Compatibility flag; demos always run scripted",
     )
-    forecasting_parser.add_argument(
-        "--model",
-        type=str,
-        default=None,
-        help="OpenAI model override for LLM report generation",
-    )
+
     forecasting_parser.add_argument(
         "--print-report",
         action="store_true",
@@ -2281,7 +2225,6 @@ def build_parser(*, exit_on_error: bool = True) -> argparse.ArgumentParser:
     _add_tool_subcommands(subparsers)
     _add_sandbox_subcommands(subparsers)
     _add_skills_subcommands(subparsers)
-    _add_agent_subcommands(subparsers)
     _add_data_subcommands(subparsers)
     _add_run_subcommands(subparsers)
     _add_demo_subcommands(subparsers)
@@ -2356,6 +2299,7 @@ def _synchronize_autoresearch_manifest(result: Any, execution: Any) -> None:
     manifest_payload["output_dir"] = data.get("output_dir", manifest_payload.get("output_dir"))
     manifest_payload["manifest_path"] = str(manifest_path)
     manifest_payload["warnings"] = to_jsonable(result.get("warnings") or [])
+    manifest_payload["quality_flags"] = to_jsonable(data.get("quality_flags") or [])
     manifest_payload["best_config"] = to_jsonable(data.get("best_config") or {})
     if isinstance(result.get("artifacts"), list):
         manifest_payload["artifacts"] = to_jsonable(
@@ -2456,12 +2400,12 @@ def _handle_autoresearch_command(args: argparse.Namespace) -> Tuple[Any, Optiona
     with lock_run_output(Path(output_dir).expanduser()):
         execution = execute_autoresearch(args.loop_name, options, context=context)
         args._ts_execution_result = execution
+        _synchronize_autoresearch_manifest(execution.result, execution)
         if not execution.success:
             if execution.error:
                 raise execution.error
             raise RuntimeError(execution.formatted_output or "Autoresearch execution failed")
 
-        _synchronize_autoresearch_manifest(execution.result, execution)
     return execution.result, execution.formatted_output or None
 
 def _handle_data_export_panel(args: argparse.Namespace) -> Tuple[Any, str]:
@@ -3327,90 +3271,8 @@ def _approval_prompt(tool_name: str) -> bool:
     return response in {"y", "yes"}
 
 
-def _agent_run_payload(
-    *,
-    response: str,
-    agent_metadata: Dict[str, Any],
-    warnings: Optional[List[str]] = None,
-    quality_flags: Optional[List[str]] = None,
-) -> Dict[str, Any]:
-    warnings = warnings or []
-    quality_flags = quality_flags or []
-    return {
-        "kind": "agent_run",
-        "status": "degraded" if warnings else "ok",
-        "summary": "Agent prompt completed.",
-        "response": response,
-        "data": {
-            "response": response,
-            "agent_metadata": agent_metadata,
-            "quality_flags": quality_flags,
-        },
-        "warnings": warnings,
-    }
 
 
-def _handle_agent_command(args: argparse.Namespace) -> Tuple[Any, Optional[str]]:
-    if args.type == "simple":
-        from ts_agents.agents.simple.agent import run_single_query
-
-        response = run_single_query(
-            query=args.prompt,
-            tool_bundle=args.tool_bundle,
-            model_name=args.model,
-        )
-        result = _agent_run_payload(
-            response=response,
-            agent_metadata={
-                "agent_type": "simple",
-                "tool_bundle": args.tool_bundle,
-                "model_name": args.model,
-            },
-        )
-        return result, response
-
-    from ts_agents.agents.deep.orchestrator import create_deep_agent, run_with_approval
-
-    enable_approval = args.approval != "off"
-    agent = create_deep_agent(
-        model_name=args.model,
-        enable_approval=enable_approval,
-        enable_logging=False,
-    )
-
-    callback = None
-    if args.approval == "auto":
-        def callback(_tool_name: str) -> bool:
-            return True
-    elif args.approval == "prompt":
-        callback = _approval_prompt
-
-    response = run_with_approval(agent, args.prompt, approval_callback=callback)
-    metadata = getattr(agent, "_ts_agents_metadata", {}) or {}
-    warnings = []
-    quality_flags = []
-    if metadata.get("fallback_used") or metadata.get("agent_type") == "deep_fallback":
-        install_hint = metadata.get("install_hint") or "Check deepagents runtime compatibility."
-        fallback_reason = metadata.get("fallback_reason")
-        warning = (
-            "Deep agent is running in LangChain fallback mode; "
-            f"sub-agent delegation is flattened. {install_hint}"
-        )
-        if fallback_reason:
-            warning = f"{warning} Reason: {fallback_reason}"
-        warnings.append(warning)
-        quality_flags.append("deep_agent_fallback")
-
-    result = _agent_run_payload(
-        response=response,
-        agent_metadata=metadata,
-        warnings=warnings,
-        quality_flags=quality_flags,
-    )
-    text = response
-    if warnings:
-        text = f"Warning: {warnings[0]}\n\n{response}"
-    return result, text
 
 
 def _handle_sandbox_command(args: argparse.Namespace) -> Tuple[Any, str]:
@@ -3750,42 +3612,6 @@ def _get_plot_lib():
     return plt
 
 
-def _render_forecasting_report_with_llm(
-    *,
-    model_name: Optional[str],
-    run_id: str,
-    variable_name: str,
-    horizon: int,
-    methods: List[str],
-    comparison_payload: Dict[str, Any],
-) -> str:
-    from langchain_openai import ChatOpenAI
-    from ts_agents.config import get_openai_model
-
-    llm = ChatOpenAI(model=model_name or get_openai_model(), temperature=0)
-    prompt = (
-        "Write a concise markdown report for a forecasting demo.\n"
-        "Use <= 14 lines and include: run_id, variable, horizon, compared methods, "
-        "best method by RMSE (if available), key metrics, and one caveat.\n\n"
-        f"run_id: {run_id}\n"
-        f"variable: {variable_name}\n"
-        f"horizon: {horizon}\n"
-        f"methods: {methods}\n"
-        f"comparison_json: {dump_json(comparison_payload, indent=None)}"
-    )
-    response = llm.invoke(prompt)
-    content = response.content
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: List[str] = []
-        for item in content:
-            if isinstance(item, dict) and item.get("type") == "text":
-                parts.append(item.get("text", ""))
-            else:
-                parts.append(str(item))
-        return "\n".join([p for p in parts if p])
-    return str(content)
 
 
 def _generate_demo_data(args: argparse.Namespace, csv_path: Path) -> None:
@@ -3889,125 +3715,6 @@ def _run_demo_window_classification_scripted(args: argparse.Namespace) -> Dict[s
     }
 
 
-def _run_demo_window_classification_llm(args: argparse.Namespace) -> Dict[str, Any]:
-    import subprocess
-    from pathlib import Path
-
-    from ts_agents.agents.simple import SimpleAgentChat
-    from ts_agents.cli.output import write_output
-
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise ValueError(
-            "OPENAI_API_KEY is required for the LLM demo. "
-            "Set OPENAI_API_KEY or run with --no-llm (scripted)."
-        )
-
-    csv_path = Path(args.csv_path)
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    _generate_demo_data(args, csv_path)
-
-    value_columns = _split_csv(args.value_columns)
-    window_sizes = [int(v) for v in _split_csv(args.window_sizes)] if args.window_sizes else None
-    classifier_hint = args.classifier if args.classifier != "auto" else "choose one"
-    window_sizes_text = window_sizes if window_sizes else "auto"
-    labeling = getattr(args, "labeling", "strict")
-    stride = getattr(args, "stride", None)
-    n_splits = getattr(args, "n_splits", 3)
-
-    prompt = (
-        "You are running the ts-agents demo. Use tools to:\n"
-        "1) select a window size with select_window_size_from_csv\n"
-        "2) evaluate with evaluate_windowed_classifier_from_csv using the best window size\n\n"
-        f"Dataset: {csv_path}\n"
-        f"value_columns: {','.join(value_columns)} (pass as a string)\n"
-        f"label_column: {args.label_column}\n"
-        f"window_sizes: {window_sizes_text}\n"
-        f"metric: {args.metric}\n"
-        f"labeling: {labeling}\n"
-        f"balance: {args.balance}\n"
-        f"max_windows_per_segment: {args.max_windows_per_segment}\n"
-        f"test_size: {args.test_size}\n"
-        f"stride: {stride if stride is not None else 'auto'}\n"
-        f"n_splits: {n_splits}\n"
-        f"seed: {args.seed}\n"
-        f"classifier: {classifier_hint} (minirocket|rocket|knn)\n\n"
-        "After the tool calls, write a short Markdown report with:\n"
-        "- Dataset path\n"
-        "- Classifier used\n"
-        "- Best window size\n"
-        "- Metric + score\n"
-        "- Accuracy and macro F1\n"
-        "- A brief note if the test split appears single-class or perfect.\n"
-        "Keep it concise (<12 lines)."
-    )
-
-    chat = SimpleAgentChat(
-        model_name=args.model,
-        tool_bundle="demo",
-        enable_logging=True,
-        capture_results=True,
-    )
-    report = chat.chat(prompt)
-
-    tool_calls = chat.turns[-1].tool_calls if chat.turns else []
-    selection_payload = _find_tool_payload(tool_calls, "select_window_size_from_csv")
-    eval_payload = _find_tool_payload(tool_calls, "evaluate_windowed_classifier_from_csv")
-
-    if selection_payload is None or eval_payload is None:
-        raise ValueError(
-            "LLM demo did not return expected tool outputs. "
-            "Re-run or use --no-llm."
-        )
-
-    selection_path = output_dir / "window_selection.json"
-    eval_path = output_dir / "eval.json"
-    selection_path.write_text(dump_json(selection_payload))
-    eval_path.write_text(dump_json(eval_payload))
-
-    window_plot = output_dir / "window_scores.png"
-    confusion_plot = output_dir / "confusion_matrix.png"
-
-    if not args.skip_plots:
-        plot_window_selection = _resolve_required_runtime_path("demo/plot_window_selection.py")
-        plot_confusion_matrix = _resolve_required_runtime_path("demo/plot_confusion_matrix.py")
-        subprocess.run(
-            [
-                sys.executable,
-                str(plot_window_selection),
-                str(selection_path),
-                str(window_plot),
-            ],
-            check=True,
-        )
-        subprocess.run(
-            [
-                sys.executable,
-                str(plot_confusion_matrix),
-                str(eval_path),
-                str(confusion_plot),
-            ],
-            check=True,
-        )
-
-    report_path = _resolve_demo_report_path(args)
-    write_output(report, str(report_path))
-
-    return {
-        "csv_path": str(csv_path),
-        "output_dir": str(output_dir),
-        "best_window_size": selection_payload.get("best_window_size"),
-        "metric": eval_payload.get("metric"),
-        "score": eval_payload.get("score"),
-        "classifier": eval_payload.get("classifier"),
-        "window_selection_path": str(selection_path),
-        "eval_path": str(eval_path),
-        "window_scores_plot": str(window_plot) if window_plot.exists() else None,
-        "confusion_matrix_plot": str(confusion_plot) if confusion_plot.exists() else None,
-        "report_path": str(report_path),
-        "report": report,
-        "mode": "llm",
-    }
 
 
 def _run_demo_forecasting_scripted(args: argparse.Namespace) -> Dict[str, Any]:
@@ -4058,59 +3765,6 @@ def _run_demo_forecasting_scripted(args: argparse.Namespace) -> Dict[str, Any]:
     }
 
 
-def _run_demo_forecasting_llm(args: argparse.Namespace) -> Dict[str, Any]:
-    from pathlib import Path
-
-    from ts_agents.cli.input_parsing import load_series_input
-    from ts_agents.cli.output import write_output
-    from ts_agents.workflows.forecast import run_forecast_series_workflow
-
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise ValueError(
-            "OPENAI_API_KEY is required for the LLM demo. "
-            "Set OPENAI_API_KEY or run with --no-llm (scripted)."
-        )
-
-    series_input = load_series_input(
-        run_id=args.run_id,
-        variable_name=args.variable,
-        use_test_data=_resolve_use_test_data(args),
-    )
-    payload = run_forecast_series_workflow(
-        series_input,
-        output_dir=args.output_dir,
-        horizon=args.horizon,
-        methods=_split_csv(args.methods),
-        validation_size=args.validation_size,
-        skip_plots=args.skip_plots,
-        report_mode="llm",
-        model_name=args.model,
-    )
-    workflow_output_dir = Path(args.output_dir)
-    report = _as_demo_forecasting_report((workflow_output_dir / "report.md").read_text())
-    report_path = _resolve_demo_report_path(
-        args,
-        default_report_path="outputs/demo/forecasting_report.md",
-    )
-    write_output(report, str(report_path))
-
-    return {
-        "run_id": args.run_id,
-        "variable": args.variable,
-        "horizon": int(args.horizon),
-        "methods": payload.data.get("methods", []),
-        "output_dir": str(workflow_output_dir),
-        "comparison_path": str(workflow_output_dir / "forecast_comparison.json"),
-        "forecast_comparison_plot": (
-            str(workflow_output_dir / "forecast_comparison.png")
-            if (workflow_output_dir / "forecast_comparison.png").exists()
-            else None
-        ),
-        "best_method": payload.data.get("best_method"),
-        "report_path": str(report_path),
-        "report": report,
-        "mode": "llm",
-    }
 
 
 def _as_demo_forecasting_report(report: str) -> str:
@@ -4123,10 +3777,7 @@ def _as_demo_forecasting_report(report: str) -> str:
 
 def _handle_demo_command(args: argparse.Namespace) -> Tuple[Any, str]:
     if args.demo_command == "window-classification":
-        if getattr(args, "no_llm", False):
-            result = _run_demo_window_classification_scripted(args)
-        else:
-            result = _run_demo_window_classification_llm(args)
+        result = _run_demo_window_classification_scripted(args)
         lines = [
             "Demo complete.",
             f"- Data: {result['csv_path']}",
@@ -4140,10 +3791,7 @@ def _handle_demo_command(args: argparse.Namespace) -> Tuple[Any, str]:
         return result, text
 
     if args.demo_command == "forecasting":
-        if getattr(args, "no_llm", False):
-            result = _run_demo_forecasting_scripted(args)
-        else:
-            result = _run_demo_forecasting_llm(args)
+        result = _run_demo_forecasting_scripted(args)
 
         best_method_text = result["best_method"] if result["best_method"] else "N/A"
         lines = [
@@ -4220,8 +3868,6 @@ def run(argv: Optional[List[str]] = None) -> int:
             result, text = _handle_tool_command(args)
         elif args.command == "run":
             result, text = _handle_run_command(args)
-        elif args.command == "agent":
-            result, text = _handle_agent_command(args)
         elif args.command == "sandbox":
             result, text = _handle_sandbox_command(args)
         elif args.command == "skills":

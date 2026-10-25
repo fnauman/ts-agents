@@ -6,17 +6,20 @@ set -euo pipefail
 
 # Prefer uv if available (matches repo docs), but fall back gracefully.
 if command -v uv >/dev/null 2>&1; then
-  RUNNER=(uv run ts-agents)
+  RUNNER=(uv run --no-sync ts-agents)
+  DEMO_PYTHON=(uv run --no-sync python)
 elif command -v ts-agents >/dev/null 2>&1; then
   RUNNER=(ts-agents)
+  DEMO_PYTHON=(python)
 else
   RUNNER=(python -m ts_agents)
+  DEMO_PYTHON=(python)
 fi
 
 mkdir -p data outputs/demo
 
 echo "==> Generating synthetic labeled stream (stairs)..."
-python data/make_synthetic_labeled_stream.py \
+"${DEMO_PYTHON[@]}" data/make_synthetic_labeled_stream.py \
   --scenario stairs \
   --hz 20 \
   --minutes 4 \
@@ -37,7 +40,7 @@ echo "==> Running activity-recognition workflow..."
   --save outputs/demo/workflow_result.json >/dev/null
 
 echo
-python - <<'PY'
+"${DEMO_PYTHON[@]}" - <<'PY'
 import json
 payload = json.load(open("outputs/demo/workflow_result.json"))
 data = payload["result"]["data"]

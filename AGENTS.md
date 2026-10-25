@@ -1,7 +1,7 @@
 # AGENTS.md
 
 `ts-agents` is a CLI-first time-series toolkit. Workflows and tools are the
-stable automation surface; Gradio and agent integrations are optional adapters.
+stable automation surface; external agents consume them through CLI or tool wrappers.
 Setup, install profiles, and verification commands live in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Scope and execution
@@ -42,10 +42,10 @@ manifest/install-profile impacts, and risks.
 - Return one authoritative CLI response after requested output operations
   finish. Keep errors and degradation visible across execution backends.
 - Keep optional/heavy imports lazy. Base CLI discovery must work without
-  model, UI, or agent dependencies. Dependency versions live in
+  model or agent-framework dependencies. Dependency versions live in
   `pyproject.toml` and `uv.lock`; do not add duplicate capability tables.
 - Do not mutate process-global state for concurrent calls without isolation.
-  Visitor state and persisted records must not leak across UI sessions.
+
 
 ## Verification and maintenance cost
 
@@ -76,7 +76,6 @@ Update the existing source of user-facing truth with behavior changes:
 | Forecasting and panel limits | `docs/panel-forecasting.qmd` |
 | Execution backends and resource limits | `SANDBOX.md` |
 | Skills and exports | `skills/README.md`, `docs/skills-guide.qmd` |
-| UI/hosted settings and limitations | README Hosted Demo Deployment |
 | Evaluation evidence | `docs/evaluation.qmd`, `benchmarks/` |
 | Shipped changes and future scope | `CHANGELOG.md`, `ROADMAP.md` |
 

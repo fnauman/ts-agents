@@ -585,6 +585,32 @@ class ExecutionResult:
         """Check if execution was successful."""
         return self.status == ExecutionStatus.SUCCESS
 
+    def flag_backend_fallback(self) -> None:
+        """Keep backend substitution visible in structured and human results."""
+        if not self.success or not self.metadata.get("fallback_used"):
+            return
+        warning = (f"Requested {self.metadata['backend_requested']} backend was unavailable; "
+                   f"executed on {self.metadata['backend_actual']} instead.")
+        payload = self.result
+        if isinstance(payload, dict) and "status" in payload:
+            warnings = payload.setdefault("warnings", [])
+            flags = payload.setdefault("data", {}).setdefault("quality_flags", [])
+            if payload["status"] == "ok":
+                payload["status"] = "degraded"
+        elif hasattr(payload, "warnings") and hasattr(payload, "data"):
+            warnings = payload.warnings
+            flags = payload.data.setdefault("quality_flags", [])
+            if payload.status == "ok":
+                payload.status = "degraded"
+        else:
+            warnings, flags = [], []
+        if warning not in warnings:
+            warnings.append(warning)
+        if "backend_fallback" not in flags:
+            flags.append("backend_fallback")
+        if not self.formatted_output.startswith(warning + "\n"):
+            self.formatted_output = warning + "\n" + self.formatted_output
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for IPC/serialization."""
         return {
@@ -710,9 +736,7 @@ class ToolError(Exception):
 
         # Determine if recoverable
         recoverable = code in {
-            ToolErrorCode.VALIDATION_ERROR,
             ToolErrorCode.TIMEOUT,
-            ToolErrorCode.DATA_ERROR,
         } or exc_type == FOUNDATION_WEIGHTS_UNAVAILABLE
 
         return cls(
@@ -2032,6 +2056,7 @@ class ToolExecutor:
         }
 
         # Log execution
+        result.flag_backend_fallback()
         self._log_execution(tool_name, params, context, result)
 
         return result

@@ -15,24 +15,6 @@ from ts_agents.cli.main import (
 )
 
 
-def test_agent_run_simple_json_uses_agent_run_payload(monkeypatch, capsys):
-    import ts_agents.agents.simple.agent as simple_agent
-
-    monkeypatch.setattr(simple_agent, "run_single_query", lambda **_kwargs: "simple ok")
-
-    code = run(["agent", "run", "--type", "simple", "hello", "--json"])
-
-    assert code == 0
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["ok"] is True
-    assert payload["quality_status"] == "ok"
-    result = payload["result"]
-    assert result["kind"] == "agent_run"
-    assert result["status"] == "ok"
-    assert result["response"] == "simple ok"
-    assert result["data"]["response"] == "simple ok"
-    assert result["data"]["quality_flags"] == []
-    assert result["warnings"] == []
 
 
 def test_parse_list_ints_from_csv():
@@ -126,13 +108,6 @@ def test_tool_run_help_includes_examples(capsys):
     assert "tool run forecast_theta_with_data" in output
 
 
-def test_agent_run_help_includes_examples(capsys):
-    parser = build_parser()
-    with pytest.raises(SystemExit):
-        parser.parse_args(["agent", "run", "--help"])
-    output = capsys.readouterr().out
-    assert "Examples:" in output
-    assert "Compare forecasting methods for bx001_real" in output
 
 
 def test_demo_help_includes_examples(capsys):

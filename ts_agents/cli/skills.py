@@ -77,7 +77,6 @@ def build_skills_markdown() -> str:
         "- ts-agents workflow run activity-recognition --input stream.csv --label-col label --value-cols x,y,z",
         "- ts-agents sandbox list",
         "- ts-agents skills show forecasting",
-        "- ts-agents agent run \"<prompt>\"",
         "- ts-agents skills export --out skills_export",
         "- ts-agents skills export --format json --out skills_export.json",
         "- ts-agents skills validate",

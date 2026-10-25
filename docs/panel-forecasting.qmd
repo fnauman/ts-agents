@@ -9,7 +9,7 @@ NeuralForecast with NHITS, and zero-shot foundation models (FMs) through
 is always available. These capabilities are available from version 0.3.0:
 
 ```bash
-python -m pip install "ts-agents[ml,neural,foundation,viz]==0.3.0"
+python -m pip install "ts-agents[ml,neural,foundation,viz]==0.4.0"
 ts-agents workflow show forecast-panel --json
 ```
 
@@ -18,8 +18,10 @@ and prefix commands with `uv run`. The foundation extra switched from
 `chronos-forecasting` to Darts in 0.3.0; recreate older foundation environments
 when upgrading.
 
-The base and recommended profiles remain unchanged. The `all` profile includes
-every optional backend. All imports of the optional libraries are lazy.
+The base profile remains dependency-light. In 0.4.0, `recommended` drops UI and
+agent-framework dependencies while retaining classical analysis and plotting.
+The `all` profile includes every optional analysis backend. All imports of the
+optional libraries are lazy.
 `workflow show forecast-panel` reports status `available` on every install,
 because `seasonal_naive` always works; each optional family (`ml_backends`,
 `neural_backends`, `foundation_models`, `plots`) appears under

@@ -1,4 +1,4 @@
-include AGENTS.md CHANGELOG.md ROADMAP.md LICENSE README.md pyproject.toml uv.lock main.py app.py
+include AGENTS.md CHANGELOG.md ROADMAP.md LICENSE README.md pyproject.toml uv.lock
 recursive-include scripts *.sh *.py
 recursive-include tests *.py
 recursive-include skills *.md

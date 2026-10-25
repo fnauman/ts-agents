@@ -167,24 +167,15 @@ tokens. If you want forecast plots, CSVs, and Markdown reports, prefer
 `workflow run forecast-series --output-dir ...` or omit `--output-dir` and let
 the workflow create a run-scoped directory under `outputs/forecast/`.
 
-## LLM-backed mode
+## External agents
 
-Export an API key to unlock agent-generated narrative reports:
-
-```bash
-export OPENAI_API_KEY="sk-..."
-uv run ts-agents agent run \
-  "Use the forecasting skill to compare ARIMA and Theta for a short univariate series"
-```
-
-Or run the built-in agent directly:
-
-```bash
-uv run ts-agents agent run "Forecast bx001_real for Re200Rm200 with horizon 12"
-```
+Drive the CLI and skills from an external agent runtime. Built-in agents and
+LLM report generation were removed in 0.4.0; workflow reports are scripted.
+Activity recognition, classification, anomaly/pattern detection, forecasting,
+decomposition, and spectral analysis remain available.
 
 Compatibility note: `ts-agents run ...` and `ts-agents demo ...` remain
-available for one release cycle, but they now emit deprecation warnings. Prefer
+available in 0.4.0 and emit deprecation warnings. Prefer
 `ts-agents tool run ...` and `ts-agents workflow run ...`.
 
 ## Next steps

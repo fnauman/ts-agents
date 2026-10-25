@@ -7,10 +7,18 @@ It complements `README.md` (what exists today) with direction (what is next).
 
 - Keep the `ts-agents` CLI contract stable.
 - Treat artifacts (plots, reports, JSON, logs) as first-class outputs.
-- Keep agent frameworks and UI layers swappable.
+- Keep orchestration in external agent runtimes; maintain broad time-series analysis capabilities.
 - Use sandbox backends to handle dependency and runtime isolation.
 
-## Recently Shipped (0.3.0)
+## Recently Shipped (0.4.0)
+
+- Remove Gradio, hosted entrypoints, and built-in agents while retaining activity
+  recognition, classification, anomaly/pattern detection, forecasting,
+  decomposition, spectral analysis, skills, and external tool wrappers.
+- Reject invalid ensemble selections and primary trial scores; validate
+  single-series chronology; distinguish planned runs and backend substitutions.
+
+## Earlier Shipped (0.3.0)
 
 - Long-format panel forecasting with MLForecast LightGBM/histogram GBM,
   NeuralForecast NHITS, chronological backtests, train-only MASE scales, and
@@ -44,7 +52,7 @@ constant customer, and NHITS produced a few negative demand predictions.
   domain constraints, and validation coverage instead of broadening capability
   claims from one successful task.
 - External covariates, calibrated intervals/quantiles, foundation Modal
-  extras, the UI forecasting tab, and FMs in `forecast-daytona` remain deferred.
+  extras, and FMs in `forecast-daytona` remain deferred.
 - Keep published artifacts, install instructions, and source claims aligned
   through installed-wheel and source-identity release gates.
 - Checkpoint recovery for interrupted autoresearch/workflow computations.
@@ -54,11 +62,6 @@ constant customer, and NHITS produced a few negative demand predictions.
 
 ## Decisions Needed
 
-- **agents/ + ui/ (~20% of the package):** the deep-agent adapter and Gradio UI
-  are experimental. Unit tests cover adapter contracts, but real LLM
-  interactions and browser UI behavior remain outside release qualification. Decide within the
-  0.3.x cycle: extract to a separate repo, delete, or commit with real tests.
-  Until then, no polish-only PRs against these layers.
 - **MCP:** evaluate an adapter when a named consumer needs it, including
   authentication, process lifecycle, and error semantics. Decide deliberately whether "CLI+skills only" is the bet, and
   record why.

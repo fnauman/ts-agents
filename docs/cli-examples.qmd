@@ -205,30 +205,31 @@ longer embed plots; treat them as structured numeric compatibility tools. Use
 `workflow run forecast-series --output-dir ...` when you want forecast
 PNG/CSV/report artifacts.
 
-## Agent mode
+## Execution quality and input ordering
 
-```bash
-# Simple agent (single-turn, fast)
-uv run ts-agents agent run "Find peaks in bx001_real for Re200Rm200"
+Single-series inputs with time coordinates are sorted chronologically together
+with their values. Duplicate, missing, or invalid times and multiple IDs are
+rejected. Numeric coordinates retain their units; bare arrays retain row order.
+Select one series explicitly or use `forecast-panel` for multiple series.
 
-# Deep agent (multi-step orchestrator)
-uv run ts-agents agent run --type deep \
-  "Compare forecasting methods for bx001_real"
+Ensembles reject empty, unknown, or missing requested members and incomplete or
+nonfinite forecasts. Legacy comparisons retain their MAE ranking; workflows
+retain their documented RMSE ranking.
 
-# Restrict to a tool bundle
-uv run ts-agents agent run --type simple --tool-bundle demo \
-  "Run the windowing demo workflow"
+Autoresearch dry runs return `result.status: planned` and
+`quality_status: planned`; no model was fitted or scored. `foundation-gpu-plan`
+returns `plan-only`. Nonfinite primary scores fail the trial and cannot enter a
+ranking. If no trials succeed, the command fails and retains trial artifacts and
+a failed manifest. Undefined secondary MAPE includes an explanation.
 
-# Deep agent with auto-approval
-uv run ts-agents agent run --type deep --approval auto \
-  "Compare forecasting methods for bx001_real"
-```
+Opted-in backend fallback records requested/actual backends and sets
+`requires_review`; `ToolPayload` results carry a `backend_fallback` quality flag.
+Raw algorithm results retain their original shape; their `CLIEnvelope.execution`
+or Python `ExecutionResult.metadata` carries `fallback_used` and backend names.
+Deterministic validation errors are not retryable with unchanged inputs.
 
-| Flag | Default | Options |
-|------|---------|---------|
-| `--type` | `simple` | `simple`, `deep` |
-| `--tool-bundle` | `standard` | Any bundle name |
-| `--approval` | `off` | `off`, `auto`, `prompt` |
+Built-in `agent run`, UI/hosted entrypoints, and LLM report generation were
+removed in 0.4.0. Use an external agent with CLI/skills. Legacy demos run scripted.
 
 ## Sandbox modes
 

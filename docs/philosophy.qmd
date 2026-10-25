@@ -18,8 +18,8 @@ specific agent runtime.
 
 ### 1. CLI Is The Stable Contract
 
-The `ts-agents` CLI is the primary automation surface. Agent frameworks and UI
-layers are adapters around that contract.
+The `ts-agents` CLI is the primary automation surface. External agent frameworks consume that contract. Built-in agents and UI were
+removed in 0.4.0.
 
 Why:
 
@@ -103,5 +103,5 @@ Tradeoff:
 
 ## Practical Rule
 
-Keep the CLI contract stable; iterate quickly on agents, UI, and execution
+Keep the CLI contract stable; iterate on analysis workflows and execution
 strategy around that stable core.

@@ -24,16 +24,6 @@ def test_core_forecasting_exports_are_lazy_loaded():
     assert "ts_agents.core.forecasting.statistical" in sys.modules
 
 
-def test_agents_package_import_is_lazy():
-    sys.modules.pop("ts_agents.agents", None)
-    sys.modules.pop("ts_agents.agents.simple", None)
-    sys.modules.pop("ts_agents.agents.deep", None)
-    sys.modules.pop("ts_agents.agents.benchmarks", None)
-
-    agents = importlib.import_module("ts_agents.agents")
-
-    assert "ts_agents.agents.simple" not in sys.modules
-    assert hasattr(agents, "__all__")
 
 
 def test_core_comparison_exports_are_lazy_loaded():

@@ -385,7 +385,7 @@ Run manifests, non-clobbering output dirs, artifact refs
 Integration paths
 :::
 
-LangChain wrappers, deep-agent path, packaged skills, mature CLI agents
+External framework tool wrappers, packaged skills, mature CLI agents
 :::
 :::
 

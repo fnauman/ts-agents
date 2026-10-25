@@ -23,7 +23,7 @@ It is built around:
 - inspectable artifacts instead of chat-only outputs (plots as `ArtifactRef` files, JSON payloads, Markdown reports)
 - reusable skills that encode time-series workflow guidance as install-agnostic command templates
 - optional sandboxes for safer, reproducible execution (`local`, `subprocess`, `docker`, `daytona`, `modal`) with readiness probes and explicit fallback flags
-- optional adapters on top, including Gradio and built-in agent entrypoints
+- optional tool wrappers for external agent frameworks; the package runs no built-in agents or UI
 
 It ships with four first-class workflows:
 - `inspect-series` (quick diagnostics + summary/report artifacts)
@@ -46,8 +46,6 @@ separately and are not part of the published wheel.
 
 **Start here:** [Quickstart](#quickstart) | [Choose your path](#choose-your-path) | [Docs site](https://fnauman.github.io/ts-agents/) | [Evaluation harness](https://fnauman.github.io/ts-agents/evaluation.html) | [Workflow walkthroughs](https://fnauman.github.io/ts-agents/walkthroughs.html)
 
-![ts-agents demo](https://raw.githubusercontent.com/fnauman/ts-agents/main/demo/assets/demo.gif)
-
 ## Table of Contents
 
 - [Choose your path](#choose-your-path)
@@ -57,7 +55,6 @@ separately and are not part of the published wheel.
 - [Quickstart](#quickstart)
 - [Installation](#installation)
 - [CLI usage](#cli-usage)
-- [Gradio app](#gradio-app)
 - [Sandbox backends](#sandbox-backends)
 - [Guides](#guides)
 - [Development](#development)
@@ -129,30 +126,6 @@ ts-agents sandbox list
 ts-agents skills show forecasting
 ```
 
-### 4. Launch the UI or prepare a hosted demo
-
-Use the Gradio app for interactive exploration, or the hosted entrypoint for a
-manual/public demo deployment. This is optional and secondary to the CLI.
-
-```bash
-python -m pip install "ts-agents[ui]"
-ts-agents-ui
-ts-agents-hosted
-```
-
-From a source checkout with UI dependencies synced (for example,
-`uv sync --extra ui` or `uv sync --extra recommended`), use the root wrappers:
-
-```bash
-uv run python main.py
-HOST=0.0.0.0 PORT=7860 uv run python app.py
-```
-
-`ts-agents-hosted` is environment-variable driven rather than flag-driven.
-Configure `HOST`, `PORT`, `GRADIO_SHARE`, `TS_AGENTS_ENABLE_AGENT`,
-`TS_AGENTS_AGENT_TYPE`, `TS_AGENTS_PERSIST_SESSIONS`, and
-`TS_AGENTS_UI_TITLE` before launch if you need non-default behavior.
-
 ## For Autonomous Agents
 
 `ts-agents` is designed so an autonomous agent can bootstrap itself, plan, and
@@ -193,6 +166,9 @@ Every `--json` response is:
 - tagged with top-level `quality_status`, `degraded`, and `requires_review`,
   while workflow payloads expose `result.status` and
   `result.data.quality_flags` for workflow-specific review signals
+
+Autoresearch dry runs report `planned` (no fitting/scoring); the GPU recipe
+reports `plan-only`. Opted-in execution fallback sets `requires_review`.
 
 ### 4. Run lifecycle and provenance
 
@@ -292,17 +268,17 @@ Use `ts-agents` when you want:
 - reusable skills and tool bundles that encode workflow guidance
 - pinned zero-shot foundation models through Darts without taking on model-hub ownership
 - optional sandbox backends for isolation, deployment, and heavier workloads
-- swappable front ends: CLI, Gradio UI, or custom agent orchestration
+- stable CLI/tools and optional wrappers for external agent orchestration
 
 ## Design Principles
 
 - **CLI as the stable contract**: `ts-agents` is the primary interface for automation and reproducibility. Autonomous agents plan against `capabilities`, `workflow show`, and `tool show` instead of hardcoded knowledge.
 - **Strict machine envelopes**: `--json` output is versioned, strict, and typed — with status, quality flags, and exit codes — so agents can branch on failure mode rather than parsing prose.
-- **Framework adapters, not framework lock-in**: LangChain/deep-agent wrappers are convenience layers over the same tool registry. If `deepagents` is unavailable, deep mode reports a LangChain fallback instead of hiding the runtime downgrade.
+- **External agent integration**: optional LangChain/deep-agent tool wrappers expose the same registry. External runtimes own orchestration and narrative generation.
 - **Scoped TSFM interop, not a model hub**: Darts is the foundation-model interop layer and external projects such as TimeCopilot are comparator targets; `ts-agents` keeps a small catalog of pinned checkpoints (revision, licence and resolved context recorded in artifacts) rather than owning model breadth.
 - **Artifacts over chat**: tools produce inspectable files (plots, JSON, reports), and agents return summaries plus paths.
 - **Run lifecycle as first-class metadata**: every workflow run gets a run ID, a `run_manifest.json`, and non-clobbering defaults — so long, multi-turn sessions remain traceable and safe to rerun.
-- **Swappable front-ends**: CLI agents, custom agents, and Gradio are interfaces around the same core tools.
+- **Broad analysis scope**: activity recognition, classification, anomaly/pattern detection, forecasting, decomposition, and spectral analysis share the CLI/tool contract.
 - **Sandboxed execution with explicit fallback**: backends isolate dependencies and scale heavier workloads; the executor never silently downgrades isolation.
 
 Canonical design doc:
@@ -325,44 +301,30 @@ uv run python data/make_synthetic_labeled_stream.py --scenario gait --seconds 40
 uv run ts-agents workflow run activity-recognition --input data/demo_labeled_stream.csv --label-col label --value-cols x,y,z
 ```
 
-LLM-backed agent/report mode requires `OPENAI_API_KEY`. Either export it
-directly or add it to `~/.env` (one `KEY=VALUE` per line; the app loads this
-file automatically and will not overwrite variables already in your shell):
-
-```bash
-# Option A: export in your shell
-export OPENAI_API_KEY=your-key
-
-# Option B: store in ~/.env (loaded automatically)
-echo 'OPENAI_API_KEY=your-key' >> ~/.env
-```
-
-```bash
-uv run ts-agents agent run "Use the forecasting skill to compare ARIMA and Theta for a short univariate series"
-```
-
 If you pass `--output-dir`, workflow artifacts are written there. If you omit
 it, each workflow run creates a unique run directory such as
 `outputs/<workflow>/<run-id>/` with `run_manifest.json`, JSON/CSV outputs, and
 any generated plots or reports.
 
-Compatibility note: `ts-agents run ...` and `ts-agents demo ...` still work for
-one release cycle, but they now emit deprecation warnings. Prefer
+Compatibility note: `ts-agents run ...` and `ts-agents demo ...` remain available in
+0.4.0 and emit deprecation warnings. Prefer
 `ts-agents tool run ...` and `ts-agents workflow run ...`.
 
 ## Installation
 
-Version 0.3.0 adds MLForecast GBMs and NeuralForecast NHITS panel forecasting.
-The `foundation` and `all` extras now use Darts 0.47 instead of
-`chronos-forecasting`. Existing environments should be recreated for this
-backend change; the base and recommended profiles retain their dependencies.
-The old `foundation-chronos-smoke` name remains a deprecated alias for
-`foundation-smoke`.
+Version 0.4.0 removes the Gradio UI, hosted app, built-in simple/deep agents,
+and `ts-agents agent run`. Use an external agent with the CLI and skills;
+`agents` now installs only optional LangChain tool wrappers. `ui` is removed,
+and `recommended` no longer installs UI or agent framework dependencies.
+Legacy demos always run scripted; `--no-llm` remains a compatibility flag,
+and built-in LLM report generation is removed. Activity recognition,
+classification, anomaly/pattern detection, forecasting, decomposition, and
+spectral analysis remain supported.
 
 For the GBM/NHITS forecasting and reporting profile:
 
 ```bash
-python -m pip install "ts-agents[ml,neural,forecasting,viz]==0.3.0"
+python -m pip install "ts-agents[ml,neural,forecasting,viz]==0.4.0"
 ```
 
 Prerequisites:
@@ -383,14 +345,13 @@ features are enabled with extras:
 python -m pip install ts-agents
 python -m pip install "ts-agents[forecasting]"
 python -m pip install "ts-agents[decomposition,patterns]"
-python -m pip install "ts-agents[ui,agents]"
+python -m pip install "ts-agents[classification,patterns]"
 python -m pip install "ts-agents[recommended]"
 python -m pip install "ts-agents[all]"
 ```
 
 Feature extras:
-- `ui`: Gradio UI and hosted profile (`ts-agents-ui`, `ts-agents-hosted`) — experimental; the CLI is the supported contract surface
-- `agents`: LangChain-backed simple agent support — experimental; outer agent harnesses driving the CLI are the recommended integration path
+- `agents`: optional LangChain tool wrappers for external runtimes; no built-in agents
 - `decomposition`: STL, MSTL, Holt-Winters
 - `forecasting`: statistical forecasting tools
 - `patterns`: matrix profile and changepoint tooling
@@ -398,8 +359,8 @@ Feature extras:
 - `ml`: MLForecast LightGBM and histogram GBM panel models
 - `neural`: NeuralForecast NHITS panel models
 - `foundation`: Darts (`darts[torch]`) zero-shot foundation models; weights are not packaged and download per requested checkpoint into `HF_HOME` on first use
-- `viz`: plotting-only installs without Gradio
-- `recommended`: the demo-friendly install profile
+- `viz`: plotting helpers
+- `recommended`: classical forecasting, decomposition, classification, and plotting
 - `all`: the full optional stack
 
 Install profiles:
@@ -420,13 +381,6 @@ ts-agents --help
 ts-agents tool list
 ```
 
-UI entrypoints require the `ui` extra:
-
-```bash
-ts-agents-ui --help
-ts-agents-hosted
-```
-
 If you are running from a source checkout, prefix the CLI commands below with
 `uv run` after syncing the extras you need.
 
@@ -443,7 +397,6 @@ needed:
 
 ```bash
 uv sync --extra recommended
-uv sync --extra ui
 uv sync --all-extras
 ```
 
@@ -463,10 +416,6 @@ GHCR publishing flow.
 CLI entrypoints:
 - Preferred: `ts-agents ...`
 - Also supported: `python -m ts_agents ...`
-- Gradio UI: `ts-agents-ui`
-- Hosted profile: `ts-agents-hosted`
-- Source-checkout UI wrapper: `python main.py`
-- Source-checkout hosted wrapper: `python app.py`
 
 ### Environment variables
 
@@ -474,8 +423,6 @@ All optional. Set them via `export` or in `~/.env`.
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `OPENAI_API_KEY` | LLM agent/demo features | _(none — required for LLM mode)_ |
-| `OPENAI_MODEL` | Model override | `gpt-5-mini` |
 | `TS_AGENTS_DATA_DIR` | Full dataset path | bundled package data (or repo `./data`) |
 | `TS_AGENTS_USE_TEST_DATA` | Use bundled test data | `true` |
 | `TS_AGENTS_TEST_DATA_FILE` | Override test dataset filename | `short_real.csv` |
@@ -484,37 +431,6 @@ All optional. Set them via `export` or in `~/.env`.
 
 Sandbox-specific environment variables (Docker/Daytona/Modal auth, snapshots,
 streaming, and log files) are documented in `SANDBOX.md`.
-
-### Hosted Demo Deployment
-
-The installed package includes a hosted Gradio profile at `ts-agents-hosted`
-intended for public demos such as Hugging Face Spaces. Source-checkout
-deployments can use the root `app.py` wrapper, which calls the same hosted
-entrypoint as `ts-agents-hosted`. It defaults to:
-- manual analysis mode (`agent` disabled)
-- no session persistence
-- fresh in-memory state for each visitor, without restoring the latest saved chat
-- no requirement for `OPENAI_API_KEY`
-
-This profile does not provide authentication or tenant isolation. Deploy it
-only with data and tools suitable for the intended visitors. When persistence
-is enabled, records are saved on the server; visitors are not shown a global
-session list or automatically restored into another visitor's session.
-
-Launch it with:
-
-```bash
-ts-agents-hosted
-uv run python app.py
-```
-
-Useful environment variables:
-- `HOST` / `PORT` for bind address and port
-- `GRADIO_SHARE` for Gradio sharing
-- `TS_AGENTS_ENABLE_AGENT` to enable agent chat
-- `TS_AGENTS_AGENT_TYPE` for `simple` vs `deep`
-- `TS_AGENTS_PERSIST_SESSIONS` to enable persistence
-- `TS_AGENTS_UI_TITLE` to override the page title
 
 ## Distribution
 
@@ -585,17 +501,10 @@ data-only; use `ts-agents workflow run forecast-series --output-dir ...` when
 you want forecast plots, CSVs, and reports written as artifacts. If you omit
 `--output-dir`, the workflow creates a unique run directory automatically.
 
-### Agent mode (experimental)
-
-```bash
-ts-agents agent run "Find peaks in the demo series"
-ts-agents agent run --type deep "Compare forecasting methods for the demo series"
-```
-
 ### Compatibility aliases
 
-`ts-agents run ...` and `ts-agents demo ...` still work for one release cycle
-to avoid breaking existing automation, but both surfaces now emit deprecation
+`ts-agents run ...` and `ts-agents demo ...` remain available in 0.4.0
+for existing automation; both surfaces emit deprecation
 warnings and are intentionally omitted from the recommended examples below.
 
 Note: the WISDM example under `data/wisdm_subset.csv` is a source-checkout
@@ -636,28 +545,6 @@ Copy vs symlink guidance:
 - Use **copies** (default export mode) for CI, sharing, and cross-platform reliability.
 - Use `--symlink` only for local Unix-like development when you want zero-copy edits.
 
-## Gradio App
-
-Run the app:
-
-```bash
-ts-agents-ui
-uv run python main.py
-```
-
-`main.py` is the source-checkout wrapper for the packaged `ts-agents-ui`
-entrypoint. Use `app.py` when you want the hosted/manual profile from a source
-checkout instead.
-
-Useful options:
-
-```bash
-ts-agents-ui --agent-type deep
-ts-agents-ui --no-agent
-ts-agents-ui --share
-ts-agents-ui --port 8080
-```
-
 ## Sandbox Backends
 
 Tools run inside a sandbox. Pick one with `--sandbox <mode>` or set
@@ -672,7 +559,8 @@ Tools run inside a sandbox. Pick one with `--sandbox <mode>` or set
 | **modal** | Serverless cloud | Source-checkout deployment path: `pip install modal`, run `modal token new` (opens browser auth) or set `MODAL_TOKEN_ID`/`MODAL_TOKEN_SECRET`, then from the repo root deploy with `modal deploy -m ts_agents.sandbox.modal_app --env main --name ts-agents-sandbox` |
 
 If the chosen backend is unavailable at runtime, the executor fails with a
-typed error unless you pass `--allow-fallback`. See `SANDBOX.md` for details.
+typed error unless you pass `--allow-fallback`. A substitution sets `requires_review`
+and records the requested and actual backend. See `SANDBOX.md` for details.
 
 For full details (env vars, resource limits, networking), see `SANDBOX.md`.
 
@@ -687,7 +575,7 @@ For full details (env vars, resource limits, networking), see `SANDBOX.md`.
 - Project philosophy: `docs/philosophy.qmd`
 - Distribution and release notes: `docs/distribution.qmd`
 - Project roadmap and priorities: `ROADMAP.md`
-- Design philosophy slides (Quarto source): `docs/talks/ts_agents_talk.qmd`
+- Historical design talk (includes pre-0.4 UI/agent architecture): `docs/talks/ts_agents_talk.qmd`
 
 ## Community
 
@@ -696,17 +584,12 @@ For full details (env vars, resource limits, networking), see `SANDBOX.md`.
 
 ## Repository Layout
 
-- `main.py` - source-checkout wrapper for `ts-agents-ui`
-- `app.py` - source-checkout wrapper for `ts-agents-hosted`
 - `ts_agents/cli/` - CLI parser, command handlers, input parsing, output helpers
 - `ts_agents/contracts.py` - shared data contracts (ArtifactRef, ToolPayload, CLIEnvelope, CLIError)
 - `ts_agents/core/` - pure time-series algorithms
 - `ts_agents/tools/` - tool registry, wrappers, execution/sandbox routing
 - `ts_agents/workflows/` - first-class workflow implementations (inspect, forecast-series, forecast-panel, activity)
-- `ts_agents/agents/` - simple and deep agent implementations
 - `ts_agents/evals/` - deterministic evaluation harness
-- `ts_agents/ui/` - Gradio tabs/components
-- `ts_agents/persistence/` - cache/session/experiment logging
 - `tests/` - unit and CLI tests
 - `benchmarks/` - checked-in benchmark snapshots and results
 - `data/` - sample datasets and data generation/download scripts

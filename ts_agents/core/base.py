@@ -5,7 +5,7 @@ All result classes are dataclasses that can be easily serialized and compared.
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any
 from enum import Enum
 import numpy as np
 
@@ -102,12 +102,19 @@ class MultiForecastResult(AnalysisResult):
 
     def get_ensemble(self, weights: Optional[Dict[str, float]] = None) -> np.ndarray:
         """Get weighted ensemble of forecasts."""
+        if not self.forecasts:
+            raise ValueError("Cannot aggregate an empty ensemble.")
+        if any(np.asarray(values).shape != (self.horizon,) or not np.isfinite(values).all()
+               for values in self.forecasts.values()):
+            raise ValueError("Ensemble forecasts must cover the full horizon with finite values.")
         if weights is None:
             weights = {k: 1.0 / len(self.forecasts) for k in self.forecasts}
 
         result = np.zeros(self.horizon)
         for model, forecast in self.forecasts.items():
             result += weights.get(model, 0) * forecast
+        if not np.isfinite(result).all():
+            raise ValueError("Ensemble forecast overflowed; rescale the inputs.")
         return result
 
 

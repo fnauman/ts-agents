@@ -380,18 +380,22 @@ def forecast_ensemble(
     if models is None:
         models = ['arima', 'ets']
 
-    normalized_models = [model for model in models if model]
-    if set(normalized_models).issubset({"seasonal_naive"}):
+    supported = {"arima", "ets", "theta", "seasonal_naive"}
+    if not models or len(set(models)) != len(models) or set(models) - supported:
+        raise ValueError("Choose distinct models from arima, ets, theta, seasonal_naive.")
+    if set(models) == {"seasonal_naive"}:
         seasonal_naive_forecast = forecast_seasonal_naive(
             series,
             horizon=horizon,
             season_length=season_length,
         )
-        return MultiForecastResult(
+        result = MultiForecastResult(
             method="ensemble",
             forecasts={"seasonal_naive": seasonal_naive_forecast.forecast},
             horizon=horizon,
         )
+        result.get_ensemble()
+        return result
 
     StatsForecast, AutoARIMA, AutoETS, AutoTheta, SeasonalNaive = _get_statsforecast_components()
     series = np.asarray(series, dtype=np.float64).flatten()
@@ -439,11 +443,16 @@ def forecast_ensemble(
         if col_name and col_name in forecast_df.columns:
             forecasts[m] = forecast_df[col_name].values
 
-    return MultiForecastResult(
+    if set(forecasts) != set(models):
+        raise ValueError("Requested ensemble models did not all return forecasts.")
+
+    result = MultiForecastResult(
         method="ensemble",
         forecasts=forecasts,
         horizon=horizon,
     )
+    result.get_ensemble()
+    return result
 
 
 def compare_forecasts(
@@ -499,25 +508,30 @@ def compare_forecasts(
         models=models,
         season_length=season_length,
     )
+    result.get_ensemble()  # Validate complete, finite member forecasts before scoring.
 
     metrics = {}
     for model, forecast in result.forecasts.items():
         # Compute error metrics
-        errors = test[:len(forecast)] - forecast[:len(test)]
+        errors = test - forecast
         mae = float(np.mean(np.abs(errors)))
         rmse = float(np.sqrt(np.mean(errors ** 2)))
+        if not np.isfinite([mae, rmse]).all():
+            raise ValueError("Forecast comparison requires finite primary metrics.")
 
         # MAPE (avoid division by zero)
-        nonzero_mask = test[:len(forecast)] != 0
+        nonzero_mask = test != 0
         if np.any(nonzero_mask):
-            mape = float(np.mean(np.abs(errors[nonzero_mask] / test[:len(forecast)][nonzero_mask]))) * 100
+            mape = float(np.mean(np.abs(errors[nonzero_mask] / test[nonzero_mask]))) * 100
         else:
             mape = np.inf
 
         metrics[model] = {
             'mae': mae,
             'rmse': rmse,
-            'mape': mape,
+            'mape': mape if np.isfinite(mape) else None,
+            **({'mape_unavailable_reason': 'zero validation targets or percentage overflow'}
+               if not np.isfinite(mape) else {}),
             'forecast': forecast,
         }
 

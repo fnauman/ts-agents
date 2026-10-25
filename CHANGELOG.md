@@ -4,19 +4,48 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-25
+
+### Removed
+
+- Gradio UI, hosted app, source UI wrappers, and built-in simple/deep agents,
+  including `ts-agents agent run`, and their UI session/cache/agent experiment
+  stores and configuration. CLI runs/jobs and native model persistence remain.
+  Activity recognition, classification,
+  anomaly/pattern detection, forecasting, decomposition, and spectral analysis
+  remain available through CLI/tools/skills.
+- Built-in LLM report/demo execution and its OpenAI dependencies. Legacy demos
+  always run scripted (`--no-llm` remains accepted). The `agents` extra retains
+  only LangChain tool wrappers for external runtimes; `recommended` drops UI
+  and agent-framework dependencies.
+
+### Fixed
+
+- Empty/unknown ensemble selections, missing requested members, invalid member
+  predictions, and invalid primary trial scores cannot produce successful
+  forecasts or recommendations. Total autoresearch failure returns an error
+  while retaining diagnostic artifacts and a failed manifest.
+- Single-series time coordinates sort values chronologically and reject
+  duplicate/invalid times and multiple IDs. Bare-array order is preserved.
+- Autoresearch dry runs report `planned`; backend fallback sets review signals
+  and preserves requested/actual execution details. Deterministic validation
+  errors are not marked retryable.
+- Demo scripts preserve the selected dependency profile with `uv run --no-sync`
+  and use the same interpreter for data preparation and result summaries.
+
+
 ### Fixed
 
 - Forecast evaluation rejects nonfinite inputs/predictions and invalid primary
-  scores; numeric time coordinates no longer become dates near 1970. The UI
-  retains failed methods and reports partial comparisons alongside valid scores.
+  scores; numeric time coordinates no longer become dates near 1970.
+  Comparisons retain failed methods alongside valid scores.
 - Decomposition rankings use the correct direction for residual variance and
   trend curvature. Holt-Winters components are additive contributions in input
   units, including for multiplicative models, and reconstruct the observations.
 - Classification comparisons preserve actual algorithm and fallback warnings;
   complete backend failure no longer fabricates zero predictions. HIVE-COTE's
   exposed model-fitting budget defaults to one minute.
-- Local execution contexts are serialized, and browser sessions initialize
-  independently without restoring or listing another visitor's stored sessions.
+- Local execution contexts are serialized to isolate process-global state.
 - JSON output is emitted after requested saving/extraction completes. Skills
   export includes supporting files and reports partial agent-export failures.
 

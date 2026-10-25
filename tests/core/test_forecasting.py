@@ -104,7 +104,7 @@ class TestForecasting:
         ensemble = result.get_ensemble()
         assert len(ensemble) == 20
 
-    def test_forecast_ensemble_supports_seasonal_naive(self):
+    def test_forecast_ensemble_supports_seasonal_naive(self, monkeypatch):
         """Test ensemble forecasting can include seasonal naive."""
         from ts_agents.core.forecasting import forecast_ensemble
 
@@ -122,6 +122,21 @@ class TestForecasting:
             result.forecasts["seasonal_naive"],
             np.arange(1, 13, dtype=float),
         )
+        for models in ([], ["unknown"], ["seasonal_naive", "unknown"]):
+            with pytest.raises(ValueError, match="models|methods"):
+                forecast_ensemble(x, horizon=3, models=models)
+        from ts_agents.core.base import MultiForecastResult
+        with pytest.raises(ValueError, match="empty"):
+            MultiForecastResult("ensemble", {}, 3).get_ensemble()
+        for values in (np.ones(1), np.ones(4), np.array([1., np.nan, 2.])):
+            with pytest.raises(ValueError, match="full horizon"):
+                MultiForecastResult("ensemble", {"seasonal_naive": values}, 3).get_ensemble()
+        import ts_agents.core.forecasting.statistical as statistical
+        from ts_agents.core.base import ForecastResult
+        monkeypatch.setattr(statistical, "forecast_seasonal_naive",
+            lambda *args, **kwargs: ForecastResult("seasonal_naive", np.ones(1), 3))
+        with pytest.raises(ValueError, match="full horizon"):
+            forecast_ensemble(x, horizon=3, models=["seasonal_naive"])
 
     def test_forecast_ensemble_supports_seasonal_naive_without_statsforecast(
         self,

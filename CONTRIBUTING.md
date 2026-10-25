@@ -36,11 +36,11 @@ uv run --no-sync python -m pytest -q \
   tests/core/test_comparison.py
 ```
 
-Panel, classification, UI, agent, and pattern work need their respective
-`ml`/`neural`, `classification`, `ui`, `agents`, or `patterns` extras. Select
-only the required extras and tests. For example, `uv sync --extra ui` enables
-`uv run --no-sync ts-agents-ui --no-agent`; `ts-agents-hosted` is the manual
-hosted profile. See the README for environment settings and sandbox commands.
+Panel, classification, external tool-wrapper, and pattern work need their
+respective `ml`/`neural`, `classification`, `agents`, or `patterns` extras.
+Select only the required extras and tests. `agents` supplies LangChain tool
+wrappers for external runtimes; UI and built-in agents were removed in 0.4.0.
+See the README for environment settings and sandbox commands.
 
 The full suite requires the complete optional profile. CI qualifies this
 locked stack on Python 3.11–3.13:
@@ -78,7 +78,7 @@ Ordinary CI runs once per PR revision and on main, cancels superseded PR runs,
 and shares one verified wheel across the base-install smoke matrix. Release
 qualification remains separate on version tags. Jobs have explicit timeouts;
 passing selected checks does not qualify unexercised GPUs, remote backends,
-real LLM interactions, or every declared dependency minimum.
+external agent interactions, or every declared dependency minimum.
 
 ## Issue reports
 

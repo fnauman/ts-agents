@@ -111,3 +111,9 @@ metadata:
 
 For demo/report workflows, prefer a Quarto report (`.qmd`) rendered to PDF
 with publication-quality figures.
+
+Built-in agents and UI were removed in 0.4.0. Skills remain for external agent
+runtimes across activity recognition, classification, anomaly/pattern detection,
+forecasting, decomposition, and spectral analysis. Inspect result quality and
+requested/actual execution backends; `planned`/`plan-only` results contain no
+trained-model evaluation. Backend substitution requires review.

@@ -157,3 +157,8 @@ For stakeholder-facing outputs, produce a short Markdown or Quarto report with:
 - forecast figure with labeled axes
 - selected method rationale
 - limitations and follow-up recommendation
+
+Single-series timed inputs are sorted chronologically and reject duplicate
+times or multiple series IDs. Ensembles reject empty/unknown/missing members;
+inspect method failures rather than accepting incomplete comparisons. Dry runs
+are plans, not scored forecasts, and backend fallback requires review.

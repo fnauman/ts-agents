@@ -31,7 +31,7 @@ def verify(source: Path, dist: Path) -> dict:
     ).split("\0")
     package_files = [name for name in tracked if name.startswith("ts_agents/")]
     root_files = {"AGENTS.md", "CHANGELOG.md", "ROADMAP.md", "LICENSE", "README.md", "pyproject.toml",
-                  "uv.lock", "main.py", "app.py", "MANIFEST.in"}
+                  "uv.lock", "MANIFEST.in"}
     maintained_prefixes = ("ts_agents/", "scripts/", "tests/", "skills/", "examples/", "data/")
     source_files = [name for name in tracked if name in root_files or name.startswith(maintained_prefixes)]
     if not package_files:

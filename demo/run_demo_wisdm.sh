@@ -7,11 +7,14 @@ set -euo pipefail
 
 # Prefer uv if available (matches repo docs), but fall back gracefully.
 if command -v uv >/dev/null 2>&1; then
-  RUNNER=(uv run ts-agents)
+  RUNNER=(uv run --no-sync ts-agents)
+  DEMO_PYTHON=(uv run --no-sync python)
 elif command -v ts-agents >/dev/null 2>&1; then
   RUNNER=(ts-agents)
+  DEMO_PYTHON=(python)
 else
   RUNNER=(python -m ts_agents)
+  DEMO_PYTHON=(python)
 fi
 
 OUTDIR=outputs/demo_wisdm
@@ -24,7 +27,7 @@ echo "    Dataset: ${CSV}"
 echo
 
 echo "==> Selecting window size..."
-"${RUNNER[@]}" run select_window_size_from_csv \
+"${RUNNER[@]}" tool run select_window_size_from_csv \
   --json \
   --save "${OUTDIR}/window_selection.json" \
   --param csv_path="${CSV}" \
@@ -39,7 +42,7 @@ echo "==> Selecting window size..."
   --param seed=1337
 
 BEST_WINDOW=$(
-  python - <<'PY'
+  "${DEMO_PYTHON[@]}" - <<'PY'
 import json
 with open("outputs/demo_wisdm/window_selection.json", "r") as f:
     payload = json.load(f)
@@ -53,7 +56,7 @@ echo "Best window size: ${BEST_WINDOW}"
 echo
 
 echo "==> Evaluating classifier with best window..."
-"${RUNNER[@]}" run evaluate_windowed_classifier_from_csv \
+"${RUNNER[@]}" tool run evaluate_windowed_classifier_from_csv \
   --json \
   --save "${OUTDIR}/eval.json" \
   --param csv_path="${CSV}" \
@@ -68,7 +71,7 @@ echo "==> Evaluating classifier with best window..."
   --param seed=1337
 
 echo
-python - <<'PY'
+"${DEMO_PYTHON[@]}" - <<'PY'
 import json
 d = json.load(open("outputs/demo_wisdm/eval.json"))
 result = d.get("result", d)
@@ -82,8 +85,8 @@ PY
 echo
 
 echo "==> Writing plots..."
-python demo/plot_window_selection.py "${OUTDIR}/window_selection.json" "${OUTDIR}/window_scores.png"
-python demo/plot_confusion_matrix.py "${OUTDIR}/eval.json" "${OUTDIR}/confusion_matrix.png"
+"${DEMO_PYTHON[@]}" demo/plot_window_selection.py "${OUTDIR}/window_selection.json" "${OUTDIR}/window_scores.png"
+"${DEMO_PYTHON[@]}" demo/plot_confusion_matrix.py "${OUTDIR}/eval.json" "${OUTDIR}/confusion_matrix.png"
 
 echo
 echo "==> Done. Outputs:"
