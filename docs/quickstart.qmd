@@ -175,7 +175,7 @@ Activity recognition, classification, anomaly/pattern detection, forecasting,
 decomposition, and spectral analysis remain available.
 
 Compatibility note: `ts-agents run ...` and `ts-agents demo ...` remain
-available for one release cycle, but they now emit deprecation warnings. Prefer
+available in 0.4.0 and emit deprecation warnings. Prefer
 `ts-agents tool run ...` and `ts-agents workflow run ...`.
 
 ## Next steps

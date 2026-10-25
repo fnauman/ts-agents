@@ -306,8 +306,8 @@ it, each workflow run creates a unique run directory such as
 `outputs/<workflow>/<run-id>/` with `run_manifest.json`, JSON/CSV outputs, and
 any generated plots or reports.
 
-Compatibility note: `ts-agents run ...` and `ts-agents demo ...` still work for
-one release cycle, but they now emit deprecation warnings. Prefer
+Compatibility note: `ts-agents run ...` and `ts-agents demo ...` remain available in
+0.4.0 and emit deprecation warnings. Prefer
 `ts-agents tool run ...` and `ts-agents workflow run ...`.
 
 ## Installation
@@ -503,8 +503,8 @@ you want forecast plots, CSVs, and reports written as artifacts. If you omit
 
 ### Compatibility aliases
 
-`ts-agents run ...` and `ts-agents demo ...` still work for one release cycle
-to avoid breaking existing automation, but both surfaces now emit deprecation
+`ts-agents run ...` and `ts-agents demo ...` remain available in 0.4.0
+for existing automation; both surfaces emit deprecation
 warnings and are intentionally omitted from the recommended examples below.
 
 Note: the WISDM example under `data/wisdm_subset.csv` is a source-checkout

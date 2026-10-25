@@ -20,6 +20,13 @@ format:
     margin: 0.08
 ---
 
+## Historical architecture
+
+This March 2026 talk records the original design. Version 0.4.0 removed the UI,
+hosted app, and built-in agents. Activity recognition, classification, forecasting,
+anomaly/pattern tools, and the CLI remain; see the [current quickstart](../quickstart.qmd)
+for supported commands. Agent examples in these historical slides require older versions.
+
 ## {.center}
 
 ::: {.title-pillars}

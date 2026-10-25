@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-## [0.4.0] - 2026-10-24
+## [0.4.0] - 2026-10-25
 
 ### Removed
 
@@ -30,6 +30,8 @@ All notable changes to this project will be documented in this file.
 - Autoresearch dry runs report `planned`; backend fallback sets review signals
   and preserves requested/actual execution details. Deterministic validation
   errors are not marked retryable.
+- Demo scripts preserve the selected dependency profile with `uv run --no-sync`
+  and use the same interpreter for data preparation and result summaries.
 
 
 ### Fixed

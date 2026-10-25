@@ -68,9 +68,9 @@ rewriting the core toolchain.
   <a class="talk-card" href="talks/ts_agents_talk.qmd">
     <img class="talk-card-image" src="assets/talk-design-preview.png" alt="Title slide preview for the ts-agents design philosophy talk">
     <span class="talk-card-body">
-      <span class="talk-card-kicker">Design philosophy talk</span>
+      <span class="talk-card-kicker">Historical design talk (pre-0.4)</span>
       <span class="talk-card-title">CLI-first Time-Series Automation</span>
-      <span class="talk-card-copy">The original project talk on stable workflow contracts and agent-facing artifacts.</span>
+      <span class="talk-card-copy">The original architecture, including UI and built-in agents removed in 0.4.0; use the guides for current commands.</span>
     </span>
   </a>
 </div>
