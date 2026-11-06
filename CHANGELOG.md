@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed (tooling)
+
+- Refreshed `uv.lock`. `[tool.uv] prerelease = "disallow"` keeps the resolver
+  off pre-releases (a `numba` beta had paired with numpy 2.4, which removed
+  `np.trapz`, breaking matrix-profile and DTW paths).
+- `[tool.ruff.lint] select = ["E4", "E7", "E9", "F"]` pins the previously
+  enforced lint rules, since ruff 0.17 widened its defaults.
+
 ## [0.4.1] - 2026-10-25
 
 Makes the non-forecasting task families (anomaly/pattern

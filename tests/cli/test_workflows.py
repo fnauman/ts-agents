@@ -593,9 +593,18 @@ def test_output_leases_refuse_wrong_owner(tmp_path, monkeypatch):
 
     monkeypatch.setattr(lifecycle.tempfile, "gettempdir", lambda: str(tmp_path))
     fstat = os.fstat
+    class _ForeignStat:
+        # Override only the owner; delegate everything else (pytest's capture
+        # plugin calls os.fstat(...).st_size while this patch is active).
+        def __init__(self, value):
+            self._value = value
+            self.st_uid = value.st_uid + 1
+
+        def __getattr__(self, name):
+            return getattr(self._value, name)
+
     def wrong_owner(fd):
-        value = fstat(fd)
-        return SimpleNamespace(st_uid=value.st_uid + 1, st_mode=value.st_mode)
+        return _ForeignStat(fstat(fd))
     monkeypatch.setattr(lifecycle.os, "fstat", wrong_owner)
     with pytest.raises(ValueError, match="owned by the current user"):
         with lifecycle.lock_run_output(tmp_path / "run"):
